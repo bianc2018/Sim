@@ -10,7 +10,6 @@ MESSAGE(STATUS "operation system is ${CMAKE_SYSTEM}")
   
 IF (CMAKE_SYSTEM_NAME MATCHES "Linux")  
     MESSAGE(STATUS "current platform: Linux ")  
-	target_link_libraries(Demo pthread)
     SET(DEFAULT_LIB pthread)
 ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Windows")  
     MESSAGE(STATUS "current platform: Windows")  
