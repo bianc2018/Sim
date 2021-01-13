@@ -16,7 +16,7 @@ typedef pthread_t HANDLE;
 #endif
 namespace sim
 {
-	class SimThread;
+	class Thread;
 	typedef ThRet(*ThreadProc)(LPVOID lpParam);
 
 //#ifdef WIN32
@@ -47,7 +47,7 @@ namespace sim
 //#endif
 //	
 	
-	class SimThread
+	class Thread
 	{
 
 		/*ThreadProc proc_;
@@ -57,8 +57,8 @@ namespace sim
 		unsigned th_id_;
 		LPVOID lpParam_;
 	private:
-		SimThread(const SimThread &other) {};
-		SimThread operator=(const SimThread &other) {};
+		Thread(const Thread &other) {};
+		Thread operator=(const Thread &other) {};
 		template<typename T>
 		inline void ThSwap(T &t1, T&t2)
 		{
@@ -67,14 +67,14 @@ namespace sim
 			t2 = temp;
 		}
 	public:
-		SimThread() 
+		Thread() 
 			:pth_(INVALID_HANDLE_VALUE)
 			, th_id_(-1)
 			, lpParam_(NULL)
 		{
 
 		}
-		SimThread(ThreadProc Proc, LPVOID lpParam)
+		Thread(ThreadProc Proc, LPVOID lpParam)
 		{
 			SetParam(lpParam);
 
@@ -101,7 +101,7 @@ namespace sim
 #endif
 		}
 		
-		~SimThread()
+		~Thread()
 		{
 #ifdef WIN32
 			CloseHandle(pth_);
@@ -160,7 +160,7 @@ namespace sim
 #endif
 		}
 		
-		void Swap(SimThread &other)
+		void Swap(Thread &other)
 		{
 			ThSwap(pth_, other.pth_);
 			ThSwap(th_id_, other.th_id_);

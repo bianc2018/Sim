@@ -32,12 +32,12 @@ ThRet detch(LPVOID p)
 int main(int argc, char*argv[])
 {
 	const int th_size = 100;
-	sim::SimThread ths[th_size];
+	sim::Thread ths[th_size];
 	clock_t s = ::clock();
 	for (int t = 0; t < th_size; ++t)
 	{
 		clock_t s1 = ::clock();
-		sim::SimThread st((sim::ThreadProc)inc, (LPVOID)t);
+		sim::Thread st((sim::ThreadProc)inc, (LPVOID)t);
 		ths[t].Swap(st);
 		/*if (ths[t].JoinAble())
 			ths[t].Join();
@@ -50,7 +50,7 @@ int main(int argc, char*argv[])
 	}
 	printf("i=%d usg: %ld ms\n", i,::clock()-s);
 	//getchar();
-	sim::SimThread st((sim::ThreadProc)detch, (LPVOID)NULL);
+	sim::Thread st((sim::ThreadProc)detch, (LPVOID)NULL);
 	st.Detach();
 	getchar();
 	return 0;

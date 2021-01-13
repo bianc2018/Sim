@@ -23,6 +23,7 @@ namespace sim
 	//ÄÚ´æ·ÖÅäº¯Êı
 	typedef void* (*QueueMalloc)(unsigned int size);
 	typedef void (*QueueFree)(void*);
+
 	typedef unsigned long QueueSizeT;
 	template<typename T>
 	class Queue
