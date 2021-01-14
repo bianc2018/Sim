@@ -2,7 +2,7 @@
 #include <stdio.h>
 int main(int argc, char* argv[])
 {
-	sim::Queue<int> intq;
+	sim::Queue<int> intq,intp;
 	for(unsigned long int i=0;i<1000000;++i)
 		intq.PushBack(i);
 	intq.PushBack(10);
@@ -10,6 +10,7 @@ int main(int argc, char* argv[])
 	int i=0;
 	intq.PopFront(&i);
 	printf("i=%d\n", i);
-	intq.clear();
+	intp.Swap(intq);
+	intq.Clear();
 	return 0;
 }

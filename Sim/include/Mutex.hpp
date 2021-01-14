@@ -51,7 +51,12 @@ namespace sim
 			pthread_mutex_destroy(&critical_section_);
 #endif
 		}
-
+		void swap(Mutex& other)
+		{
+			CRITICAL_SECTION temp = critical_section_;
+			critical_section_ = other.critical_section_;
+			other.critical_section_ = temp;
+		}
 	};
 
 	class AutoMutex

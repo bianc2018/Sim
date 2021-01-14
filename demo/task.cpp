@@ -32,10 +32,9 @@ int main(int argc, char* argv[])
 	worker.Post(t1);
 	worker.Post(t2);
 	worker.ReSume();
-	getchar();
-	worker.Post(t2);
-	getchar();
-	worker.Post(t1);
+	sim::TaskWorker &worker1=worker;
+	worker1.Post(t2);
+	worker1.Post(t1);
 	getchar();
 	return 0;
 }

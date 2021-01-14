@@ -53,8 +53,8 @@ namespace sim
 #endif
 
 	//内存分配函数
-	typedef void* (*TaskPoolMalloc)(unsigned int size);
-	typedef void (*TaskPoolFree)(void*);
+	/*typedef void* (*TaskPoolMalloc)(unsigned int size);
+	typedef void (*TaskPoolFree)(void*);*/
 
 	//任务函数
 	typedef void* (*TaskFunc)(void*);
@@ -73,14 +73,13 @@ namespace sim
 	
 	inline ThRet TaskThreadProc(LPVOID lpParam);
 	//任务执行函数
-	class TaskWorker
+	class TaskWorker :protected Thread
 	{
 		//声明为友元
 		friend ThRet TaskThreadProc(LPVOID lpParam);
 		//状态
 		enum WorkerStatus
 		{
-			sNoStart,//未启动
 			sRUNING,//运行任务中
 			sIDLE,//空闲
 			sPAUSE,//暂停
@@ -89,31 +88,23 @@ namespace sim
 	public:
 		TaskWorker(unsigned int usleepms = 50)
 			:uIdlems(0),
-			eStatus(sNoStart),
-			uSleepms(usleepms)
+			eStatus(sIDLE),
+			uSleepms(usleepms),
+			Thread(TaskThreadProc,this)
 		{
 
 		}
 		
 		~TaskWorker()
 		{
-			eStatus = sEND;
-			if (thWorker.JoinAble())
-				thWorker.Join();
+			End();
 		}
 		//启动
 		bool ReSume()
 		{
-			if (sNoStart == eStatus)
+			if (sPAUSE == eStatus)
 			{
 				eStatus = sIDLE;
-				Thread temp(TaskThreadProc,this);
-				thWorker.Swap(temp);
-				return true;
-			}
-			else if (sPAUSE == eStatus)
-			{
-				eStatus = sRUNING;
 				return true;
 			}
 			return false;
@@ -130,6 +121,13 @@ namespace sim
 			return false;
 		}
 
+		bool End()
+		{
+			eStatus = sEND;
+			if (JoinAble())
+				Join();
+			return true;
+		}
 		//获取状态
 		WorkerStatus GetStatus()
 		{
@@ -140,8 +138,9 @@ namespace sim
 		QueueSizeT GetTaskSize()
 		{
 			AutoMutex lk(mQueueLock);
-			return qTaskQueue.size();
+			return qTaskQueue.Size();
 		}
+		
 		//推送任务
 		bool Post(const Task& t)
 		{
@@ -149,6 +148,18 @@ namespace sim
 			AutoMutex lk(mQueueLock);
 			return qTaskQueue.PushBack(t);
 		}
+
+		//交换
+		/*void Swap(TaskWorker& other)
+		{
+			ThSwap(uIdlems, other.uIdlems);
+			ThSwap(uSleepms, other.uSleepms);
+			ThSwap(eStatus, other.eStatus);
+			Thread::Swap(other);
+
+			mQueueLock.swap(other.mQueueLock);
+			qTaskQueue.Swap(other.qTaskQueue);
+		}*/
 	private:
 		//获取当前的毫秒时间
 		unsigned long long GetCurrentMS()
@@ -171,7 +182,7 @@ namespace sim
 				{
 					;//no done
 				}
-				else if (sIDLE == eStatus)
+				else if (sIDLE == eStatus|| sRUNING ==eStatus)
 				{
 					memset(&current_task, 0, sizeof(current_task));
 					bool isPop = false;//是否可以拿到任务
@@ -192,7 +203,8 @@ namespace sim
 						}
 						//更新最后运行时间
 						last_run_ms = GetCurrentMS();
-						eStatus = sIDLE;
+						if(sRUNING == eStatus)
+							eStatus = sIDLE;
 					}
 				}
 				else
@@ -207,8 +219,6 @@ namespace sim
 		}
 
 	private:
-		//运行线程
-		Thread thWorker;
 		
 		//任务队列
 		Mutex mQueueLock;
@@ -236,6 +246,7 @@ namespace sim
 	private:
 		bool Post(const Task& t);
 	private:
+		Mutex queue_lock_;
 		//运行队列
 		Queue<TaskWorker*> busy_queue_;
 		//空闲队列

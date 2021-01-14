@@ -28,6 +28,14 @@ namespace sim
 	template<typename T>
 	class Queue
 	{
+		//交换函数
+		template<typename ST>
+		inline void qSwap(ST& t1, ST& t2)
+		{
+			ST temp = t1;
+			t1 = t2;
+			t2 = temp;
+		}
 	public:
 		Queue() 
 			:pHead(NULL), pTail(NULL)
@@ -40,7 +48,7 @@ namespace sim
 		virtual ~Queue()
 		{
 			//释放
-			clear();
+			Clear();
 		}
 		//出列
 		virtual bool PopFront(T* t)
@@ -107,7 +115,7 @@ namespace sim
 			return 0 == qsize;
 		}
 
-		bool clear()
+		bool Clear()
 		{
 			while (pHead)
 			{
@@ -121,9 +129,18 @@ namespace sim
 			return true;
 		}
 
-		virtual QueueSizeT size()
+		virtual QueueSizeT Size()
 		{
 			return qsize;
+		}
+
+		void Swap(Queue& other)
+		{
+			qSwap(pHead, other.pHead);
+			qSwap(pTail, other.pTail);
+			qSwap(qsize, other.qsize);
+			qSwap(qMalloc, other.qMalloc);
+			qSwap(qFree, other.qFree);
 		}
 
 		virtual bool SetAlloc(QueueMalloc m, QueueFree f)

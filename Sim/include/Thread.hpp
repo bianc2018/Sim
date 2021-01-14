@@ -56,7 +56,7 @@ namespace sim
 		HANDLE pth_;
 		unsigned th_id_;
 		LPVOID lpParam_;
-	private:
+	protected:
 		Thread(const Thread &other) {};
 		Thread operator=(const Thread &other) {};
 		template<typename T>
@@ -101,7 +101,7 @@ namespace sim
 #endif
 		}
 		
-		~Thread()
+		virtual ~Thread()
 		{
 #ifdef WIN32
 			CloseHandle(pth_);
