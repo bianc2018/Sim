@@ -51,14 +51,15 @@ namespace sim
 		return (0);
 	}
 #endif
+	class TaskWorker;
 
 	//内存分配函数
 	/*typedef void* (*TaskPoolMalloc)(unsigned int size);
 	typedef void (*TaskPoolFree)(void*);*/
 
 	//任务函数
-	typedef void* (*TaskFunc)(void*);
-	typedef void (*TaskComplete)(void* pUserData,void*ret);
+	typedef void* (*TaskFunc)(TaskWorker *self,void*);
+	typedef void (*TaskComplete)(TaskWorker* self,void* pUserData,void*ret);
 
 	//任务
 	struct Task
@@ -197,14 +198,16 @@ namespace sim
 						//执行
 						if (current_task.pFunc)
 						{
-							void *pRet= current_task.pFunc(current_task.pUserData);
+							void *pRet= current_task.pFunc(this,current_task.pUserData);
 							if (current_task.pComplete)
-								current_task.pComplete(current_task.pUserData, pRet);
+								current_task.pComplete(this,current_task.pUserData, pRet);
 						}
 						//更新最后运行时间
 						last_run_ms = GetCurrentMS();
 						if(sRUNING == eStatus)
 							eStatus = sIDLE;
+						uIdlems = 0;
+						continue;//不等待
 					}
 				}
 				else
