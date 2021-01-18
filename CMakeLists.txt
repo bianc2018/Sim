@@ -23,3 +23,8 @@ ENDIF (CMAKE_SYSTEM_NAME MATCHES "Linux")
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/Sim/include)
 
 add_subdirectory(demo)
+option(BUILD_TESTS "Build tests." TRUE)
+if (BUILD_TESTS)
+    enable_testing()
+    add_subdirectory ("test")
+endif()

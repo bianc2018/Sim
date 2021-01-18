@@ -21,7 +21,7 @@ namespace sim
 	};
 
 	//ÄÚ´æ·ÖÅäº¯Êý
-	typedef void* (*QueueMalloc)(unsigned int size);
+	typedef void* (*QueueMalloc)(size_t size);
 	typedef void (*QueueFree)(void*);
 
 	typedef unsigned long QueueSizeT;

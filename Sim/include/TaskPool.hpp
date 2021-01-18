@@ -24,7 +24,7 @@
 #define  ThreadSleep(x)\
 	while(x)\
 	{\
-		usleep(x*1000)\
+		usleep(x*1000);\
 		break;\
 	}
 #endif

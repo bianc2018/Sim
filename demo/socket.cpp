@@ -1,4 +1,8 @@
 #include "Socket.hpp"
+
+//#include <MSWSock.h>
+//#include <WS2tcpip.h>
+
 bool GetHostByNameCallBack(const char* ip, void* pdata)
 {
 	sim::Socket* s = (sim::Socket*)pdata;
@@ -16,7 +20,7 @@ bool GetHostByNameCallBack(const char* ip, void* pdata)
 int main(int argc, char* argv[])
 {
 	sim::Socket::Init();
-
+	//WSAID_CONNECTEX;
 	sim::Socket s(sim::TCP);
 	s.GetHostByName("www.baidu.com", GetHostByNameCallBack, &s);
 	getchar();
