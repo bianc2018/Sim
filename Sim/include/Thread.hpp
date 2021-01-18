@@ -54,7 +54,7 @@ namespace sim
 		LPVOID lpparam_;*/
 
 		HANDLE pth_;
-		unsigned th_id_;
+		unsigned int th_id_;
 		LPVOID lpParam_;
 	protected:
 		Thread(const Thread &other) {};
@@ -166,10 +166,12 @@ namespace sim
 			ThSwap(th_id_, other.th_id_);
 		}
 
-		unsigned GetId()
+		unsigned int GetId()
 		{
 			return th_id_;
 		}
+
+		static unsigned GetThisThreadId();
 
 		void SetParam(LPVOID p)
 		{
@@ -180,6 +182,13 @@ namespace sim
 			return lpParam_;
 		}
 	};
-
+	unsigned int sim::Thread::GetThisThreadId()
+	{
+#ifdef WIN32
+		return::GetCurrentThreadId();
+#else
+		return pthread_self();
+#endif
+	}
 }
 #endif

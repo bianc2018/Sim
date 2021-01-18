@@ -11,7 +11,7 @@
 namespace sim
 {
 	//键值类型
-	typedef unsigned long long TreeKey;
+	typedef unsigned long long RbTreeKey;
 
 	//遍历方法
 	enum TraverseType
@@ -22,80 +22,80 @@ namespace sim
 	};
 
 	template<typename T>
-	struct TreeNode
+	struct RbTreeNode
 	{
-		TreeKey Key;
+		RbTreeKey Key;
 		T Data;
-		TreeNode* pParent;
-		TreeNode* pLeft;
-		TreeNode* pRight;
+		RbTreeNode* pParent;
+		RbTreeNode* pLeft;
+		RbTreeNode* pRight;
 		bool Red;
 	};
 
 	//内存分配函数
-	typedef void* (*TreeMalloc)(size_t size);
-	typedef void(*TreeFree)(void*);
+	typedef void* (*RbTreeMalloc)(size_t size);
+	typedef void(*RbTreeFree)(void*);
 
 	template<typename T>
-	class Tree
+	class RbTree
 	{
 	public:
-		Tree();
+		RbTree();
 
-		virtual ~Tree();
+		virtual ~RbTree();
 
 		virtual bool isEmpty();
 
-		bool Add(TreeKey key, T data, bool cover = true);
+		bool Add(RbTreeKey key, T data, bool cover = true);
 
-		bool Del(TreeKey key);
+		bool Del(RbTreeKey key);
 
-		bool Find(TreeKey key, T *data);
+		bool Find(RbTreeKey key, T *data);
 
 		bool Clear();
 
-		virtual bool SetAlloc(TreeMalloc m, TreeFree f);
+		virtual bool SetAlloc(RbTreeMalloc m, RbTreeFree f);
 
 		
-		typedef bool(*TreeTraverseFunc)(TreeNode<T>* Now, void*pdata);
+		typedef bool(*TreeTraverseFunc)(RbTreeNode<T>* Now, void*pdata);
 		
 		bool TraverseTree(TreeTraverseFunc func, void*pdata, 
 			TraverseType type = TraverseTypeLDR);
 	private:
 		//遍历函数
-		static bool TreeTraverseAndDelete(TreeNode<T>* Now, void*pdata);
+		static bool TreeTraverseAndDelete(RbTreeNode<T>* Now, void*pdata);
 	private:
-		TreeNode<T>* NewNode(TreeKey key, const T& t);
+		RbTreeNode<T>* NewNode(RbTreeKey key, const T& t);
 
-		bool FreeNode(TreeNode<T>* pnode);
+		bool FreeNode(RbTreeNode<T>* pnode);
 		
-		static bool Traverse(TreeNode<T>* proot,
+		static bool Traverse(RbTreeNode<T>* proot,
 			TreeTraverseFunc func, void*pdata, TraverseType type = TraverseTypeLDR);
 
 		//左旋转 对x进行左旋，意味着"将x变成一个左节点"。
-		bool LRotate(TreeNode<T>* p);
+		bool LRotate(RbTreeNode<T>* p);
 
 		//右旋转
-		bool RRotate(TreeNode<T>* proot);
+		bool RRotate(RbTreeNode<T>* proot);
 
 		//查找节点 失败返回 NULL
-		TreeNode<T>* FindNode(TreeKey key);
+		RbTreeNode<T>* FindNode(RbTreeKey key);
 
 		//插入调整 INSERT-FIXUP
-		bool InsertFixUp(TreeNode<T>* p);
+		bool InsertFixUp(RbTreeNode<T>* p);
 	private:
 		//根节点
-		TreeNode<T>* pRoot;
+		RbTreeNode<T>* pRoot;
 	private:
-		TreeMalloc qMalloc;
-		TreeFree qFree;
+		RbTreeMalloc qMalloc;
+		RbTreeFree qFree;
 	};
 
 
 
 	/********************************实现*************************************/
 	template<typename T>
-	inline Tree<T>::Tree()
+	inline RbTree<T>::RbTree()
 		:pRoot(NULL)
 		, qMalloc(::malloc)
 		, qFree(::free)
@@ -104,20 +104,20 @@ namespace sim
 	}
 
 	template<typename T>
-	inline Tree<T>::~Tree()
+	inline RbTree<T>::~RbTree()
 	{
 		//释放
 		Clear();
 	}
 
 	template<typename T>
-	inline bool Tree<T>::isEmpty()
+	inline bool RbTree<T>::isEmpty()
 	{
 		return NULL == pRoot;
 	}
 
 	template<typename T>
-	inline bool Tree<T>::Add(TreeKey key, T data, bool cover)
+	inline bool RbTree<T>::Add(RbTreeKey key, T data, bool cover)
 	{
 		/*
 		RB-INSERT(T, z)
@@ -156,9 +156,9 @@ namespace sim
 		}
 
 		//查找插入点
-		TreeNode<T>* pn = pRoot;
+		RbTreeNode<T>* pn = pRoot;
 		//新增的点
-		TreeNode<T>* add_node = NULL;
+		RbTreeNode<T>* add_node = NULL;
 		int add_status = 0;//0异常 1 左边 2 右边
 		while (pn)
 		{
@@ -216,12 +216,12 @@ namespace sim
 	}
 
 	template<typename T>
-	inline bool Tree<T>::Del(TreeKey key)
+	inline bool RbTree<T>::Del(RbTreeKey key)
 	{
 		////端节点
 		//if (NULL == pnode->pLeft&& NULL == pnode->pRight)
 		//{
-		//	TreeNode<T>*pp = pnode->pParent;
+		//	RbTreeNode<T>*pp = pnode->pParent;
 		//	if (pp)
 		//	{
 		//		if (pp->pLeft == pnode)
@@ -232,15 +232,15 @@ namespace sim
 		//	return FreeNode(pnode);
 		//}
 
-		TreeNode<T>* node = FindNode(key);
+		RbTreeNode<T>* node = FindNode(key);
 		if (NULL == node)
 		{
 			return false;
 		}
-		TreeNode<T>* parent = node->pParent;
-		TreeNode<T>* left = node->pLeft;
-		TreeNode<T>* right = node->pRight;
-		TreeNode<T>* next=NULL;
+		RbTreeNode<T>* parent = node->pParent;
+		RbTreeNode<T>* left = node->pLeft;
+		RbTreeNode<T>* right = node->pRight;
+		RbTreeNode<T>* next=NULL;
 		bool red=false;
 
 		if (!left) {
@@ -307,7 +307,7 @@ namespace sim
 			//TREE__REBALANCE_AFTER_REMOVE(cis, trans)
 			if (node == parent->pLeft) {
 				//TREE__REBALANCE_AFTER_REMOVE(left, right)
-				TreeNode<T>* sibling = parent->pRight;
+				RbTreeNode<T>* sibling = parent->pRight;
 
 				if (sibling&&sibling->Red) {
 
@@ -337,7 +337,7 @@ namespace sim
 			}
 			else {
 				//TREE__REBALANCE_AFTER_REMOVE(right, left)
-				TreeNode<T>* sibling = parent->pLeft;
+				RbTreeNode<T>* sibling = parent->pLeft;
 
 				if (sibling&&sibling->Red) {
 
@@ -376,12 +376,12 @@ namespace sim
 	}
 
 	template<typename T>
-	inline bool Tree<T>::Find(TreeKey key, T * data)
+	inline bool RbTree<T>::Find(RbTreeKey key, T * data)
 	{
 		if (NULL == data)
 			return false;
 
-		TreeNode<T>* pn = FindNode(key);
+		RbTreeNode<T>* pn = FindNode(key);
 		if (NULL == pn)
 			return false;
 		*data = pn->Data;
@@ -389,13 +389,13 @@ namespace sim
 	}
 
 	template<typename T>
-	inline bool Tree<T>::Clear()
+	inline bool RbTree<T>::Clear()
 	{
 
 #if _DEBUG
 		unsigned long long num = 0;
 #endif
-		TreeNode<T>*pn = pRoot;
+		RbTreeNode<T>*pn = pRoot;
 		pRoot = NULL;
 		//return Traverse(temp, TreeTraverseAndDelete, this);
 		while (pn)
@@ -411,7 +411,7 @@ namespace sim
 			else
 			{
 				//没有子节点了
-				TreeNode<T>*t = pn;
+				RbTreeNode<T>*t = pn;
 				pn = pn->pParent;
 				if (pn)
 				{
@@ -433,7 +433,7 @@ namespace sim
 	}
 
 	template<typename T>
-	inline bool Tree<T>::SetAlloc(TreeMalloc m, TreeFree f)
+	inline bool RbTree<T>::SetAlloc(RbTreeMalloc m, RbTreeFree f)
 	{
 		if (m && f)
 		{
@@ -444,13 +444,14 @@ namespace sim
 	}
 
 	template<typename T>
-	inline bool Tree<T>::TraverseTree(TreeTraverseFunc func, void * pdata, TraverseType type)
+	inline bool RbTree<T>::TraverseTree(TreeTraverseFunc func, void * pdata, TraverseType type)
 	{
 		return Traverse(pRoot,func,pdata,type);
 	}
 
 	template<typename T>
-	inline bool Tree<T>::TreeTraverseAndDelete(TreeNode<T>* Now, void * pdata)
+	inline bool RbTree<T>::TreeTraverseAndDelete(RbTreeNode<T>* Now, 
+		void * pdata)
 	{
 		Tree<T>*p = (Tree<T>*)pdata;
 		if (NULL == p)
@@ -460,18 +461,18 @@ namespace sim
 	}
 
 	template<typename T>
-	inline TreeNode<T>* Tree<T>::NewNode(TreeKey key, const T & t)
+	inline RbTreeNode<T>* RbTree<T>::NewNode(RbTreeKey key, const T & t)
 	{
 		if (NULL == qMalloc)
 		{
 			return NULL;
 		}
 		//申请一个新节点
-		TreeNode<T>* newnode = (TreeNode<T>*)qMalloc(sizeof(TreeNode<T>));
+		RbTreeNode<T>* newnode = (RbTreeNode<T>*)qMalloc(sizeof(RbTreeNode<T>));
 		if (NULL == newnode)
 			return NULL;
 		//初始化
-		::memset(newnode, 0, sizeof(TreeNode<T>));
+		::memset(newnode, 0, sizeof(RbTreeNode<T>));
 		newnode->Data = t;
 		newnode->Key = key;
 		newnode->Red = true;//新节点是红色的
@@ -479,7 +480,7 @@ namespace sim
 	}
 
 	template<typename T>
-	inline bool Tree<T>::FreeNode(TreeNode<T>* pnode)
+	inline bool RbTree<T>::FreeNode(RbTreeNode<T>* pnode)
 	{
 		if (NULL == qFree && NULL == pnode)
 		{
@@ -490,7 +491,8 @@ namespace sim
 	}
 
 	template<typename T>
-	inline bool Tree<T>::Traverse(TreeNode<T>* proot, TreeTraverseFunc func, void * pdata, TraverseType type)
+	inline bool RbTree<T>::Traverse(RbTreeNode<T>* proot,
+		TreeTraverseFunc func, void * pdata, TraverseType type)
 	{
 		if (NULL == func)
 			return false;
@@ -502,7 +504,7 @@ namespace sim
 				bool ret = Traverse(proot->pLeft, func, pdata, type);
 				if (!ret)
 					return ret;
-				TreeNode<T>* r = proot->pRight;
+				RbTreeNode<T>* r = proot->pRight;
 				ret = func(proot, pdata);
 				if (!ret)
 					return ret;
@@ -511,8 +513,8 @@ namespace sim
 			}
 			else if (TraverseTypeDLR == type)//前
 			{
-				TreeNode<T>* r = proot->pRight;
-				TreeNode<T>* l = proot->pLeft;
+				RbTreeNode<T>* r = proot->pRight;
+				RbTreeNode<T>* l = proot->pLeft;
 				bool ret = func(proot, pdata);
 				if (!ret)
 					return ret;
@@ -524,8 +526,8 @@ namespace sim
 			}
 			else if (TraverseTypeLRD == type)//后序
 			{
-				TreeNode<T>* r = proot->pRight;
-				TreeNode<T>* l = proot->pLeft;
+				RbTreeNode<T>* r = proot->pRight;
+				RbTreeNode<T>* l = proot->pLeft;
 				bool ret =  Traverse(l, func, pdata, type);
 				if (!ret)
 					return ret;
@@ -536,7 +538,7 @@ namespace sim
 				return ret;
 			}
 			return false;
-			//TreeNode<T>* pn = pRoot;
+			//RbTreeNode<T>* pn = pRoot;
 			//bool check_left=true;
 			//while (true)
 			//{
@@ -553,8 +555,8 @@ namespace sim
 			//	}
 			//	else
 			//	{
-			//		TreeNode<T>* temp = pn;
-			//		TreeNode<T>* parent = pn->pParent;
+			//		RbTreeNode<T>* temp = pn;
+			//		RbTreeNode<T>* parent = pn->pParent;
 			//		//最左子节点
 			//		bool ret= func(temp, pdata);
 			//		if (false == ret)
@@ -573,7 +575,7 @@ namespace sim
 	}
 
 	template<typename T>
-	inline bool Tree<T>::LRotate(TreeNode<T>* p)
+	inline bool RbTree<T>::LRotate(RbTreeNode<T>* p)
 	{
 		/*
 		https://www.cnblogs.com/skywang12345/p/3245399.html
@@ -598,14 +600,14 @@ namespace sim
 		if (NULL == p)
 			return false;
 		//右孩子
-		TreeNode<T>* r = p->pRight;
-		TreeNode<T>* pp = p->pParent;
+		RbTreeNode<T>* r = p->pRight;
+		RbTreeNode<T>* pp = p->pParent;
 
 		//父节点
 		if (NULL == r)
 			return true;
 
-		TreeNode<T>* rl = r->pLeft;
+		RbTreeNode<T>* rl = r->pLeft;
 
 		//r作为p的父节点
 		if (NULL == pp)
@@ -633,7 +635,7 @@ namespace sim
 	}
 
 	template<typename T>
-	inline bool Tree<T>::RRotate(TreeNode<T>* p)
+	inline bool RbTree<T>::RRotate(RbTreeNode<T>* p)
 	{
 		/*
 		https://www.cnblogs.com/skywang12345/p/3245399.html
@@ -656,14 +658,14 @@ namespace sim
 		if (NULL == p)
 			return false;
 		//右孩子
-		TreeNode<T>* l = p->pLeft;
-		TreeNode<T>* pp = p->pParent;
+		RbTreeNode<T>* l = p->pLeft;
+		RbTreeNode<T>* pp = p->pParent;
 
 		//父节点
 		if (NULL == l)
 			return true;
 
-		TreeNode<T>* lr = l->pRight;
+		RbTreeNode<T>* lr = l->pRight;
 
 		//r作为p的父节点
 		if (NULL == pp)
@@ -691,12 +693,12 @@ namespace sim
 	}
 
 	template<typename T>
-	inline TreeNode<T>* Tree<T>::FindNode(TreeKey key)
+	inline RbTreeNode<T>* RbTree<T>::FindNode(RbTreeKey key)
 	{
 #if _DEBUG
 		unsigned long long num = 0;//查找的长度
 #endif
-		TreeNode<T>* pn = pRoot;
+		RbTreeNode<T>* pn = pRoot;
 		while (pn)
 		{
 #if _DEBUG
@@ -726,7 +728,7 @@ namespace sim
 	}
 
 	template<typename T>
-	inline bool Tree<T>::InsertFixUp(TreeNode<T>* p)
+	inline bool RbTree<T>::InsertFixUp(RbTreeNode<T>* p)
 	{
 		/**************平衡******************/
 		/*
@@ -762,18 +764,18 @@ namespace sim
 		//while (true)
 		//{
 		//	//父节点
-		//	TreeNode<T>*pp = p->pParent;
+		//	RbTreeNode<T>*pp = p->pParent;
 		//	//当前节点存在而且为红色
 		//	if (pp&&pp->Red)
 		//	{
 		//		//祖父节点
-		//		TreeNode<T>*ppp = pp->pParent;
+		//		RbTreeNode<T>*ppp = pp->pParent;
 		//		if (NULL == ppp)
 		//		{
 		//			return false;//异常
 		//		}
 		//		//叔叔节点
-		//		TreeNode<T>*pu = NULL;
+		//		RbTreeNode<T>*pu = NULL;
 		//		if (ppp->pLeft == pp)
 		//		{
 		//			//若“z的父节点”是“z的祖父节点的左孩子”，则进行以下处理。
@@ -862,15 +864,15 @@ namespace sim
 		//}
 		//pRoot->Red = false;
 
-		TreeNode<T>* parent = p->pParent;
+		RbTreeNode<T>* parent = p->pParent;
 		//wepoll
 		for (; parent && parent->Red; parent = p->pParent)
 		{
-			TreeNode<T>* grandparent = parent->pParent;
+			RbTreeNode<T>* grandparent = parent->pParent;
 			if (parent == parent->pParent->pLeft)
 			{
 				//TREE__REBALANCE_AFTER_INSERT(left, right)
-				TreeNode<T>* uncle = grandparent->pRight;
+				RbTreeNode<T>* uncle = grandparent->pRight;
 
 				if (uncle && uncle->Red) 
 				{
@@ -895,7 +897,7 @@ namespace sim
 			{
 				//TREE__REBALANCE_AFTER_INSERT(right, left)
 				//TREE__REBALANCE_AFTER_INSERT(left, right)
-				TreeNode<T>* uncle = grandparent->pLeft;
+				RbTreeNode<T>* uncle = grandparent->pLeft;
 
 				if (uncle && uncle->Red)
 				{

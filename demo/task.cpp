@@ -1,49 +1,41 @@
 #include "TaskPool.hpp"
 #include "stdio.h"
-sim::Task t1, t2;
-void* TaskFunc1(sim::TaskWorker *self,void*)
+static unsigned int i = 0;
+void* TaskFunc1(void*)
 {
 	//ThreadSleep(1000);
-	printf("task 1 %ld\n",self->GetTaskSize());
+	printf("task 1 %ld\n",sim::Thread::GetThisThreadId());
+	++i;
 	//self->Post(t2);
 	return NULL;
 }
-void TaskComplete1(sim::TaskWorker* self, void* pUserData, void* ret)
+void TaskComplete1(void* pUserData, void* ret)
 {
-	printf("task 1 ret=%p %ld\n",ret, self->GetTaskSize());
+	printf("TaskComplete1 1 %ld\n", sim::Thread::GetThisThreadId());
 	//self->Post(t1);
 }
-void* TaskFunc2(sim::TaskWorker* self,void*)
+void* TaskFunc2(void*)
 {
 	//ThreadSleep(1000);
-	printf("task 2 %ld\n", self->GetTaskSize());
+	printf("task 2 %ld\n", sim::Thread::GetThisThreadId());
 	//self->Post(t1);
 	return NULL;
 }
-void TaskComplete2(sim::TaskWorker* self,void* pUserData, void* ret)
+void TaskComplete2(void* pUserData, void* ret)
 {
-	printf("task 2 ret=%p %ld\n",ret, self->GetTaskSize());
+	printf("TaskComplete2 2 %ld\n", sim::Thread::GetThisThreadId());
 	//self->Post(t2);
 }
 int main(int argc, char* argv[])
 {
-	sim::TaskWorker worker;
+	sim::TaskPool worker(0);
 	
-	t1.pFunc = TaskFunc1;
-	t2.pFunc = TaskFunc2;
-	t1.pComplete = TaskComplete1;
-	t2.pComplete = TaskComplete2;
-	t1.pUserData = t2.pUserData=NULL;
-
-	for (int i = 0; i < 1000; ++i)
+	for (int i = 0; i < 10000; ++i)
 	{
-		worker.Post(t1);
-		worker.Post(t2);
-		printf("status %d\n", worker.GetStatus());
+		worker.Post(TaskFunc1,NULL, NULL);
 	}
-	worker.Pause();
+	
 	getchar();
-	worker.ReSume();
-	getchar();
+	printf("i=%u\n", i);
 	return 0;
 }

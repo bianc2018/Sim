@@ -1,12 +1,12 @@
 //#include "Tree.hpp"
 #include <stdio.h>
-#include "Tree.hpp"
+#include "RbTree.hpp"
 //#include "wepoll_rbtree.hpp"
 #include <iostream>
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
-bool MyTreeTraverseFunc(sim::TreeNode<int>* Now, void*pdata)
+bool MyTreeTraverseFunc(sim::RbTreeNode<int>* Now, void*pdata)
 {
 	printf("MyTreeTraverseFunc now %lld\n", Now->Key);
 	if(Now->Key<1000)
@@ -23,7 +23,7 @@ int main(int argc, char* argv[])
 	/*tree_t t;
 	tree_init(&t);
 	*/
-	sim::Tree<int>tree1;
+	sim::RbTree<int>tree1;
 	for (int i = 0; i < size; ++i)
 	{
 		//Ëæ»ú²åÈë
