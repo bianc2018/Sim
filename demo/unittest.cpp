@@ -1,0 +1,11 @@
+#include "Test.hpp"
+SIM_TEST(TEST)
+{
+	SIM_TEST_IS_EQUAL(1, 0);
+}
+SIM_TEST(TEST2)
+{
+	SIM_ASSERT_IS_EQUAL(1, 2);
+	SIM_TEST_IS_EQUAL(1, 1);
+}
+SIM_TEST_MAIN(sim::noisy)
