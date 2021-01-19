@@ -6,6 +6,10 @@
 
 #include <stdlib.h>
 #include <string.h>
+#define USING_NEW
+#ifdef USING_NEW
+#include <new>
+#endif // USING_NEW
 
 namespace sim
 {
@@ -14,7 +18,7 @@ namespace sim
 	{
 		T data;
 		QueueNode* pNext;
-		QueueNode(T t):data(t),pNext(NULL)
+		QueueNode(const T& t):data(t),pNext(NULL)
 		{
 
 		}
@@ -37,146 +41,31 @@ namespace sim
 			t2 = temp;
 		}
 	public:
-		Queue() 
-			:pHead(NULL), pTail(NULL)
-			, qMalloc(::malloc)
-			, qFree(::free)
-			, qsize(0)
-		{
-			
-		}
-		virtual ~Queue()
-		{
-			//释放
-			Clear();
-		}
+		Queue();
+		virtual ~Queue();
 		//出列
-		virtual bool PopFront(T* t)
-		{
-			if (isEmpty())
-				return false;
+		virtual bool PopFront(T* t);
 
-			if (NULL == pHead)
-				return false;
-			
-			if (t)
-				*t = pHead->data;
+		virtual bool PushBack(const T& t);
 
-			QueueNode<T>* pTemp = pHead;
+		virtual bool isEmpty();
 
-			if (pHead == pTail)
-			{
-				pHead = pTail = NULL;
-				qsize = 0;
-				return true;
-			}
-			else
-			{
-				pHead = pHead->pNext;
-				--qsize;
-			}
-			FreeNode(pTemp);
-			return true;
-		}
+		virtual bool Clear();
 
-		virtual bool PushBack(const T& t)
-		{
-			QueueNode<T>* pnode = NewNode(t);
-			if (NULL == pnode)
-				return false;
+		virtual QueueSizeT Size();
 
-			//添加首个
-			if (isEmpty())
-			{
-				pHead = pTail = pnode;
-				qsize = 1;
-				return true;
-			}
-			else
-			{
-				if (pTail)
-				{
-					//前移
-					pTail->pNext = pnode;
-					pTail = pnode;
-					++qsize;
-					return true;
-				}
-				else
-				{
-					return false;
-				}
-			}
-			return false;
-		}
+		virtual void Swap(Queue& other);
 
-		virtual bool isEmpty()
-		{
-			return 0 == qsize;
-		}
+		virtual bool SetAlloc(QueueMalloc m, QueueFree f);
 
-		bool Clear()
-		{
-			while (pHead)
-			{
-				QueueNode<T>* pTemp = pHead;
-				pHead = pHead->pNext;
-				FreeNode(pTemp);
-			}
-
-			pHead = pTail = NULL;
-			qsize = 0;
-			return true;
-		}
-
-		virtual QueueSizeT Size()
-		{
-			return qsize;
-		}
-
-		void Swap(Queue& other)
-		{
-			qSwap(pHead, other.pHead);
-			qSwap(pTail, other.pTail);
-			qSwap(qsize, other.qsize);
-			qSwap(qMalloc, other.qMalloc);
-			qSwap(qFree, other.qFree);
-		}
-
-		virtual bool SetAlloc(QueueMalloc m, QueueFree f)
-		{
-			if (m && f)
-			{
-				qMalloc = m;
-				qFree = f;
-			}
-			return false;
-		}
+		//返回迭代器 NULL 标识结束
+		QueueNode<T>* Next(QueueNode<T>*p);
+		//遍历 返回false终止
+		typedef bool(*TraverseFunc)(T* Now, void*pdata);
+		bool Traverse(TraverseFunc func, void*pdata);
 	private:
-		QueueNode<T>* NewNode(const T& t)
-		{
-			if (NULL == qMalloc)
-			{
-				return NULL;
-			}
-			//申请一个新节点
-			QueueNode<T>* newnode = (QueueNode<T>*)qMalloc(sizeof(QueueNode<T>));
-			if (NULL == newnode)
-				return NULL;
-			//初始化
-			::memset(newnode, 0, sizeof(QueueNode<T>));
-			newnode->data = t;
-			return newnode;
-		}
-		bool FreeNode(QueueNode<T>* pnode)
-		{
-			if (NULL == qFree&&NULL==pnode)
-			{
-				return false;
-			}
-			qFree(pnode);
-			return true;
-		}
+		QueueNode<T>* NewNode(const T& t);
+		bool FreeNode(QueueNode<T>* pnode);
 	private:
 		QueueNode<T>* pHead;
 		QueueNode<T>* pTail;
@@ -186,5 +75,181 @@ namespace sim
 		QueueFree qFree;
 	};
 
+	template<typename T>
+	inline Queue<T>::Queue()
+		:pHead(NULL), pTail(NULL)
+		, qMalloc(::malloc)
+		, qFree(::free)
+		, qsize(0)
+	{
+
+	}
+
+	template<typename T>
+	inline Queue<T>::~Queue()
+	{
+		//释放
+		Clear();
+	}
+
+	template<typename T>
+	inline bool Queue<T>::PopFront(T * t)
+	{
+		if (isEmpty())
+			return false;
+
+		if (NULL == pHead)
+			return false;
+
+		if (t)
+			*t = pHead->data;
+
+		QueueNode<T>* pTemp = pHead;
+
+		if (pHead == pTail)
+		{
+			pHead = pTail = NULL;
+			qsize = 0;
+			return true;
+		}
+		else
+		{
+			pHead = pHead->pNext;
+			--qsize;
+		}
+		FreeNode(pTemp);
+		return true;
+	}
+	template<typename T>
+	inline bool Queue<T>::PushBack(const T & t)
+	{
+		QueueNode<T>* pnode = NewNode(t);
+		if (NULL == pnode)
+			return false;
+
+		//添加首个
+		if (isEmpty())
+		{
+			pHead = pTail = pnode;
+			qsize = 1;
+			return true;
+		}
+		else
+		{
+			if (pTail)
+			{
+				//前移
+				pTail->pNext = pnode;
+				pTail = pnode;
+				++qsize;
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}
+		return false;
+	}
+	template<typename T>
+	inline bool Queue<T>::isEmpty()
+	{
+		return 0 == qsize;
+	}
+	template<typename T>
+	inline bool Queue<T>::Clear()
+	{
+		while (pHead)
+		{
+			QueueNode<T>* pTemp = pHead;
+			pHead = pHead->pNext;
+			FreeNode(pTemp);
+		}
+
+		pHead = pTail = NULL;
+		qsize = 0;
+		return true;
+	}
+	template<typename T>
+	inline QueueSizeT Queue<T>::Size()
+	{
+		return qsize;
+	}
+	template<typename T>
+	inline void Queue<T>::Swap(Queue & other)
+	{
+		qSwap(pHead, other.pHead);
+		qSwap(pTail, other.pTail);
+		qSwap(qsize, other.qsize);
+		qSwap(qMalloc, other.qMalloc);
+		qSwap(qFree, other.qFree);
+	}
+	template<typename T>
+	inline bool Queue<T>::SetAlloc(QueueMalloc m, QueueFree f)
+	{
+		if (m && f)
+		{
+			qMalloc = m;
+			qFree = f;
+		}
+		return false;
+	}
+	template<typename T>
+	inline QueueNode<T>* Queue<T>::Next(QueueNode<T>* p)
+	{
+		if (NULL == p)
+			return pHead;
+		return p->pNext;
+	}
+	template<typename T>
+	inline bool Queue<T>::Traverse(TraverseFunc func, void * pdata)
+	{
+		if (NULL == func)
+			return false;
+
+		QueueNode<T>* pt = Next(NULL);
+		while (pt)
+		{
+			if (!func(&pt->data, pdata))
+				break;
+			pt = Next(pt);
+		}
+		return true;
+	}
+	template<typename T>
+	inline QueueNode<T>* Queue<T>::NewNode(const T & t)
+	{
+		if (NULL == qMalloc)
+		{
+			return NULL;
+		}
+		//申请一个新节点
+		QueueNode<T>* newnode = (QueueNode<T>*)qMalloc(sizeof(QueueNode<T>));
+		if (NULL == newnode)
+			return NULL;
+		
+		//初始化
+		::memset(newnode, 0, sizeof(QueueNode<T>));
+#ifdef USING_NEW
+		newnode = new(newnode) QueueNode<T>(t);
+#else
+		newnode->data = t;
+#endif // USING_NEW
+		//newnode->data = newnode->data->T::T(0);
+		return newnode;
+	}
+	template<typename T>
+	inline bool Queue<T>::FreeNode(QueueNode<T>* pnode)
+	{
+		if (NULL == qFree && NULL == pnode)
+		{
+			return false;
+		}
+#ifdef USING_NEW
+		pnode->~QueueNode<T>();
+#endif // USING_NEW
+		qFree(pnode);
+		return true;
+	}
 }
 #endif
