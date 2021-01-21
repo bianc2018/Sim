@@ -59,13 +59,16 @@ void AsyncEventHandlerCB(sim::BaseAsyncSocket* sock, sim::Event* e, void* pdata)
 }
 int main(int argc, char* argv[])
 {
-	
+	SIM_LOG_CONFIG(sim::LDebug, NULL, NULL);
+	SIM_FUNC_DEBUG();
+
 	sim::AsyncSocket *sock = service.CreateByType(sim::TCP);
 	sock->SetHandler(AsyncEventHandlerCB, sock);
 	//sock->Bind(NULL, 0);
 	//sock->GetHostByName("www.baidu.com", GetHostByNameCallBack, sock);
 	sim::SockRet ret = sock->Connect("127.0.0.1", 10000);
-	service.Run(1000);
+	SIM_LDEBUG("Connect 127.0.0.1,ret=" << ret);
+	service.RunOnce(1000);
 	getchar();
 	service.Release(sock);
 	return 0;

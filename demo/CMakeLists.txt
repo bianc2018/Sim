@@ -1,4 +1,5 @@
 # all cpp files
+add_definitions(-DUSING_SIM_LOGGER)
 enable_testing()
 file(GLOB_RECURSE CPP_SRC_LIST ./*.cpp)
 # generate target for every cpp file

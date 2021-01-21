@@ -55,6 +55,21 @@
 #else
     #error "不支持的平台"
 #endif
+
+//引入日志
+#ifdef USING_SIM_LOGGER
+#include "Logger.hpp"
+#else
+#define SIM_FUNC(lv)
+#define SIM_FUNC_DEBUG() 
+#define SIM_LOG_CONFIG(max_lv,handler,userdata)
+#define SIM_LOG(lv,x) 
+#define SIM_LDEBUG(x) 
+#define SIM_LINFO(x) 
+#define SIM_LWARN(x) 
+#define SIM_LERROR(x) 
+#endif // USING_SIM_LOGGER
+
 //错误码
 //成功
 #define SOCK_SUCCESS 0
