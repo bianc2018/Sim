@@ -1,5 +1,6 @@
 #include "Async.hpp"
 
+sim::AsyncEventService service;
 //#include <MSWSock.h>
 //#include <WS2tcpip.h>
 bool GetHostByNameCallBack(const char* ip, void* pdata)
@@ -19,11 +20,46 @@ bool GetHostByNameCallBack(const char* ip, void* pdata)
 }
 void AsyncEventHandlerCB(sim::BaseAsyncSocket* sock, sim::Event* e, void* pdata)
 {
-	printf("event %p \n", e);
+	printf("event %p flag 0x%X\n", e,e->event_flag);
+	if (e)
+	{
+		if (e->event_flag == ASYNC_FLAG_RECV && !(e->event_flag&ASYNC_FLAG_ERROR))
+		{
+			printf("recv ok %s %u %ld\n", e->cache.ptr, e->cache.size, e->bytes_transfered);
+			sock->Recv(e->cache.ptr, e->cache.size);
+		}
+		if (e->event_flag == ASYNC_FLAG_SEND && !(e->event_flag&ASYNC_FLAG_ERROR))
+		{
+			printf("send ok %s %u %ld\n", e->cache.ptr, e->cache.size, e->bytes_transfered);
+			delete[] e->cache.ptr;
+			service.Release(sock);
+			//sock->Send(e->cache.ptr, e->cache.size);
+		}
+		if (e->event_flag == ASYNC_FLAG_CONNECT && !(e->event_flag&ASYNC_FLAG_ERROR))
+		{
+			printf("Connect happen ok %d\n", e->error);
+			char *buff = new char[12]{ "hello world" };
+			char *recvbuff = new char[128] {0};
+			sock->Send(buff, ::strlen(buff));
+			sock->Recv(recvbuff, 128);
+		}
+		if (e->event_flag&ASYNC_FLAG_DISCONNECT)
+		{
+			printf("socket offline %d\n", e->error);
+			delete[] e->cache.ptr;
+			service.Release(sock);
+			return;
+		}
+		if (e->event_flag&ASYNC_FLAG_ERROR)
+		{
+			printf("erro happen %d\n", e->error);
+			return;
+		}
+	}
 }
 int main(int argc, char* argv[])
 {
-	sim::AsyncEventService service;
+	
 	sim::AsyncSocket *sock = service.CreateByType(sim::TCP);
 	sock->SetHandler(AsyncEventHandlerCB, sock);
 	//sock->Bind(NULL, 0);

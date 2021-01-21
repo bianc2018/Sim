@@ -25,12 +25,20 @@
 #define ASYNC_ERR_EMPTY_BUFF		(-(ASYNC_ERR_BASE+4))
 
 //异步标识
+//连接
 #define ASYNC_FLAG_CONNECT			(1<<0)
+//接收连接
 #define ASYNC_FLAG_ACCEPT			(1<<1)
+//接收数据
 #define ASYNC_FLAG_RECV				(1<<2)
+//发送
 #define ASYNC_FLAG_SEND				(1<<3)
+//断开链接
 #define ASYNC_FLAG_DISCONNECT		(1<<4)
+//错误发送
 #define ASYNC_FLAG_ERROR		(1<<5)
+//释放内存
+#define ASYNC_FLAG_RELEASE		(1<<6)
 
 namespace sim
 {
@@ -48,6 +56,8 @@ namespace sim
 		unsigned int event_flag;
 		//缓存
 		AsyncBuffer cache;
+		//传输的数据大小
+		unsigned long long               bytes_transfered;
 		//错误
 		int error;
 		//accept事件里面返回的客户端链接
