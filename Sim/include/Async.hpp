@@ -209,17 +209,17 @@ namespace sim
 		std::ostringstream oss; 
 		if (event_flag&ASYNC_FLAG_CONNECT)
 			oss << "ASYNC_FLAG_CONNECT,";
-		else if (event_flag&ASYNC_FLAG_ACCEPT)
+		if (event_flag&ASYNC_FLAG_ACCEPT)
 			oss << "ASYNC_FLAG_ACCEPT,";
-		else if (event_flag&ASYNC_FLAG_RECV)
+		if (event_flag&ASYNC_FLAG_RECV)
 			oss << "ASYNC_FLAG_RECV,";
-		else if (event_flag&ASYNC_FLAG_SEND)
+		if (event_flag&ASYNC_FLAG_SEND)
 			oss << "ASYNC_FLAG_SEND,";
-		else if (event_flag&ASYNC_FLAG_DISCONNECT)
+		if (event_flag&ASYNC_FLAG_DISCONNECT)
 			oss << "ASYNC_FLAG_DISCONNECT,";
-		else if (event_flag&ASYNC_FLAG_ERROR)
+		if (event_flag&ASYNC_FLAG_ERROR)
 			oss << "ASYNC_FLAG_ERROR,";
-		else if (event_flag&ASYNC_FLAG_RELEASE)
+		if (event_flag&ASYNC_FLAG_RELEASE)
 			oss << "ASYNC_FLAG_RELEASE,";
 		return oss.str();
 	}
