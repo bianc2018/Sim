@@ -62,6 +62,12 @@ namespace sim
 		int error;
 		//accept事件里面返回的客户端链接
 		SOCKET accept_client;
+
+#ifdef USING_SIM_LOGGER
+	public:
+		//调试函数输出标识打印 仅仅用于日志输出
+		std::string FormatFlag();
+#endif
 	};
 
 	typedef void(*AsyncEventHandler)(BaseAsyncSocket*sock, Event*e, void*pdata);
@@ -82,16 +88,12 @@ namespace sim
 		virtual BaseAsyncSocket* Create(int af, int type, int protocol) = 0;
 
 		//释放
-		virtual SockRet Release(BaseAsyncSocket*psock) = 0;
-
-		////新增
-		//virtual SockRet Add(BaseAsyncSocket*psock) = 0;
-		////移除
-		//virtual SockRet Remove(BaseAsyncSocket*psock)=0;
+		//virtual SockRet Release(BaseAsyncSocket*psock) = 0;
 
 		//运行
 		virtual SockRet Run(unsigned int wait_ms)
 		{
+			SIM_FUNC_DEBUG();
 			run_flag_ = true;
 			while (run_flag_)
 				RunOnce(wait_ms);
@@ -147,10 +149,12 @@ namespace sim
 				Free(pe);
 			}
 		}
+		
 	protected:
 		bool run_flag_;
 		AsyncEventMalloc malloc_;
 		AsyncEventFree free_;
+
 	};
 
 	//异步socket基类
@@ -183,6 +187,43 @@ namespace sim
 	/*inline BaseAsyncSocket::BaseAsyncSocket()
 		:Socket(), handler_(NULL), pdata_(NULL), pevent_(NULL) {}*/
 
+#ifdef USING_SIM_LOGGER
+	std::string sim::Event::FormatFlag()
+	{
+		/*
+		//连接
+		#define ASYNC_FLAG_CONNECT			(1<<0)
+		//接收连接
+		#define ASYNC_FLAG_ACCEPT			(1<<1)
+		//接收数据
+		#define ASYNC_FLAG_RECV				(1<<2)
+		//发送
+		#define ASYNC_FLAG_SEND				(1<<3)
+		//断开链接
+		#define ASYNC_FLAG_DISCONNECT		(1<<4)
+		//错误发送
+		#define ASYNC_FLAG_ERROR		(1<<5)
+		//释放内存
+		#define ASYNC_FLAG_RELEASE		(1<<6)
+		*/
+		std::ostringstream oss; 
+		if (event_flag&ASYNC_FLAG_CONNECT)
+			oss << "ASYNC_FLAG_CONNECT,";
+		else if (event_flag&ASYNC_FLAG_ACCEPT)
+			oss << "ASYNC_FLAG_ACCEPT,";
+		else if (event_flag&ASYNC_FLAG_RECV)
+			oss << "ASYNC_FLAG_RECV,";
+		else if (event_flag&ASYNC_FLAG_SEND)
+			oss << "ASYNC_FLAG_SEND,";
+		else if (event_flag&ASYNC_FLAG_DISCONNECT)
+			oss << "ASYNC_FLAG_DISCONNECT,";
+		else if (event_flag&ASYNC_FLAG_ERROR)
+			oss << "ASYNC_FLAG_ERROR,";
+		else if (event_flag&ASYNC_FLAG_RELEASE)
+			oss << "ASYNC_FLAG_RELEASE,";
+		return oss.str();
+	}
+#endif
 	inline BaseAsyncSocket::BaseAsyncSocket(BaseAsyncEventService * service, SOCKET sock)
 		:Socket(sock), handler_(NULL), pdata_(NULL), pevent_(service)
 	{
