@@ -23,6 +23,8 @@
 #define ASYNC_ERR_SOCKET_INVAILD	(-(ASYNC_ERR_BASE+3))
 //空的缓存
 #define ASYNC_ERR_EMPTY_BUFF		(-(ASYNC_ERR_BASE+4))
+//空指针
+#define ASYNC_ERR_NULL_PTR		(-(ASYNC_ERR_BASE+5))
 
 //异步标识
 //连接
@@ -87,68 +89,25 @@ namespace sim
 		virtual BaseAsyncSocket* CreateByType(SockType type) = 0;
 		virtual BaseAsyncSocket* Create(int af, int type, int protocol) = 0;
 
-		//释放
-		//virtual SockRet Release(BaseAsyncSocket*psock) = 0;
+		//摧毁 释放所有资源
+		virtual SockRet Destroy(BaseAsyncSocket **psock) = 0;
 
 		//运行
-		virtual SockRet Run(unsigned int wait_ms)
-		{
-			SIM_FUNC_DEBUG();
-			run_flag_ = true;
-			while (run_flag_)
-				RunOnce(wait_ms);
-			return 0;
-		}
+		virtual SockRet Run(unsigned int wait_ms);
 		//运行 运行一次
 		virtual SockRet RunOnce(unsigned int wait_ms)=0;
 
 		//退出
-		virtual SockRet Exit()
-		{
-			run_flag_ = false;
-			return SockRet(0);
-		}
+		virtual SockRet Exit();
 
 		//设置内存生成
-		virtual bool SetAlloc(AsyncEventMalloc m, AsyncEventFree f)
-		{
-			if (m && f)
-			{
-				malloc_ = m;
-				free_ = f;
-			}
-			return false;
-		}
-		virtual void* Malloc(size_t size)
-		{
-			if (malloc_)
-				return malloc_(size);
-			return NULL;
-		}
-		virtual void Free(void*p)
-		{
-			if (free_)
-				free_(p);
-		}
+		virtual bool SetAlloc(AsyncEventMalloc m, AsyncEventFree f);
+		virtual void* Malloc(size_t size);
+		virtual void Free(void* p);
 	//protected:
 		//申请一个事件
-		virtual Event *MallocEvent()
-		{
-			Event*pe = (Event*)Malloc(sizeof(Event));
-			if (pe)
-			{
-				//初始化
-				memset(pe, 0, sizeof(*pe));
-			}
-			return pe;
-		}
-		virtual void FreeEvent(Event *pe)
-		{
-			if (pe)
-			{
-				Free(pe);
-			}
-		}
+		virtual Event* MallocEvent(BaseAsyncSocket* psock);
+		virtual void FreeEvent(BaseAsyncSocket* psock,Event* pe);
 		
 	protected:
 		bool run_flag_;
@@ -163,15 +122,11 @@ namespace sim
 	protected:
 		//构造函数
 		//BaseAsyncSocket();
-
 		BaseAsyncSocket(BaseAsyncEventService* service, SOCKET sock);
-		// SOCK_STREAM tcp SOCK_DGRAM udp
 		BaseAsyncSocket(BaseAsyncEventService* service, SockType type);
-
 		BaseAsyncSocket(BaseAsyncEventService* service, int af, int type, int protocol);
 
 		virtual ~BaseAsyncSocket();
-		
 	public:
 		//设置句柄
 		virtual bool SetHandler(AsyncEventHandler handler, void* pdata);
@@ -184,6 +139,56 @@ namespace sim
 		BaseAsyncEventService *pevent_;
 	};
 
+	SockRet sim::BaseAsyncEventService::Run(unsigned int wait_ms)
+	{
+		SIM_FUNC_DEBUG();
+		run_flag_ = true;
+		while (run_flag_)
+			RunOnce(wait_ms);
+		return 0;
+	}
+	inline SockRet BaseAsyncEventService::Exit()
+	{
+		run_flag_ = false;
+		return SockRet(0);
+	}
+	inline bool BaseAsyncEventService::SetAlloc(AsyncEventMalloc m, AsyncEventFree f)
+	{
+		if (m && f)
+		{
+			malloc_ = m;
+			free_ = f;
+		}
+		return false;
+	}
+	inline void* BaseAsyncEventService::Malloc(size_t size)
+	{
+		if (malloc_)
+			return malloc_(size);
+		return NULL;
+	}
+	inline void BaseAsyncEventService::Free(void* p)
+	{
+		if (free_)
+			free_(p);
+	}
+	inline Event* BaseAsyncEventService::MallocEvent(BaseAsyncSocket *psock)
+	{
+		Event* pe = (Event*)Malloc(sizeof(Event));
+		if (pe)
+		{
+			//初始化
+			memset(pe, 0, sizeof(*pe));
+		}
+		return pe;
+	}
+	inline void BaseAsyncEventService::FreeEvent(BaseAsyncSocket* psock, Event* pe)
+	{
+		if (pe)
+		{
+			Free(pe);
+		}
+	}
 	/*inline BaseAsyncSocket::BaseAsyncSocket()
 		:Socket(), handler_(NULL), pdata_(NULL), pevent_(NULL) {}*/
 

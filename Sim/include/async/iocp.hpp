@@ -57,12 +57,9 @@ namespace sim
 		virtual BaseAsyncSocket* CreateByType(SockType type);
 		virtual BaseAsyncSocket* Create(int af, int type, int protocol);
 
-		//释放
-		//virtual SockRet Release(BaseAsyncSocket*psock);
+		//摧毁 释放所有资源
+		virtual SockRet Destroy(BaseAsyncSocket** psock);
 
-		//运行
-		//virtual SockRet Run(unsigned int wait_ms);
-		//运行 运行一次
 		virtual SockRet RunOnce(unsigned int wait_ms);
 
 		//退出
@@ -70,10 +67,8 @@ namespace sim
 
 		//加载拓展函数,加载失败返回空指针，然后终止运行
 		static WsaExFunction LoadWsaExFunction();
-
-	//protected:
-		virtual Event *MallocEvent();
-		virtual void FreeEvent(Event *pe);
+		virtual Event *MallocEvent(BaseAsyncSocket* psock);
+		virtual void FreeEvent(BaseAsyncSocket* psock, Event* pe);
 	private:
 		//新增
 		virtual SockRet AddToIocp(BaseAsyncSocket*psock);
@@ -92,15 +87,20 @@ namespace sim
 	protected:
 		//BaseAsyncEventService
 		IocpAsyncSocket(BaseAsyncEventService* service, SOCKET sock)
-			:BaseAsyncSocket(service,sock), bind_flag_(false), iocp_handler_(NULL)
+			:BaseAsyncSocket(service,sock), 
+			bind_flag_(false), iocp_handler_(NULL)
+			, refCount_(0)
 		{}
 		// SOCK_STREAM tcp SOCK_DGRAM udp
 		IocpAsyncSocket(BaseAsyncEventService* service, SockType type)
-			:BaseAsyncSocket(service, type), bind_flag_(false), iocp_handler_(NULL)
+			:BaseAsyncSocket(service, type), bind_flag_(false)
+			, iocp_handler_(NULL), refCount_(0)
 		{}
 
 		IocpAsyncSocket(BaseAsyncEventService* service, int af, int type, int protocol)
-			:BaseAsyncSocket(service,af, type, protocol), bind_flag_(false), iocp_handler_(NULL)
+			:BaseAsyncSocket(service,af, type, protocol), bind_flag_(false), 
+			iocp_handler_(NULL)
+			, refCount_(0)
 		{}
 	
 	public:
@@ -141,12 +141,28 @@ namespace sim
 		}
 
 		//断开链接
+		virtual SockRet DisConnect();
 
+		LONG addRef(void)
+		{
+			return ::InterlockedIncrement(&refCount_);
+		}
+
+		LONG decRef(void)
+		{
+			return ::InterlockedDecrement(&refCount_);
+		}
+
+		LONG getRefCount(void) const
+		{
+			return refCount_;
+		}
 	private:
 		bool bind_flag_;
 		HANDLE iocp_handler_;
 
-		unsigned int event_num_;
+		//引用对象
+		LONG volatile refCount_;
 	};
 
 	sim::WsaExFunction::WsaExFunction()
@@ -207,6 +223,7 @@ namespace sim
 		void*ps = Malloc(sizeof(IocpAsyncSocket));
 		if (NULL == ps)
 			return NULL;//申请失败
+
 		//调用构造
 		BaseAsyncSocket*pbase = (BaseAsyncSocket*)(new(ps)IocpAsyncSocket(this,type));
 		if (0 == AddToIocp(pbase))
@@ -247,7 +264,6 @@ namespace sim
 		
 	}*/
 	
-	//0 成功 -1 已退出 -2 超时
 	inline SockRet IocpAsyncEventService::RunOnce(unsigned int wait_ms)
 	{
 		SIM_FUNC_DEBUG();
@@ -286,7 +302,8 @@ namespace sim
 							|| socket_event->event_flag&ASYNC_FLAG_RECV))
 					{
 						SIM_LWARN("Send or Recv bytes_transfered is 0  DISCONNECT");
-						socket_event->event_flag |= ASYNC_FLAG_DISCONNECT;
+						socket_event->event_flag |= ASYNC_FLAG_ERROR;
+						socket_event->error = dw_err;
 						//socket_event->event_flag |= ASYNC_FLAG_ERROR;
 					}
 					if (socket)
@@ -364,13 +381,13 @@ namespace sim
 		if (over_lapped)
 		{
 			IocpAsyncEvent* socket_event = CONTAINING_RECORD(over_lapped, IocpAsyncEvent, overlapped);
-			if (socket_event->event_flag&ASYNC_FLAG_RELEASE)
+			/*if (socket_event->event_flag&ASYNC_FLAG_DISCONNECT)
 			{
 				SIM_LDEBUG("Iocp " << iocp_handler_ << " DeleteSock " << (void*)socket);
 				DeleteSock(socket);
-			}
+			}*/
 			//释放
-			FreeEvent(socket_event);
+			FreeEvent((BaseAsyncSocket*)socket,socket_event);
 
 		}
 		return ret;
@@ -385,19 +402,30 @@ namespace sim
 		static WsaExFunction exfunc;
 		return exfunc;
 	}
-	inline Event * IocpAsyncEventService::MallocEvent()
+	inline Event * IocpAsyncEventService::MallocEvent(BaseAsyncSocket* psock)
 	{
+		if (NULL == psock)
+		{
+			return NULL;
+		}
+		
 		SIM_FUNC_DEBUG();
 		IocpAsyncEvent*pe = (IocpAsyncEvent*)Malloc(sizeof(IocpAsyncEvent));
 		if (pe)
 		{
 			//调用构造
 			pe = new(pe)IocpAsyncEvent();
+			SIM_LDEBUG("MallocEvent " << (void*)pe);
+			IocpAsyncSocket* sock = (IocpAsyncSocket*)psock;
+			sock->addRef();
 		}
-		SIM_LDEBUG("MallocEvent " << (void*)pe);
+		else
+		{
+			SIM_LERROR("MallocEvent Fail");
+		}
 		return pe;
 	}
-	inline void IocpAsyncEventService::FreeEvent(Event * pe)
+	inline void IocpAsyncEventService::FreeEvent(BaseAsyncSocket* psock, Event* pe)
 	{
 		SIM_FUNC_DEBUG();
 		if (pe)
@@ -406,6 +434,9 @@ namespace sim
 			p->~IocpAsyncEvent();
 			Free(pe);
 			SIM_LDEBUG("FreeEvent " << (void*)pe);
+
+			//尝试关闭
+			Destroy(&psock);
 		}
 	}
 	inline SockRet IocpAsyncEventService::AddToIocp(BaseAsyncSocket * psock)
@@ -422,6 +453,7 @@ namespace sim
 			return ASYNC_FAILURE;
 		}
 		IocpAsyncSocket*p = (IocpAsyncSocket*)psock;
+		p->addRef();
 		p->SetIocpHandler(iocp_handler_);
 		return ASYNC_SUCCESS;
 	}
@@ -430,12 +462,38 @@ namespace sim
 		SIM_FUNC_DEBUG();
 		//CancelIoEx((HANDLE)psock->GetSocket(),NULL);
 		IocpAsyncSocket*piocp = (IocpAsyncSocket*)psock;
+		psock->Close();
+
+		//推送事件
+		IocpAsyncEvent* pe = (IocpAsyncEvent*)Malloc(sizeof(IocpAsyncEvent));
+		pe = new(pe)IocpAsyncEvent();
+		pe->event_flag = ASYNC_FLAG_RELEASE;
+		piocp->CallHandler((Event*)pe);
+		pe->~IocpAsyncEvent();
+		Free(pe);
+
 		//析构
 		piocp->~IocpAsyncSocket();
 		Free(piocp);
 		return SockRet(0);
 	}
-	
+	inline SockRet IocpAsyncEventService::Destroy(BaseAsyncSocket** psock)
+	{
+		SIM_FUNC_DEBUG();
+		if (NULL == psock)
+		{
+			SIM_LERROR("psock is NULL");
+			return ASYNC_ERR_NULL_PTR;
+		}
+		BaseAsyncSocket* pbase = *psock;
+		*psock = NULL;
+		IocpAsyncSocket* piocp = (IocpAsyncSocket*)pbase;
+		if (piocp->decRef() <= 0)
+		{
+			return DeleteSock(pbase);
+		}
+		return ASYNC_SUCCESS;
+	}
 	bool sim::IocpAsyncSocket::CallHandler(Event * e)
 	{
 		bool ret= BaseAsyncSocket::CallHandler(e);
@@ -443,6 +501,27 @@ namespace sim
 		/*if (e->event_flag&ASYNC_FLAG_DISCONNECT )
 			Close();*/
 		return ret;
+	}
+	inline SockRet IocpAsyncSocket::DisConnect()
+	{
+		if (NULL == pevent_)
+			return -1;
+
+		IocpAsyncEventService* ps = (IocpAsyncEventService*)pevent_;
+
+		DWORD dwBytesSent = 0;
+		DWORD dwFlags = 0;
+		DWORD dwBytes = 0;
+		IocpAsyncEvent* pe = (IocpAsyncEvent*)(ps->MallocEvent(this));
+		OVERLAPPED* lapped = &(pe->overlapped);
+		pe->event_flag = ASYNC_FLAG_DISCONNECT;
+		WsaExFunction exfunc = ps->LoadWsaExFunction();
+		int res = exfunc.__DisconnectionEx(GetSocket(), lapped, TF_REUSE_SOCKET, 0);
+
+		if ((SOCKET_ERROR == res) && (WSA_IO_PENDING != WSAGetLastError())) {
+			return ASYNC_FAILURE;
+		}
+		return ASYNC_SUCCESS;
 	}
 	SockRet sim::IocpAsyncSocket::Connect(const char * ipaddr, unsigned short port)
 	{
@@ -462,7 +541,7 @@ namespace sim
 		DWORD dwBytesSent=0;
 		DWORD dwFlags = 0;
 		DWORD dwBytes = 0;
-		IocpAsyncEvent *pe = (IocpAsyncEvent *)(ps->MallocEvent());
+		IocpAsyncEvent *pe = (IocpAsyncEvent *)(ps->MallocEvent(this));
 		OVERLAPPED *lapped = &(pe->overlapped);
 		pe->event_flag = ASYNC_FLAG_CONNECT;
 		WsaExFunction exfunc = ps->LoadWsaExFunction();
@@ -470,6 +549,7 @@ namespace sim
 			(sockaddr*)&addr, sizeof(addr), (PVOID)NULL, 0, &dwBytesSent, lapped);
 	
 		if ((SOCKET_ERROR == res) && (WSA_IO_PENDING != WSAGetLastError())) {
+			ps->FreeEvent(this, (Event*)pe);
 			return ASYNC_FAILURE;
 		}
 		return ASYNC_SUCCESS;
@@ -492,7 +572,7 @@ namespace sim
 		DWORD dwBytesSent = 0;
 		DWORD dwFlags = 0;
 		DWORD dwBytes = 0;
-		IocpAsyncEvent *pe = (IocpAsyncEvent *)(ps->MallocEvent());
+		IocpAsyncEvent *pe = (IocpAsyncEvent *)(ps->MallocEvent(this));
 		OVERLAPPED *lapped = &(pe->overlapped);
 		pe->event_flag = ASYNC_FLAG_SEND;
 		pe->cache.ptr = (char*)data;
@@ -502,6 +582,7 @@ namespace sim
 		int res = WSASend(GetSocket(), &pe->wsa_buf, 1, nullptr, 0, lapped, nullptr);
 
 		if ((SOCKET_ERROR == res) && (WSA_IO_PENDING != WSAGetLastError())) {
+			ps->FreeEvent(this, (Event*)pe);
 			return ASYNC_FAILURE;
 		}
 		return ASYNC_SUCCESS;
@@ -516,7 +597,7 @@ namespace sim
 		DWORD dwBytesSent = 0;
 		DWORD dwFlags = 0;
 		DWORD dwBytes = 0;
-		IocpAsyncEvent *pe = (IocpAsyncEvent *)(ps->MallocEvent());
+		IocpAsyncEvent *pe = (IocpAsyncEvent *)(ps->MallocEvent(this));
 		OVERLAPPED *lapped = &(pe->overlapped);
 		pe->event_flag = ASYNC_FLAG_RECV;
 		pe->cache.ptr = (char*)data;
@@ -526,29 +607,35 @@ namespace sim
 		int res = WSARecv(GetSocket(), &pe->wsa_buf, 1,  &dwBytes, &dwFlags, lapped, nullptr);
 
 		if ((SOCKET_ERROR == res) && (WSA_IO_PENDING != WSAGetLastError())) {
+			ps->FreeEvent(this, (Event*)pe);
 			return ASYNC_FAILURE;
 		}
 		return ASYNC_SUCCESS;
 	}
 	inline SockRet IocpAsyncSocket::Close()
 	{
-		if (NULL == pevent_||NULL == iocp_handler_)
-			return -1;
+		return Socket::Close();
+		//
+		//return DisConnect();
 
-		IocpAsyncEventService*ps = (IocpAsyncEventService*)pevent_;
+		//if (NULL == pevent_||NULL == iocp_handler_)
+		//	return -1;
 
-		DWORD dwBytesSent = 0;
-		DWORD dwFlags = 0;
-		DWORD dwBytes = 0;
-		IocpAsyncEvent *pe = (IocpAsyncEvent *)(ps->MallocEvent());
-		OVERLAPPED *lapped = &(pe->overlapped);
-		pe->event_flag = ASYNC_FLAG_RELEASE;
-		//int res = CancelIoEx((HANDLE)GetSocket(), lapped);
-		int res =  PostQueuedCompletionStatus(iocp_handler_, dwBytes, (ULONG_PTR)this, lapped);
-		if ((SOCKET_ERROR == res) && (WSA_IO_PENDING != WSAGetLastError())) {
-			return ASYNC_FAILURE;
-		}
-		return ASYNC_SUCCESS;
+		//IocpAsyncEventService*ps = (IocpAsyncEventService*)pevent_;
+
+		//DWORD dwBytesSent = 0;
+		//DWORD dwFlags = 0;
+		//DWORD dwBytes = 0;
+		//IocpAsyncEvent *pe = (IocpAsyncEvent *)(ps->MallocEvent(this));
+		//OVERLAPPED *lapped = &(pe->overlapped);
+		//pe->event_flag = ASYNC_FLAG_RELEASE;
+		////int res = CancelIoEx((HANDLE)GetSocket(), lapped);
+		//int res =  PostQueuedCompletionStatus(iocp_handler_, dwBytes, (ULONG_PTR)this, lapped);
+		//if ((SOCKET_ERROR == res) && (WSA_IO_PENDING != WSAGetLastError())) {
+		//	ps->FreeEvent(this, (Event*)pe);
+		//	return ASYNC_FAILURE;
+		//}
+		//return ASYNC_SUCCESS;
 	}
 }
 #endif
