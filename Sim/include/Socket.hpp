@@ -118,9 +118,9 @@ namespace sim
         
 		virtual SockRet Listen(int backlog);
         
-		virtual Socket Accept();
+		virtual SockRet Accept(Socket*client);
         
-		virtual Socket Accept(char* remote_ip, unsigned int ip_len,
+		virtual SockRet Accept(Socket* client,char* remote_ip, unsigned int ip_len,
 			unsigned short* remote_port);
         
 		virtual SockRet Send(const char* data, unsigned int data_len);
@@ -254,13 +254,20 @@ namespace sim
 	{
 		return ::listen(sock_, backlog);
 	}
-	inline Socket Socket::Accept()
+	inline SockRet Socket::Accept(Socket*s)
 	{
-		SOCKET ret = ::accept(sock_, NULL, 0);
-		return Socket((SOCKET)ret);
+		if (NULL == s)
+			return SOCK_FAILURE;
+		SOCKET accept_cli = ::accept(sock_, NULL, 0);
+		*s = accept_cli;
+		return SOCK_SUCCESS;
 	}
-	inline Socket Socket::Accept(char * remote_ip, unsigned int ip_len, unsigned short * remote_port)
+	inline SockRet Socket::Accept(Socket* s,
+		char * remote_ip, unsigned int ip_len, unsigned short * remote_port)
 	{
+		if (NULL == s)
+			return SOCK_FAILURE;
+
 		//创建sockaddr_in结构体变量
 		struct sockaddr_in addr;
 		memset(&addr, 0, sizeof(addr));  //每个字节都用0填充
@@ -272,17 +279,17 @@ namespace sim
 #ifdef OS_LINUX
 		socklen_t addr_len = sizeof(addr);
 #endif
-		SOCKET ret = ::accept(sock_, (struct sockaddr*)&addr, &addr_len);
-		if (ret == INVALID_SOCKET)
+		SOCKET accept_cli = ::accept(sock_, (struct sockaddr*)&addr, &addr_len);
+		if (accept_cli == INVALID_SOCKET)
 		{
-			return -1;
+			return SOCK_FAILURE;
 		}
 		if (!AddressToIpV4(&addr, remote_ip, ip_len, remote_port))
 		{
-			return -1;
+			return SOCK_FAILURE;
 		}
-
-		return Socket((SOCKET)ret);
+		*s = accept_cli;
+		return SOCK_SUCCESS;
 	}
 	inline SockRet Socket::Send(const char * data, unsigned int data_len)
 	{

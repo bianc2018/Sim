@@ -25,6 +25,8 @@
 #define ASYNC_ERR_EMPTY_BUFF		(-(ASYNC_ERR_BASE+4))
 //空指针
 #define ASYNC_ERR_NULL_PTR		(-(ASYNC_ERR_BASE+5))
+//不支持的功能
+#define ASYNC_ERR_NOT_SUPPORT		(-(ASYNC_ERR_BASE+6))
 
 //异步标识
 //连接
@@ -63,7 +65,7 @@ namespace sim
 		//错误
 		int error;
 		//accept事件里面返回的客户端链接
-		SOCKET accept_client;
+		BaseAsyncSocket* accept_client;
 
 #ifdef USING_SIM_LOGGER
 	public:
@@ -88,6 +90,9 @@ namespace sim
 		virtual BaseAsyncSocket* CreateBySocket(SOCKET socket) = 0;
 		virtual BaseAsyncSocket* CreateByType(SockType type) = 0;
 		virtual BaseAsyncSocket* Create(int af, int type, int protocol) = 0;
+
+		//创建一个引用 必须通过Destroy 释放
+		virtual BaseAsyncSocket* CreateRef(BaseAsyncSocket* psock) = 0;
 
 		//摧毁 释放所有资源
 		virtual SockRet Destroy(BaseAsyncSocket **psock) = 0;
@@ -169,7 +174,7 @@ namespace sim
 	}
 	inline void BaseAsyncEventService::Free(void* p)
 	{
-		if (free_)
+		if (free_&& p)
 			free_(p);
 	}
 	inline Event* BaseAsyncEventService::MallocEvent(BaseAsyncSocket *psock)

@@ -57,6 +57,8 @@ namespace sim
 		virtual BaseAsyncSocket* CreateByType(SockType type);
 		virtual BaseAsyncSocket* Create(int af, int type, int protocol);
 
+		virtual BaseAsyncSocket* CreateRef(BaseAsyncSocket* psock);
+
 		//摧毁 释放所有资源
 		virtual SockRet Destroy(BaseAsyncSocket** psock);
 
@@ -114,6 +116,12 @@ namespace sim
 
 		//关闭
 		virtual SockRet Close();
+
+		//接收链接
+		virtual SockRet Accept(Socket* s);
+
+		virtual SockRet Accept(Socket* s, char* remote_ip, unsigned int ip_len,
+			unsigned short* remote_port);
 
 		/*virtual Socket Accept();
 
@@ -251,6 +259,18 @@ namespace sim
 		//失败释放
 		DeleteSock(pbase);
 		return NULL;
+	}
+	inline BaseAsyncSocket* IocpAsyncEventService::CreateRef(BaseAsyncSocket* psock)
+	{
+		SIM_FUNC_DEBUG();
+		if (NULL == psock)
+		{
+			SIM_LERROR("cannt create ref by NULL");
+			return NULL;
+		}
+		IocpAsyncSocket* temp = (IocpAsyncSocket*)psock;
+		temp->addRef();
+		return temp;
 	}
 	/*inline SockRet IocpAsyncEventService::Release(BaseAsyncSocket * psock)
 	{
@@ -494,9 +514,12 @@ namespace sim
 		}
 		return ASYNC_SUCCESS;
 	}
+	
 	bool sim::IocpAsyncSocket::CallHandler(Event * e)
 	{
 		bool ret= BaseAsyncSocket::CallHandler(e);
+		if (e->event_flag & ASYNC_FLAG_ACCEPT)
+			pevent_->Free(e->cache.ptr);
 		//异常关闭
 		/*if (e->event_flag&ASYNC_FLAG_DISCONNECT )
 			Close();*/
@@ -636,6 +659,42 @@ namespace sim
 		//	return ASYNC_FAILURE;
 		//}
 		//return ASYNC_SUCCESS;
+	}
+	inline SockRet IocpAsyncSocket::Accept(Socket* s)
+	{
+		if (NULL == pevent_)
+			return ASYNC_FAILURE;
+
+		IocpAsyncEventService* ps = (IocpAsyncEventService*)pevent_;
+
+		DWORD dwBytesRecv = 0;
+		DWORD dwFlags = 0;
+		DWORD dwBytes = 0;
+		IocpAsyncEvent* pe = (IocpAsyncEvent*)(ps->MallocEvent(this));
+		OVERLAPPED* lapped = &(pe->overlapped);
+		pe->event_flag = ASYNC_FLAG_ACCEPT;
+		//通常可以创建一个套接字库 这个一般是tcp
+		pe->accept_client = ps->CreateByType(TCP);
+		pe->accept_client->SetHandler(handler_, pdata_);
+		const int addr_size = sizeof(SOCKADDR_IN) + 16;
+		pe->cache.size = 2 * addr_size;
+		pe->cache.ptr = (char*)ps->Malloc(2 * addr_size);
+		WsaExFunction exfunc = ps->LoadWsaExFunction();
+		int res = exfunc.__AcceptEx(GetSocket(),pe->accept_client->GetSocket(),
+			pe->cache.ptr, pe->cache.size-2* addr_size, addr_size, addr_size,
+			&dwBytesRecv,lapped);
+
+		if ((SOCKET_ERROR == res) && (WSA_IO_PENDING != WSAGetLastError())) {
+			ps->FreeEvent(this, (Event*)pe);
+			ps->Destroy(&(pe->accept_client));
+			return ASYNC_FAILURE;
+		}
+		return ASYNC_SUCCESS;
+	}
+	inline SockRet IocpAsyncSocket::Accept(Socket* s,
+		char* remote_ip, unsigned int ip_len, unsigned short* remote_port)
+	{
+		return ASYNC_ERR_NOT_SUPPORT;
 	}
 }
 #endif
