@@ -5,6 +5,7 @@
 #define SIM_LOGGER_HPP_
 #include <stdio.h>
 #include <sstream>
+#include <string>
 #include <iomanip>
 
 //平台相关
@@ -13,27 +14,34 @@
 		#define OS_WINDOWS
 	#endif
 	#include <Windows.h>
-
+	
 #elif defined(linux) || defined(__linux) || defined(__linux__)
 	#ifndef OS_LINUX
 		#define OS_LINUX
 	#endif 
-	#define NONE         "/033[m"
-	#define RED          "/033[0;32;31m"
-	#define LIGHT_RED    "/033[1;31m"
-	#define GREEN        "/033[0;32;32m"
-	#define LIGHT_GREEN  "/033[1;32m"
-	#define BLUE         "/033[0;32;34m"
-	#define LIGHT_BLUE   "/033[1;34m"
-	#define DARY_GRAY    "/033[1;30m"
-	#define CYAN         "/033[0;36m"
-	#define LIGHT_CYAN   "/033[1;36m"
-	#define PURPLE       "/033[0;35m"
-	#define LIGHT_PURPLE "/033[1;35m"
-	#define BROWN        "/033[0;33m"
-	#define YELLOW       "/033[1;33m"
-	#define LIGHT_GRAY   "/033[0;37m"
-	#define WHITE        "/033[1;37m"
+	#include <pthread.h>
+	#include <stdio.h>
+	#include <stdlib.h>
+	#include <sys/time.h>
+	#include <unistd.h>
+	typedef pthread_mutex_t CRITICAL_SECTION;
+
+	#define NONE         "\033[m"
+	#define RED          "\033[0;32;31m"
+	#define LIGHT_RED    "\033[1;31m"
+	#define GREEN        "\033[0;32;32m"
+	#define LIGHT_GREEN  "\033[1;32m"
+	#define BLUE         "\033[0;32;34m"
+	#define LIGHT_BLUE   "\033[1;34m"
+	#define DARY_GRAY    "\033[1;30m"
+	#define CYAN         "\033[0;36m"
+	#define LIGHT_CYAN   "\033[1;36m"
+	#define PURPLE       "\033[0;35m"
+	#define LIGHT_PURPLE "\033[1;35m"
+	#define BROWN        "\033[0;33m"
+	#define YELLOW       "\033[1;33m"
+	#define LIGHT_GRAY   "\033[0;37m"
+	#define WHITE        "\033[1;37m"
 #else
 	#error "不支持的平台"
 #endif
@@ -50,12 +58,16 @@
 	#define SIM_FUNC(lv)\
 		sim::LoggerFunction LoggerFunction1263637187321356273517631263(lv,__FUNCTION__,__LINE__)
 	#define SIM_FUNC_DEBUG() SIM_FUNC(sim::LDebug)
-	//配置
-	#define SIM_LOG_CONFIG(max_lv,handler,userdata)\
-	{\
-		sim::Logger::GetLog().SetMaxLogLevel(max_lv);\
-		sim::Logger::GetLog().SetHandler(handler,userdata);\
-	}
+	
+	//新增输出流
+	#define SIM_LOG_ADD(Stream,...) sim::Logger::GetLog().AddStream(new Stream(__VA_ARGS__))
+	//配置输出句柄
+	#define SIM_LOG_HANDLER(max_lv,handler,userdata) SIM_LOG_ADD(sim::LogHandlerStream,handler,userdata,max_lv)
+
+	//配置控制台输出
+	#define SIM_LOG_CONSOLE(max_lv)\
+		SIM_LOG_ADD(sim::LogConsoleStream,max_lv)
+
 	#define SIM_LOG(lv,x)\
 	{\
 		std::ostringstream oss;\
@@ -101,8 +113,240 @@ namespace sim
 		const char* msg,
 		void* userdata);
 
+	//日志输出流
+	class LogStream
+	{
+	public:
+		LogStream(LogLevel max_level = LInfo) :max_level_(max_level)
+		{}
+		//输入
+		virtual void Input(LogLevel lv,
+			const char* func,
+			unsigned int line,
+			const char* msg)=0;
+		virtual bool isVaild() { return true; };
+	protected:
+		//获取当前时间的字符串
+		virtual std::string get_time_str(const std::string& fmt = "%Y-%m-%d %H:%M:%S")
+		{
+			time_t t;  //秒时间  
+			tm * local; //本地时间   
+			char buf[128] = { 0 };
+			t = time(NULL); //获取目前秒时间  
+			local = localtime(&t); //转为本地时间  
+			strftime(buf, 64, fmt.c_str(), local);
+			return buf;
+		}
+		//获取线程id
+		unsigned int get_this_thread_id()
+		{
+#ifdef OS_WINDOWS
+			return::GetCurrentThreadId();
+#else
+			return pthread_self();
+#endif
+		}
+		//获取毫秒数
+		short get_now_milliseconds()
+		{
+#ifdef OS_WINDOWS
+			SYSTEMTIME st = { 0 };
+			GetLocalTime(&st);  //获取当前时间 可精确到ms
+			return st.wMilliseconds;
+#else
+			struct timeval time;
+
+			/* 获取时间，理论到us */
+			gettimeofday(&time, NULL);
+			return time.tv_usec / 1000;
+#endif
+		}
+
+		//获取日志级别描述
+		const char* get_lv_str(LogLevel lv)
+		{
+			static char LvInfo[5][8] = { "None","Error","Warning","Info","Debug" };
+			return LvInfo[lv];
+		}
+	protected:
+		//最大日志级别 大于这个的大于这个日志不输出
+		LogLevel max_level_;
+	};
+
+	//设置输出句柄的
+	class LogHandlerStream :public LogStream
+	{
+	public:
+		LogHandlerStream(LoggerHandler handler,
+			void* userdata=NULL,LogLevel max_level = LInfo) :LogStream(max_level)
+		{}
+		//输入
+		virtual void Input(LogLevel lv,
+			const char* func,
+			unsigned int line,
+			const char* msg)
+		{
+			if (lv > max_level_)
+				return;
+			handler_(lv, func, line, msg, userdata_);
+		}
+		virtual bool isVaild()
+		{
+			return handler_ != NULL;
+		}
+	private:
+		LoggerHandler handler_;
+		void* userdata_;
+	};
+
+	// console 控制台输出
+	class LogConsoleStream :public LogStream
+	{
+	public:
+		LogConsoleStream(LogLevel max_level = LInfo) :LogStream(max_level)
+		{
+#ifdef OS_WINDOWS
+			std_handle_ = GetStdHandle(STD_OUTPUT_HANDLE);
+#endif
+		}
+
+		//输入
+		virtual void Input(LogLevel lv,
+			const char* func,
+			unsigned int line,
+			const char* msg)
+		{
+			if (lv > max_level_)
+				return;
+
+			//printf("%-8s %-30s %4u:%s\n", LvInfo[lv], func, line, msg);
+#ifdef OS_WINDOWS
+			if (lv == LError)
+			{
+				SetConsoleTextAttribute(std_handle_, FOREGROUND_INTENSITY | FOREGROUND_RED);
+				printf("%s.%03d %6u %s.%s.%u: %s\n", get_time_str().c_str(), get_now_milliseconds(),
+					get_this_thread_id(),
+					get_lv_str(lv), func, line, msg);
+				SetConsoleTextAttribute(std_handle_,
+					FOREGROUND_RED |
+					FOREGROUND_GREEN |
+					FOREGROUND_BLUE);
+			}
+			else
+			{
+				printf("%s.%03d %6u %s.%s.%u: %s\n", get_time_str().c_str(),
+					 get_now_milliseconds(),
+					get_this_thread_id(),
+					get_lv_str(lv), func, line, msg);
+			}
+#else
+		///033[1;31;40m 输出红色字符 /033[0m
+			if (lv == LError)
+				//printf("/033[1;31;40m  %s.%s.%u: %s /033[0m\n", LvInfo[lv], func, line, msg);
+				printf(RED"%s.%03d %6u %s.%s.%u: %s"NONE"\n", get_time_str().c_str(),
+					get_now_milliseconds(),
+				get_this_thread_id(),
+					get_lv_str(lv), func, line, msg);
+			else
+				printf("%s.%03d %6u %s.%s.%u: %s\n", get_time_str().c_str(),
+					get_now_milliseconds(),
+					get_this_thread_id(),
+					get_lv_str(lv), func, line, msg);
+#endif
+		}
+		virtual bool isVaild()
+		{
+			return true;
+		}
+	private:
+#ifdef OS_WINDOWS
+		HANDLE std_handle_;
+#endif
+	};
+
+	//日志文件输出(单文件的)
+	class LogFileStream :public LogStream
+	{
+	public:
+		LogFileStream(LogLevel max_level,const std::string& dir,
+			const std::string& name,
+			const std::string& ext = "log",//后缀
+			long long max_byte = 4 * 1024 * 1024 * 1024//最大大小 4M
+		)
+			:LogStream(max_level),
+			fp_(NULL),
+			dir_(dir),
+			name_(name),
+			ext_(ext),
+			max_byte_(max_byte)
+		{
+
+		}
+		~LogFileStream()
+		{
+			if (fp_)
+			{
+				//刷新
+				fflush(fp_);
+				fclose(fp_);
+			}
+		}
+		//输入
+		virtual void Input(LogLevel lv,
+			const char* func,
+			unsigned int line,
+			const char* msg)
+		{
+			if (lv > max_level_)
+				return;
+			FILE* pfile = get_file_handle();
+			if (NULL == pfile)
+			{
+				return;
+			}
+			fprintf(pfile,"%s.%03d %6u %s.%s.%u: %s\n", get_time_str().c_str(),
+				get_now_milliseconds(),
+				get_this_thread_id(),
+				get_lv_str(lv), func, line, msg);
+		}
+	private:
+		//创建文件夹
+		bool create_dir(const std::string &dir);
+		//获取文件句柄
+		FILE* get_file_handle()
+		{
+			if (NULL == fp_)
+			{
+				//打开
+				std::string filename = dir_ + "/" + name_ + get_time_str("_%Y_%m_%d_%H_%M_%S.") + ext_;
+				fp_ = fopen(filename.c_str(), "w");
+			}
+			return fp_;
+		}
+	private:
+		std::string dir_;
+		std::string name_;
+		std::string ext_;
+		long long max_byte_;
+		//文件句柄
+		FILE* fp_;
+	};
+
 	class Logger
 	{
+		//节点
+		class LogStreamNode
+		{
+		public:
+			LogStream *pStream;
+			LogStreamNode* pNext;
+			LogStreamNode(LogStream* pS)
+				:pStream(pS), pNext(NULL)
+			{
+
+			}
+		};
+
 		//全局
 		Logger();
 		Logger(const Logger&) {};
@@ -115,28 +359,12 @@ namespace sim
 			const char* func,
 			unsigned int line,
 			const char* msg);
-		//设置句柄
-		bool SetHandler(LoggerHandler handler, void* userdata);
-		//设置最大日志级别
-		bool SetMaxLogLevel(LogLevel max_level);
+		//初始化
+		bool AddStream(LogStream* pStream);
+		~Logger();
 	private:
-		//默认打印
-		void DefaultLog(LogLevel lv,
-			const char* func,
-			unsigned int line,
-			const char* msg,
-			void*userdata);
-	private:
-		//日志参数
-		//最大日志级别 大于这个的大于这个日志不输出
-		LogLevel max_level_;
-		//日志输出句柄
-		LoggerHandler handler_;
-		//用户数据
-		void* userdata_;
-#ifdef OS_WINDOWS
-		HANDLE std_handle_;
-#endif
+		CRITICAL_SECTION lock_;
+		LogStreamNode* phead_;
 	};
 
 	//函数接口输入
@@ -152,15 +380,15 @@ namespace sim
 	};
 
 	inline Logger::Logger()
-		:max_level_(LError)
-		, handler_(NULL)
-		, userdata_(NULL)
-		, std_handle_ (NULL)
+		:phead_(NULL)
 	{
-		std_handle_ = GetStdHandle(STD_OUTPUT_HANDLE);
+#ifdef OS_WINDOWS
+		InitializeCriticalSection(&lock_);
+#else
+		pthread_mutex_init(&lock_, NULL);
+#endif
 	}
-
-	Logger& sim::Logger::GetLog()
+	Logger& Logger::GetLog()
 	{
 		static Logger glog;
 		return glog;
@@ -168,57 +396,83 @@ namespace sim
 	inline void Logger::Log(LogLevel lv, const char* func,
 		unsigned int line, const char* msg)
 	{
-		if (lv > max_level_)
-			return;
-		if (handler_)
-		{
-			handler_(lv, func, line, msg, userdata_);
-		}
-		else
-		{
-			DefaultLog(lv, func, line, msg, userdata_);
-		}
-		return ;
-	}
-
-	inline bool Logger::SetHandler(LoggerHandler handler, void* userdata)
-	{
-		handler_ = handler;
-		userdata_ = userdata;
-		return true;
-	}
-	inline bool Logger::SetMaxLogLevel(LogLevel max_level)
-	{
-		max_level_ = max_level;
-		return true;
-	}
-	inline void Logger::DefaultLog(LogLevel lv, 
-		const char* func,
-		unsigned int line,
-		const char* msg,void* userdata)
-	{
-		static char LvInfo[5][8] = { "None","Error","Warning","Info","Debug"};
-		//printf("%-8s %-30s %4u:%s\n", LvInfo[lv], func, line, msg);
 #ifdef OS_WINDOWS
-		if (lv == LError)
-		{
-			SetConsoleTextAttribute(std_handle_, FOREGROUND_INTENSITY | FOREGROUND_RED);
-			printf("%s.%s.%u: %s\n", LvInfo[lv], func, line, msg);
-			SetConsoleTextAttribute(std_handle_,
-				FOREGROUND_RED |
-				FOREGROUND_GREEN |
-				FOREGROUND_BLUE);
-		}
-		else
-		{
-			printf("%s.%s.%u: %s\n", LvInfo[lv], func, line, msg);
-		}
+		EnterCriticalSection(&lock_);
 #else
-		///033[1;31;40m 输出红色字符 /033[0m
-		if (lv == LError)
-			printf("/033[1;31;40m  %s.%s.%u: %s /033[0m\n", LvInfo[lv], func, line, msg);
-		else
-			printf("%s.%s.%u: %s\n", LvInfo[lv], func, line, msg);
+		pthread_mutex_lock(&lock_);
+#endif
+		LogStreamNode* pTemp = phead_;
+		while (pTemp)
+		{
+			pTemp->pStream->Input(lv, func, line, msg);
+			pTemp = pTemp->pNext;
+		}
+#ifdef OS_WINDOWS
+		LeaveCriticalSection(&lock_);
+#else
+		pthread_mutex_unlock(&lock_);
+#endif
+	}
+	inline bool Logger::AddStream(LogStream* pStream)
+	{
+
+		if (pStream && pStream->isVaild())
+		{
+#ifdef OS_WINDOWS
+			EnterCriticalSection(&lock_);
+#else
+			pthread_mutex_lock(&lock_);
+#endif
+			if (NULL == phead_)
+			{
+				phead_ = new LogStreamNode(pStream);
+#ifdef OS_WINDOWS
+				LeaveCriticalSection(&lock_);
+#else
+				pthread_mutex_unlock(&lock_);
+#endif
+				return true;
+			}
+
+			LogStreamNode* pTemp = phead_;
+			while (pTemp->pNext)
+			{
+				pTemp = pTemp->pNext;
+			}
+			pTemp->pNext = new LogStreamNode(pStream);
+#ifdef OS_WINDOWS
+			LeaveCriticalSection(&lock_);
+#else
+			pthread_mutex_unlock(&lock_);
+#endif
+			return true;
+		}
+		return false;
+	}
+	inline Logger::~Logger()
+	{
+#ifdef OS_WINDOWS
+		EnterCriticalSection(&lock_);
+#else
+		pthread_mutex_lock(&lock_);
+#endif
+		LogStreamNode* pTemp = phead_;
+		while (pTemp)
+		{
+			LogStreamNode* pn = pTemp->pNext;
+			delete pTemp->pStream;
+			delete pTemp;
+			pTemp = pn;
+		}
+#ifdef OS_WINDOWS
+		LeaveCriticalSection(&lock_);
+#else
+		pthread_mutex_unlock(&lock_);
+#endif
+#ifdef OS_WINDOWS
+		DeleteCriticalSection(&lock_);
+#else
+		pthread_mutex_destroy(&lock_);
 #endif
 	}
 
