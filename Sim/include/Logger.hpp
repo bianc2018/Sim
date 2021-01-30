@@ -24,6 +24,7 @@
 	#include <stdlib.h>
 	#include <sys/time.h>
 	#include <unistd.h>
+	#include <sys/stat.h>
 	typedef pthread_mutex_t CRITICAL_SECTION;
 
 	#define NONE         "\033[m"
@@ -268,17 +269,19 @@ namespace sim
 	class LogFileStream :public LogStream
 	{
 	public:
-		LogFileStream(LogLevel max_level,const std::string& dir,
+		LogFileStream(LogLevel max_level, const std::string& dir,
 			const std::string& name,
 			const std::string& ext = "log",//后缀
-			long long max_byte = 4 * 1024 * 1024 * 1024//最大大小 4M
+			long max_byte = 1024 * 1024 * 1024,//最大大小 1G
+			bool f = true
 		)
 			:LogStream(max_level),
 			fp_(NULL),
 			dir_(dir),
 			name_(name),
 			ext_(ext),
-			max_byte_(max_byte)
+			max_byte_(max_byte),
+			fflush_(f)
 		{
 
 		}
@@ -308,6 +311,9 @@ namespace sim
 				get_now_milliseconds(),
 				get_this_thread_id(),
 				get_lv_str(lv), func, line, msg);
+
+			if(fflush_)
+				fflush(pfile);
 		}
 	private:
 		//创建文件夹
@@ -318,8 +324,21 @@ namespace sim
 			if (NULL == fp_)
 			{
 				//打开
-				std::string filename = dir_ + "/" + name_ + get_time_str("_%Y_%m_%d_%H_%M_%S.") + ext_;
+				std::string filename = dir_ + "/" + name_ + get_time_str("_%Y%m%d%H%M%S.") + ext_;
 				fp_ = fopen(filename.c_str(), "w");
+			}
+			else
+			{
+				//超过了最大大小 重新打开
+			/*	long len = ftell(fp_);
+				printf("len %ld\n", len);*/
+				if (ftell(fp_) >= max_byte_)
+				{
+					fflush(fp_);
+					fclose(fp_);
+					fp_ = NULL;
+					return get_file_handle();
+				}
 			}
 			return fp_;
 		}
@@ -327,9 +346,11 @@ namespace sim
 		std::string dir_;
 		std::string name_;
 		std::string ext_;
-		long long max_byte_;
+		long max_byte_;
 		//文件句柄
 		FILE* fp_;
+		//是否每一次写入的时候总是刷新
+		bool fflush_;
 	};
 
 	class Logger
