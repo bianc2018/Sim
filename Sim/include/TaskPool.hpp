@@ -238,6 +238,9 @@ namespace sim
 
 		bool Post(TaskFunc pFunc, void* pUserData,TaskComplete pComplete);
 
+		//返回任务队列数目
+		QueueSizeT GetTaskNum();
+
 	private:
 		bool PostTask(const Task& t);
 
@@ -344,7 +347,14 @@ namespace sim
 		t.pUserData = pUserData;
 		return PostTask(t);
 	}
-
+	inline QueueSizeT TaskPool::GetTaskNum()
+	{
+		{
+			//获取
+			AutoMutex lk(task_lock_);
+			return task_queue_.Size();
+		}
+	}
 	inline bool TaskPool::PostTask(const Task& t)
 	{
 		{
