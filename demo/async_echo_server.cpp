@@ -1,6 +1,10 @@
 #include "Async.hpp"
+#include "TaskPool.hpp"
 
 sim::AsyncEventService service;
+
+void* Connect(void* pd);
+
 #include<iomanip>  
 char* recvbuff = NULL;
 char* buff = NULL;
@@ -20,7 +24,7 @@ void AsyncEventHandlerCB(sim::BaseAsyncSocket* sock, sim::Event* e, void* pdata)
 		}
 		else
 		{
-			if (e->event_flag == ASYNC_FLAG_ACCEPT)
+			if (e->event_flag & ASYNC_FLAG_ACCEPT)
 			{
 				sock->Accept(NULL);
 
@@ -30,14 +34,19 @@ void AsyncEventHandlerCB(sim::BaseAsyncSocket* sock, sim::Event* e, void* pdata)
 				e->accept_client->Recv(pbuff, buff_size);
 				//service.Destroy(&e->accept_client);
 			}
-			else if (e->event_flag == ASYNC_FLAG_SEND)
+			if (e->event_flag & ASYNC_FLAG_CONNECT)//Á´½Ó
+			{
+				sock->Close();
+				Connect(NULL);
+			}
+			else if (e->event_flag & ASYNC_FLAG_SEND)
 			{
 				SIM_LINFO("send ok " << std::string(e->cache.ptr, e->bytes_transfered) << " " << e->bytes_transfered);
 				/*if (e->cache.ptr)
 					delete[]e->cache.ptr;*/
 				sock->Recv(e->cache.ptr, e->cache.size);
 			}
-			else if (e->event_flag == ASYNC_FLAG_RECV)
+			else if (e->event_flag & ASYNC_FLAG_RECV)
 			{
 				SIM_LINFO("recv ok " <<std::string(e->cache.ptr, e->bytes_transfered) << " " << e->bytes_transfered);
 				sock->Send(e->cache.ptr, e->bytes_transfered);
@@ -51,6 +60,27 @@ void AsyncEventHandlerCB(sim::BaseAsyncSocket* sock, sim::Event* e, void* pdata)
 		}
 	}
 }
+
+
+void* Connect(void* pd)
+{
+	sim::AsyncSocket* sock = service.CreateByType(sim::TCP);
+	sock->SetHandler(AsyncEventHandlerCB, sock);
+	sock->Connect("127.0.0.1", 10000);
+	service.Destroy(&sock);
+	return NULL;
+
+	
+}
+
+void* run(void*pd)
+{
+	sim::AsyncSocket* sock = (sim::AsyncSocket*)(pd);
+	sim::SockRet ret = sock->Accept(NULL);
+	SIM_LINFO("Accept 127.0.0.1,s=" << ret);
+	service.Run(100);
+	return NULL;
+}
 int main(int argc, char* argv[])
 {
 	SIM_LOG_CONFIG(sim::LInfo, NULL, NULL);
@@ -63,10 +93,17 @@ int main(int argc, char* argv[])
 	SIM_LINFO("Bind 127.0.0.1,ret=" << ret);
 	ret = sock->Listen(1024);
 	SIM_LINFO("Listen 127.0.0.1,ret=" << ret);
-	ret = sock->Accept(NULL);
-	SIM_LINFO("Accept 127.0.0.1,s=" << ret);
+	
+
+	sim::TaskPool pool(8);
+	for(int i=0;i<5;++i)
+		pool.Post(run, sock, NULL);
+	getchar();
+	for (int i = 0; i < 10000; ++i)
+		pool.Post(Connect, NULL, NULL);
 	//service.Destroy(&sock);
-	service.Run(1000);
+	//service.Run(1000);
+	getchar();
 	return 0;
 }
 
