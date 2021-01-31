@@ -80,19 +80,29 @@
 	#define SIM_LWARN(x) SIM_LOG(sim::LWarn,x)
 	#define SIM_LERROR(x) SIM_LOG(sim::LError,x)
 #else
+	//格式
 	#define SIM_FORMAT_NUM(num,base,w,f)	
 	#define SIM_FORMAT_STR(str,w,f)			
 	#define SIM_HEX(num) 
 	#define SIM_FORMAT_STR0(str,w) 
 
+	//防止重名
 	#define SIM_FUNC(lv)
-	#define SIM_FUNC_DEBUG() SIM_FUNC(sim::LDebug)
-	#define SIM_LOG_CONFIG(max_lv,handler,userdata)
-	#define SIM_LOG(lv,x) 
-	#define SIM_LDEBUG(x) SIM_LOG(sim::LDebug,x)
-	#define SIM_LINFO(x) SIM_LOG(sim::LInfo,x)
-	#define SIM_LWARN(x) SIM_LOG(sim::LWarn,x)
-	#define SIM_LERROR(x) SIM_LOG(sim::LError,x)
+	#define SIM_FUNC_DEBUG() 
+
+	//新增输出流
+	#define SIM_LOG_ADD(Stream,...) 
+	//配置输出句柄
+	#define SIM_LOG_HANDLER(max_lv,handler,userdata) 
+
+	//配置控制台输出
+	#define SIM_LOG_CONSOLE(max_lv)
+
+	#define SIM_LOG(lv,x)
+	#define SIM_LDEBUG(x) 
+	#define SIM_LINFO(x) 
+	#define SIM_LWARN(x) 
+	#define SIM_LERROR(x)
 #endif // !SIM_NO_LOGGER
 
 namespace sim
@@ -179,7 +189,9 @@ namespace sim
 	{
 	public:
 		LogHandlerStream(LoggerHandler handler,
-			void* userdata=NULL,LogLevel max_level = LInfo) :LogStream(max_level)
+			void* userdata=NULL,LogLevel max_level = LInfo) 
+			:LogStream(max_level)
+			, handler_(NULL), userdata_(NULL)
 		{}
 		//输入
 		virtual void Input(LogLevel lv,
