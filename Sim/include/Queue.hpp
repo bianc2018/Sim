@@ -110,7 +110,7 @@ namespace sim
 		{
 			pHead = pTail = NULL;
 			qsize = 0;
-			return true;
+			//return true;
 		}
 		else
 		{
