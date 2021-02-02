@@ -52,7 +52,7 @@
 	//格式
 	#define SIM_FORMAT_NUM(num,base,w,f)	std::setbase(base) << std::setw(w) << std::setfill(f) << num
 	#define SIM_FORMAT_STR(str,w,f)			std::setw(2) << std::setfill(f) << str
-	#define SIM_HEX(num) SIM_FORMAT_NUM(num,16,8,'0');
+	#define SIM_HEX(num) SIM_FORMAT_NUM(num,16,8,'0')
 	#define SIM_FORMAT_STR0(str,w) SIM_FORMAT_STR(str,w,' ')
 
 	//防止重名
