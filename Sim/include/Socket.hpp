@@ -11,6 +11,7 @@
 	#ifndef _WINSOCK_DEPRECATED_NO_WARNINGS
 		#define _WINSOCK_DEPRECATED_NO_WARNINGS 1
 	#endif
+	
     #include <stdio.h>
     #include <WinSock2.h>
     #ifndef INVALID_SOCKET
@@ -93,6 +94,7 @@ namespace sim
         /* data */
         //原始套接字
         SOCKET sock_;
+
     public:
         //构造函数
 		Socket();
@@ -195,7 +197,8 @@ namespace sim
 	}
 	inline Socket::~Socket()
 	{
-		Close();
+		//取消自动关闭
+		//Close();
 	}
 	inline SockRet Socket::GetHostByName(const char * szHost, GetHostByNameCallBack cb, void * pdata)
 	{
