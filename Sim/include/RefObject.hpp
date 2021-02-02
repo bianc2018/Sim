@@ -90,16 +90,15 @@ namespace sim
 #endif
 	};
 
-	//
+	//引用归零的时候使用的删除器
+	typedef void(*RefObjectDelete)(void* ptr, void*pdata);
+
 	template <typename T>
 	class RefObject
 	{
-		//引用归零的时候使用的删除器
-		typedef void(*RefObjectDelete)(T* ptr);
-
 	public:
-		RefObject(T* p=NULL, RefObjectDelete deleter=NULL)
-			:ptr_(p), deleter_(deleter), ref_count_ptr_(new RefCountable(1))
+		RefObject(T* p=NULL, RefObjectDelete deleter=NULL, void*pdata=NULL)
+			:ptr_(p), deleter_(deleter), ref_count_ptr_(new RefCountable(1)), pdata_(pdata)
 		{
 			//新增引用
 			//add_ref();
@@ -113,7 +112,8 @@ namespace sim
 		RefObject(const RefObject<T>& orig)
 			:ptr_(orig.ptr_),
 			deleter_(orig.deleter_),
-			ref_count_ptr_(orig.ref_count_ptr_)
+			ref_count_ptr_(orig.ref_count_ptr_),
+			pdata_(orig.pdata_)
 		{
 			ref_count_ptr_->add_ref();
 		}
@@ -127,6 +127,7 @@ namespace sim
 				ptr_ = rhs.ptr_;
 				ref_count_ptr_ = rhs.ref_count_ptr_;
 				deleter_ = rhs.deleter_;
+				pdata_ = rhs.pdata_;
 			}
 			return *this;
 		}
@@ -151,6 +152,19 @@ namespace sim
 		{
 			return *ptr_;
 		}
+		//获取指针
+		T* get()
+		{
+			return ptr_;
+		}
+		operator bool()
+		{
+			return NULL != ptr_;
+		}
+		/*operator nullptr()
+		{
+			return ptr_;
+		}*/
 	private:
 		void release()
 		{
@@ -160,7 +174,7 @@ namespace sim
 				if (ptr_)
 				{
 					if (deleter_)
-						deleter_(ptr_);
+						deleter_(ptr_, pdata_);
 					else
 						delete ptr_;
 				}
@@ -175,7 +189,7 @@ namespace sim
 		//指针
 		T* ptr_;
 		RefObjectDelete deleter_;
-
+		void*pdata_;
 		//引用计数指针
 		RefCountable*ref_count_ptr_;
 	};
