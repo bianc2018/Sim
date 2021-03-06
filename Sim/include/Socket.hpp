@@ -130,9 +130,9 @@ namespace sim
         
 		virtual SockRet Listen(int backlog);
         
-		virtual SockRet Accept(Socket*client, int wait_ms = -1);
+		virtual SockRet Accept(Socket&client, int wait_ms = -1);
         
-		virtual SockRet Accept(Socket* client,char* remote_ip, unsigned int ip_len,
+		virtual SockRet Accept(Socket& client,char* remote_ip, unsigned int ip_len,
 			unsigned short* remote_port, int wait_ms = -1);
         
 		virtual SockRet Send(const char* data, unsigned int data_len, int wait_ms = -1);
@@ -329,10 +329,10 @@ namespace sim
 	{
 		return ::listen(sock_, backlog);
 	}
-	inline SockRet Socket::Accept(Socket*s, int wait_ms)
+	inline SockRet Socket::Accept(Socket&s, int wait_ms)
 	{
-		if (NULL == s)
-			return SOCK_FAILURE;
+		/*if (NULL == s)
+			return SOCK_FAILURE;*/
 		
 		int wait_ret = WaitTimeOut(WAIT_READ, wait_ms);
 		if (wait_ret != SOCK_SUCCESS)
@@ -341,14 +341,14 @@ namespace sim
 		}
 
 		SOCKET accept_cli = ::accept(sock_, NULL, 0);
-		*s = accept_cli;
+		s = accept_cli;
 		return SOCK_SUCCESS;
 	}
-	inline SockRet Socket::Accept(Socket* s,
+	inline SockRet Socket::Accept(Socket& s,
 		char * remote_ip, unsigned int ip_len, unsigned short * remote_port, int wait_ms)
 	{
-		if (NULL == s)
-			return SOCK_FAILURE;
+		/*if (NULL == s)
+			return SOCK_FAILURE;*/
 
 		int wait_ret = WaitTimeOut(WAIT_READ, wait_ms);
 		if (wait_ret != SOCK_SUCCESS)
@@ -376,7 +376,7 @@ namespace sim
 		{
 			return SOCK_FAILURE;
 		}
-		*s = accept_cli;
+		s = accept_cli;
 		return SOCK_SUCCESS;
 	}
 	inline SockRet Socket::Send(const char * data, unsigned int data_len, int wait_ms)
