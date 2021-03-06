@@ -99,8 +99,10 @@ namespace sim
 					return false;
 				}
 			}
+			T* pt = Ptr(size_);
 			//¿½±´
-			*Ptr(size_) = t;
+			//*Ptr(size_) = t;
+			pt = new(pt)T(t);
 			//ÐÂÔö
 			++size_;
 			return true;
