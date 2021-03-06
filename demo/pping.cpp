@@ -3,7 +3,7 @@
 
 #include <string>
 #include <sstream>
-
+#include "Logger.hpp"
 #include "Array.hpp"
 #include "Socket.hpp"
 #include "Queue.hpp"

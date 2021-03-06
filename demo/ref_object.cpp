@@ -23,7 +23,8 @@ void* run(void* pd)
 }
 int main(int argc, char* argv[])
 {
-	SIM_LOG_CONFIG(sim::LInfo, NULL, NULL);
+	SIM_LOG_CONSOLE(sim::LInfo);
+
 	SIM_FUNC_DEBUG();
 
 	sim::RefObject<faketype> ref(new faketype());

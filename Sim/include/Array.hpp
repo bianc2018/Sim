@@ -8,33 +8,33 @@
 #include <string.h>
 
 //日志宏
-#ifndef USING_SIM_LOGGER
-#include "Logger.hpp"
-#else
-	//格式
-#define SIM_FORMAT_NUM(num,base,w,f)	
-#define SIM_FORMAT_STR(str,w,f)			
-#define SIM_HEX(num) 
-#define SIM_FORMAT_STR0(str,w) 
-
-//防止重名
-#define SIM_FUNC(lv)
-#define SIM_FUNC_DEBUG() 
-
-//新增输出流
-#define SIM_LOG_ADD(Stream,...) 
-//配置输出句柄
-#define SIM_LOG_HANDLER(max_lv,handler,userdata) 
-
-//配置控制台输出
-#define SIM_LOG_CONSOLE(max_lv)
-
-#define SIM_LOG(lv,x)
-#define SIM_LDEBUG(x) 
-#define SIM_LINFO(x) 
-#define SIM_LWARN(x) 
-#define SIM_LERROR(x)
-#endif // !USING_SIM_LOGGER
+//#ifndef SIM_NO_LOGGER
+//#include "Logger.hpp"
+//#else
+//	//格式
+//#define SIM_FORMAT_NUM(num,base,w,f)	
+//#define SIM_FORMAT_STR(str,w,f)			
+//#define SIM_HEX(num) 
+//#define SIM_FORMAT_STR0(str,w) 
+//
+////防止重名
+//#define SIM_FUNC(lv)
+//#define SIM_FUNC_DEBUG() 
+//
+////新增输出流
+//#define SIM_LOG_ADD(Stream,...) 
+////配置输出句柄
+//#define SIM_LOG_HANDLER(max_lv,handler,userdata) 
+//
+////配置控制台输出
+//#define SIM_LOG_CONSOLE(max_lv)
+//
+//#define SIM_LOG(lv,x)
+//#define SIM_LDEBUG(x) 
+//#define SIM_LINFO(x) 
+//#define SIM_LWARN(x) 
+//#define SIM_LERROR(x)
+//#endif // !USING_SIM_LOGGER
 
 namespace sim
 {

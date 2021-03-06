@@ -13,7 +13,9 @@
 	#endif
 	
     #include <stdio.h>
-    #include <WinSock2.h>
+	#ifndef _INC_WINDOWS 
+	#include <WinSock2.h>
+	#endif
     #ifndef INVALID_SOCKET
         #define INVALID_SOCKET (SOCKET)(~0)
     #endif
@@ -58,19 +60,6 @@
     #error "不支持的平台"
 #endif
 
-//引入日志
-#ifdef USING_SIM_LOGGER
-#include "Logger.hpp"
-#else
-#define SIM_FUNC(lv)
-#define SIM_FUNC_DEBUG() 
-#define SIM_LOG_CONFIG(max_lv,handler,userdata)
-#define SIM_LOG(lv,x) 
-#define SIM_LDEBUG(x) 
-#define SIM_LINFO(x) 
-#define SIM_LWARN(x) 
-#define SIM_LERROR(x) 
-#endif // USING_SIM_LOGGER
 
 //错误码
 //成功
@@ -304,13 +293,13 @@ namespace sim
 		
 		if (getsockopt(sock_, SOL_SOCKET, SO_ERROR, (char*)&error, &length) < 0)
 		{
-			SIM_LERROR("get socket option failed");
+			//SIM_LERROR("get socket option failed");
 			return SOCK_FAILURE;
 		}
 
 		if (error != 0)
 		{
-			SIM_LERROR("connection failed after select with the error:"<< error);
+			//SIM_LERROR("connection failed after select with the error:"<< error);
 			return SOCK_FAILURE;
 		}
 
@@ -497,12 +486,12 @@ namespace sim
 
 		if (ret < 0)
 		{
-			SIM_LERROR("select error ret=" << ret << " errno=" << errno);
+			//SIM_LERROR("select error ret=" << ret << " errno=" << errno);
 			return SOCK_FAILURE;
 		}
 		else if (ret == 0)
 		{
-			SIM_LERROR("select timeout ");
+			//SIM_LERROR("select timeout ");
 			return SOCK_TIMEOUT;
 		}
 		
@@ -513,7 +502,7 @@ namespace sim
 			return SOCK_SUCCESS;
 		}
 		//不应该在这里
-		SIM_LERROR("select error ret=" << ret << " errno=" << errno);
+		//SIM_LERROR("select error ret=" << ret << " errno=" << errno);
 		return SOCK_FAILURE;
 	}
 
