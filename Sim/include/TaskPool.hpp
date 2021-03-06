@@ -238,6 +238,20 @@ namespace sim
 
 		bool Post(TaskFunc pFunc, void* pUserData,TaskComplete pComplete);
 
+		unsigned int GetTaskNum()
+		{
+			AutoMutex lk(task_lock_);
+			return task_queue_.Size();
+		}
+
+		bool WaitAllDone(unsigned int check_ms=10)
+		{
+			while (GetTaskNum())
+			{
+				ThreadSleep(check_ms);
+			}
+			return true;
+		}
 	private:
 		bool PostTask(const Task& t);
 
