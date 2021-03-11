@@ -4,6 +4,21 @@
 */
 #ifndef SIM_TEST_HPP_
 #define SIM_TEST_HPP_
+
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__)
+#include <windows.h>
+#ifndef OS_WINDOWS
+	#define OS_WINDOWS
+#endif
+#elif defined(linux) || defined(__linux) || defined(__linux__)
+#include <sys/time.h>
+#include <string.h>
+#include <unistd.h>
+#ifndef OS_LINUX
+	#define OS_LINUX
+#endif  
+#endif
+#include <ctime>
 #include <sstream>
 #include <string>
 #include <iostream>
@@ -16,11 +31,14 @@
         if(!::sim::UnitTest::Instance().evaluate(this,                                             \
             compare, result, s1.str(), s2.str(), #expr1, #expr2,    \
             __FILE__, __LINE__))\
+		{\
+			this->is_ok_=false;\
 			if(bassert) {\
 				::sim::UnitTest::Instance().output()\
 				<<"CASE "<<case_name_<<" ASSERT by test "<<test_num_<<"\n";\
 				 return;\
-				}                     \
+				}\
+		}\
     }
 
 //不中断
@@ -71,7 +89,7 @@ namespace sim
 		friend class UnitTest;
 	public:
 		UnitTestCase(std::string case_name) :
-			case_name_(case_name), test_num_(0)
+			case_name_(case_name), test_num_(0), is_ok_(true)
 		{
 		};
 		virtual ~UnitTestCase() {};
@@ -86,6 +104,7 @@ namespace sim
 	protected:
 		std::string case_name_;
 		unsigned int test_num_;
+		bool is_ok_;
 	};
 
 	//用例列表
@@ -119,35 +138,80 @@ namespace sim
 		bool evaluate(UnitTestCase* tcase,bool,bool,
 			std::string, std::string, std::string, std::string,
 			const char *, int);
+
 		std::ostream & output() { return out_; }
+
+		//获取当前的毫秒时间
+		unsigned long long get_current_ms()
+		{
+#ifdef OS_WINDOWS
+			
+			SYSTEMTIME wtm;
+			GetLocalTime(&wtm);
+			
+			return ::time(NULL)*1000+wtm.wMilliseconds;
+#endif
+#ifdef OS_LINUX
+			struct timeval tp;
+			::memset(&tp, 0, sizeof(tp));
+			gettimeofday(&tp, NULL);
+			return (unsigned long long)tp.tv_sec * 1000 + 
+				(double)tp.tv_usec/1000;
+#endif
+			return 0;
+		}
 	private:
 		int verboseLevel_;
 		int errors_;
 		int tests_;
 		std::ostream & out_;
 		TestCaseNode *pStart;
+		unsigned int test_case_size_;
+		//使用的时间
+		unsigned long long used_time_ms_;
 	};
 	
 	inline UnitTest::UnitTest(std::ostream & out, int verboseLevel)
 		: verboseLevel_(verboseLevel), errors_(0), tests_(0), out_(out),
-		pStart(NULL)
+		pStart(NULL), used_time_ms_(0), test_case_size_(0)
 	{
 	}
 
 	inline int UnitTest::run(int argc, char * argv[])
 	{
 		TestCaseNode *pt = pStart;
+		int test_case_size = 0;
 		while (pt)
 		{
 			if (pt->pCase)
 			{
+				unsigned long long use_time_ms = get_current_ms();
+				if (verboseLevel_ > quiet)
+				{
+					out_ << "-----------------------------------------\n";
+					out_ << "START(" << float(test_case_size / float(test_case_size_)) * 100 << "% "
+						<< test_case_size << "/" << test_case_size_ << ") "
+						<< pt->pCase->case_name_ << "\n";
+				}
+				
 				pt->pCase->SetUp();
 				pt->pCase->TestBody();
 				pt->pCase->TearDown();
+				use_time_ms = get_current_ms() - use_time_ms;
+
+				if (verboseLevel_ > quiet)
+				{
+					out_ << "END   " << pt->pCase->case_name_ << "[" << (pt->pCase->is_ok_ ? "OK" : "FAILED") << "]"
+						<< " use " << use_time_ms << " ms\n";
+					out_ << "-----------------------------------------\n";
+				}
+				used_time_ms_ += use_time_ms;
+				++test_case_size;
+
 			}
 			pt = pt->pNext;
 		}
-		if (verboseLevel_ > quiet)
+		if (verboseLevel_ >= quiet)
 			printStatus();
 #if _DEBUG
 #if _WIN32
@@ -172,6 +236,7 @@ namespace sim
 				pt = pt->pNext;
 			}
 			pt->pNext = new TestCaseNode(tcase);
+			++test_case_size_;
 			return true;
 		}
 		else
@@ -214,7 +279,8 @@ namespace sim
 	inline void UnitTest::printStatus() {
 		out_ << "Testing " << (errors_ ? "FAILED" : "OK") << " ("
 			<< tests_ << " tests, " << (tests_ - errors_) << " ok, "
-			<< errors_ << " failed)" << std::endl;
+			<< errors_ << " failed)" 
+			<<" used "<<used_time_ms_<<" ms"<< std::endl;
 	}
 
 	inline int UnitTest::errors() const {
@@ -236,18 +302,18 @@ namespace sim
 			return ok;
 		}
 
-		out_ << "CASE "<< tcase->case_name_<<" "<<tcase->test_num_
+		out_ << "\tCASE "<< tcase->case_name_<<" "<<tcase->test_num_<<" L("<< line<<")"
 			<<":"<<(ok ? "PASS " : "FAILED " );
 		//out_ << file << (ok ? ";" : ":") << line << ": ";
 		if(!ok)
 		if (compare) {
 			const std::string cmp = (result ? "==" : "!=");
-			out_ <<"\n\t at file "<< file <<"["<< line <<"]"
+			out_ <<"\n\t\t at file "<< file <<"["<< line <<"]"
 				<<" compare {" << str1 << "} " << cmp << " {" << str2 << "} "
 				<< "got {\"" << val1 << "\"} " << cmp << " {\"" << val2 << "\"}";
 		}
 		else {
-			out_ << "\n\t at file " << file << "[" << line << "]"
+			out_ << "\n\t\t at file " << file << "[" << line << "]"
 				 << " evaluate {" << str1 << "} = " << val1;
 		}
 		out_ << std::endl;
