@@ -7,7 +7,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-
+#include <new>
 namespace sim
 {
 	//键值类型
@@ -30,6 +30,14 @@ namespace sim
 		RbTreeNode* pLeft;
 		RbTreeNode* pRight;
 		bool Red;
+
+		RbTreeNode(RbTreeKey K,const  T& D)
+			:Key(K), Data(D),
+			pParent(NULL), pLeft(NULL), pRight(NULL),
+			Red(true)
+		{
+
+		}
 	};
 
 	//内存分配函数
@@ -453,7 +461,7 @@ namespace sim
 	inline bool RbTree<T>::TreeTraverseAndDelete(RbTreeNode<T>* Now, 
 		void * pdata)
 	{
-		Tree<T>*p = (Tree<T>*)pdata;
+		RbTree<T>*p = (RbTree<T>*)pdata;
 		if (NULL == p)
 			return false;
 		//printf("free %lld\n", Now->Key);
@@ -472,11 +480,11 @@ namespace sim
 		if (NULL == newnode)
 			return NULL;
 		//初始化
-		::memset(newnode, 0, sizeof(RbTreeNode<T>));
-		newnode->Data = t;
-		newnode->Key = key;
-		newnode->Red = true;//新节点是红色的
-		return newnode;
+		//::memset(newnode, 0, sizeof(RbTreeNode<T>));
+		//newnode->Data = t;
+		//newnode->Key = key;
+		//newnode->Red = true;//新节点是红色的
+		return new(newnode)RbTreeNode<T>(key,t);
 	}
 
 	template<typename T>
@@ -486,6 +494,7 @@ namespace sim
 		{
 			return false;
 		}
+		pnode->~RbTreeNode<T>();
 		qFree(pnode);
 		return true;
 	}
