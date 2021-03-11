@@ -118,7 +118,7 @@ namespace sim
 			//新增引用
 			//add_ref();
 		}
-		~RefObject()
+		virtual ~RefObject()
 		{
 			//释放
 			release();
@@ -133,7 +133,7 @@ namespace sim
 			ref_count_ptr_->add_ref();
 		}
 		//// 浅拷贝
-		RefObject<T>& operator=(const RefObject<T>& rhs)
+		virtual RefObject<T>& operator=(const RefObject<T>& rhs)
 		{
 			//自己赋值给自己的情况不算
 			if (this != &rhs)
@@ -147,32 +147,32 @@ namespace sim
 			return *this;
 		}
 		
-		RefCountType getcount()
+		virtual RefCountType getcount()
 		{
 			return ref_count_ptr_->get_ref_count();
 		}
 
-		void reset(T* p = NULL)
+		virtual void reset(T* p = NULL)
 		{
 			release();
 			ptr_ = p;
 			ref_count_ptr_ = new RefCountable(1);
 		}
 
-		T* operator->()
+		virtual T* operator->()
 		{
 			return ptr_;
 		}
-		T& operator*()
+		virtual T& operator*()
 		{
 			return *ptr_;
 		}
 		//获取指针
-		T* get()
+		virtual T* get()
 		{
 			return ptr_;
 		}
-		operator bool()
+		virtual operator bool()
 		{
 			return NULL != ptr_;
 		}
@@ -200,13 +200,73 @@ namespace sim
 				ref_count_ptr_ = NULL;
 			}
 		}
-	private:
+	protected:
 		//指针
 		T* ptr_;
 		RefObjectDelete deleter_;
 		void*pdata_;
 		//引用计数指针
 		RefCountable*ref_count_ptr_;
+	};
+
+	//引用缓存
+	class RefBuff :public RefObject<char>
+	{
+		//typedef void(*RefObjectDelete)(void* ptr, void*pdata);
+		static void RefBuffDelete(void* ptr, void*pdata)
+		{
+			delete[]((char*)ptr);
+		}
+	public:
+		RefBuff(unsigned int buff_size) 
+			:RefObject<char>(new char[buff_size], &RefBuff::RefBuffDelete), buff_size_(buff_size)
+		{
+			
+		};
+		RefBuff(unsigned int buff_size,char _val)
+			:RefObject<char>(new char[buff_size], &RefBuff::RefBuffDelete), buff_size_(buff_size)
+		{
+			set(_val);
+		};
+		RefBuff(const char*pdata, unsigned int buff_size) 
+			:RefObject<char>(new char[buff_size], &RefBuff::RefBuffDelete), buff_size_(buff_size)
+		{
+			::memcpy(get(), pdata, buff_size);
+		}
+		RefBuff() :RefObject<char>(), buff_size_(0)
+		{
+		}
+		//// 浅拷贝
+		RefBuff(const RefBuff& orig):RefObject<char>(orig), buff_size_(orig.buff_size_)
+		{
+		}
+		//// 浅拷贝
+		virtual RefBuff& operator=(const RefBuff& rhs)
+		{
+			//自己赋值给自己的情况不算
+			if (this != &rhs)
+			{
+				rhs.ref_count_ptr_->add_ref();
+				ptr_ = rhs.ptr_;
+				ref_count_ptr_ = rhs.ref_count_ptr_;
+				deleter_ = rhs.deleter_;
+				pdata_ = rhs.pdata_;
+				buff_size_ = rhs.buff_size_;
+			}
+			return *this;
+		}
+		virtual unsigned int size()
+		{
+			return buff_size_;
+		}
+
+		//设置值
+		virtual void set(int _val)
+		{
+			memset(ptr_, 0, buff_size_);
+		}
+	private:
+		unsigned int buff_size_;
 	};
 }
  #endif // ifndef _REFCOUNTED_INCLUDED
