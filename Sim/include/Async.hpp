@@ -707,12 +707,12 @@ namespace sim
 			int n = epoll_wait(epollfd_, events, MAXEVENTS, wait_ms);
 			if (-1 == n)
 			{
-				printf("Failed to wait.%s", strerror(errno));
+				printf("Failed to wait.%s\n", strerror(errno));
 				return SOCK_FAILURE;
 			}
-
 			for (int i = 0; i < n; i++)
 			{
+				printf("epoll_wait.%d\n", n);
 				RefObject<AsyncContext> ref = GetCtx(events[i].data.fd);
 				if (!ref)
 					continue;
@@ -761,7 +761,7 @@ namespace sim
 				{
 					if (EPOLLIN & ee)//¿É¶Á
 					{
-						RefBuff buff;
+						RefBuff buff(1024*4);
 						int ret = ep_ref->sock.Recv(buff.get(), buff.size());
 						if (ret < 0)
 						{
@@ -782,7 +782,11 @@ namespace sim
 						AutoMutex lk(ep_ref->send_queue_lock);
 						QueueNode<SendBuff>*pHead = ep_ref->send_queue_buff.Next(NULL);
 						if (NULL == pHead)
+						{
+							ep_ref->eflag = ep_ref->eflag & (~EPOLLOUT);
+							ModifyEpoll(ref);
 							continue;
+						}
 						int ret = ep_ref->sock.Send(pHead->data.buff.get() + pHead->data.offset, pHead->data.buff.size() - pHead->data.offset);
 						if (ret < 0)
 						{
@@ -838,6 +842,7 @@ namespace sim
 			{
 				return SOCK_FAILURE;
 			}
+			ref->sock.SetReusePort(true);
 
 			int ret = ref->sock.Bind(bind_ipaddr, bind_port);
 			if (ret != SOCK_SUCCESS)
@@ -945,6 +950,7 @@ namespace sim
 			ep_ref->send_queue_buff.PushBack(send);
 			if (!(ep_ref->eflag&EPOLLOUT))
 			{
+				ep_ref->eflag |= EPOLLOUT;
 				return ModifyEpoll(ref);
 			}
 			return true;
@@ -957,6 +963,7 @@ namespace sim
 			ep_ref->accept_flag = true;
 			if (!(ep_ref->eflag&EPOLLIN))
 			{
+				ep_ref->eflag |= EPOLLIN;
 				ModifyEpoll(ref);
 			}
 		}
@@ -968,7 +975,7 @@ namespace sim
 
 			ep_ref->ep_event.events = ep_ref->eflag;
 			ep_ref->ep_event.data.ptr = NULL;
-
+			ep_ref->ep_event.data.fd = ep_ref->sock.GetSocket();
 			if (-1 == epoll_ctl(epollfd_, EPOLL_CTL_ADD, ep_ref->sock.GetSocket(), &ep_ref->ep_event))
 			{
 				printf("Failed to modify an event for socket %d Error:%s", ep_ref->sock.GetSocket(), strerror(errno));
@@ -982,7 +989,7 @@ namespace sim
 
 			ep_ref->ep_event.events = ep_ref->eflag;
 			ep_ref->ep_event.data.ptr = NULL;
-
+			ep_ref->ep_event.data.fd = ep_ref->sock.GetSocket();
 			if (-1 == epoll_ctl(epollfd_, EPOLL_CTL_MOD, ep_ref->sock.GetSocket(), &ep_ref->ep_event))
 			{
 				printf("Failed to modify an event for socket %d Error:%s", ep_ref->sock.GetSocket(), strerror(errno));
@@ -997,7 +1004,7 @@ namespace sim
 
 			ep_ref->ep_event.events = ep_ref->eflag;
 			ep_ref->ep_event.data.ptr = NULL;
-
+			ep_ref->ep_event.data.fd = ep_ref->sock.GetSocket();
 			if (-1 == epoll_ctl(epollfd_, EPOLL_CTL_DEL, ep_ref->sock.GetSocket(), &ep_ref->ep_event))
 			{
 				printf("Failed to modify an event for socket %d Error:%s", ep_ref->sock.GetSocket(), strerror(errno));
