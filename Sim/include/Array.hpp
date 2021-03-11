@@ -43,24 +43,17 @@ namespace sim
 
 	//数组
 	template<typename T>
-	class Array:public MemoryBase
+	class Array :public MemoryBase
 	{
 	public:
 		Array()
 			:pbegin_(NULL), size_(0), capacity_(0)
 		{
-			
+
 		}
 		~Array()
 		{
-			for (int i = 0; i < size_; ++i)
-			{
-				//析构
-				T* temp = pbegin_ + i;
-				temp->~T();
-			}
-			//释放
-			Free(pbegin_);
+			Clear();
 		}
 
 	public:
@@ -88,6 +81,30 @@ namespace sim
 		{
 			return *Ptr(index);
 		}
+
+		//追加
+		bool Assign(const T* t, int size)
+		{
+			//满了重新调整容量
+			if (size_+size >= capacity_)
+			{
+				capacity_ = size_ + size;
+				if (!Adjust(1))
+				{
+					return false;
+				}
+			}
+			for (int i = 0; i < size; ++i)
+			{
+				T* pt = Ptr(size_);
+				//拷贝
+				//*Ptr(size_) = t;
+				pt = new(pt)T(t[i]);
+				//新增
+				++size_;
+			}
+			return true;
+		}
 		//新增 
 		bool Assign(const T& t)
 		{
@@ -112,33 +129,67 @@ namespace sim
 			//越界了
 			if (index >= size_)
 				return false;
-			//析构
-			T* t = Ptr(index);
-			t->~T();
+			ErasePtr(Ptr(index));
+			return true;
+			////析构
+			//T* t = Ptr(index);
+			//t->~T();
 
-			//移动
-			if (index == size_ - 1)
+			////移动
+			//if (index == size_ - 1)
+			//{
+			//	//删除在尾部
+			//	--size_;
+			//	return true;
+			//}
+			//else
+			//{
+			//	//移动
+			//	::memcpy(t, Ptr(index + 1), (size_ - index-1)*sizeof(T));
+			//	--size_;
+			//	return true;
+			//}
+		}
+
+		T* ErasePtr(T*ptr)
+		{
+			//越界了
+			if (NULL == ptr||ptr >= End()||ptr<Begin())
+				return End();
+			//析构
+			ptr->~T();
+			::memcpy(ptr, ptr + 1, (End() - ptr - 1) * sizeof(T));
+			--size_;
+			return ptr;
+		}
+
+		bool Clear()
+		{
+			if (pbegin_)
 			{
-				//删除在尾部
-				--size_;
-				return true;
+				for (int i = 0; i < size_; ++i)
+				{
+					//析构
+					T* temp = pbegin_ + i;
+					temp->~T();
+				}
+				//释放
+				Free(pbegin_);
+
+				pbegin_ = NULL;
+				size_ = 0; 
+				capacity_ = 0;
 			}
-			else
-			{
-				//移动
-				::memcpy(t, Ptr(index + 1), (size_ - index-1)*sizeof(T));
-				--size_;
-				return true;
-			}
+			return true;
 		}
 	protected:
 		//容量调整
-		bool Adjust()
+		bool Adjust(unsigned int x=1.5)
 		{
 			if (pbegin_)
 			{
 				//1.5倍拓展 至少+1拓展
-				capacity_ = capacity_ * 1.5+1;
+				capacity_ = capacity_ * x+1;
 				//重新申请
 				pbegin_ = (T*)Realloc(pbegin_,sizeof(T)* capacity_);
 				if (pbegin_ == NULL)
@@ -150,14 +201,16 @@ namespace sim
 			}
 			else
 			{
+				if (capacity_ == 0)
+					capacity_ = 1;
 				//申请一个
-				pbegin_ = (T*)Malloc(sizeof(T));
+				pbegin_ = (T*)Malloc(sizeof(T)*(capacity_));
 				if (pbegin_ == NULL)
 				{
+					capacity_ = 0;
 					//申请内存异常
 					return false;
 				}
-				capacity_ = 1;
 				return true;
 			}
 		}
