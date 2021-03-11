@@ -114,11 +114,11 @@ int main(int argc, char* argv[])
 #if 1
 	if (argc == 1)
 	{
-		ctx.host = "127.0.0.1";
+		ctx.host = "49.234.220.213";
 		ctx.beg_port = 8080;
 		ctx.end_port = 8080;
-		ctx.wait_ms = 10;
-		ctx.count = 10000000;
+		ctx.wait_ms = 1000;
+		ctx.count = 100000;
 	}
 	else
 #endif
@@ -190,6 +190,7 @@ int main(int argc, char* argv[])
 		SIM_LINFO("Post:" << ctx.do_num << " ok " << ctx.do_ok << " fail " << ctx.do_fail);
 	}
 	SIM_LINFO("Post:" << ctx.do_num << " ok " << ctx.do_ok << " fail " << ctx.do_fail);
+	getchar();
 	if (ctx.count == 1)
 	{
 		std::string temp;

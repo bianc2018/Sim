@@ -1,4 +1,4 @@
-
+#include "Logger.hpp"
 #include "TaskPool.hpp"
 #include "RefObject.hpp"
 

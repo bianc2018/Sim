@@ -6,7 +6,7 @@
 bool GetHostByNameCallBack(const char* ip, void* pdata)
 {
 	sim::Socket* s = (sim::Socket*)pdata;
-	sim::SockRet ret= s->ConnectTimeOut(ip, 80,1000);
+	sim::SockRet ret= s->ConnectTimeOut(ip, 80,-1);
 	printf("ip:%s %d\n", ip,ret);
 	if (ret == 0)
 	{
@@ -25,7 +25,7 @@ int main(int argc, char* argv[])
 	//WSAID_CONNECTEX;
 	sim::Socket s(sim::TCP);
 	
-	sim::SockRet ret = s.ConnectTimeOut("127.0.0.1", 80, -1);
+	sim::SockRet ret = s.ConnectTimeOut("http://github.com/", 80, -1);
 	//s.SetNonBlock(true);
 	s.GetHostByName("www.baidu.com", GetHostByNameCallBack, &s);
 	getchar();

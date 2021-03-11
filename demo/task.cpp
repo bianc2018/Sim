@@ -30,7 +30,7 @@ int main(int argc, char* argv[])
 {
 	sim::TaskPool worker(0);
 	
-	for (int i = 0; i < 10000; ++i)
+	for (int ii = 0; ii < 10000; ++ii)
 	{
 		worker.Post(TaskFunc1,NULL, NULL);
 	}
