@@ -674,7 +674,7 @@ namespace sim
 		bool connect_flag;
 		//ÊÂ¼þ¾ä±ú
 		uint32_t eflag;
-		EpollAsyncContext():accept_flag(false), connect_flag(false), eflag(EPOLLIN | EPOLLHUP | EPOLLERR)
+		EpollAsyncContext():accept_flag(false), connect_flag(false), eflag(EPOLLIN | EPOLLHUP | EPOLLERR| EPOLLET)
 		{
 			ep_event.data.ptr = (void*)this;
 			ep_event.events = eflag;
@@ -775,9 +775,11 @@ namespace sim
 						else
 						{
 							ep_ref->OnRecvData(buff.get(), ret);
+							/*ep_ref->eflag = ep_ref->eflag | EPOLLIN;
+							ModifyEpoll(ref);*/
 						}
 					}
-					else if (EPOLLOUT &ee)
+					if (EPOLLOUT &ee)
 					{
 						AutoMutex lk(ep_ref->send_queue_lock);
 						QueueNode<SendBuff>*pHead = ep_ref->send_queue_buff.Next(NULL);
@@ -805,6 +807,11 @@ namespace sim
 							ep_ref->eflag = ep_ref->eflag&(~EPOLLOUT);
 							ModifyEpoll(ref);
 						}
+						/*else
+						{
+							ep_ref->eflag = ep_ref->eflag|EPOLLOUT;
+							ModifyEpoll(ref);
+						}*/
 					}
 				}
 			}
