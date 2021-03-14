@@ -91,7 +91,12 @@ namespace sim
 			return ref_count_;
 		}
 
-		RefCountable(RefCountType count=1) : ref_count_(count) {}
+		RefCountable(RefCountType count=1) : ref_count_(count) 
+		{
+#ifdef OS_LINUX
+			pthread_mutex_init(&lock_, NULL);
+#endif
+		}
 		virtual ~RefCountable(void) { /*assert(0 == refCount_);*/ }
 	private:
 		RefCountable(const RefCountable&);
