@@ -215,12 +215,14 @@ namespace sim
 		//子连接存在
 		Socket accepted;
 		RefBuff buff;
+		WSABUF wsa_buf;
 		OVERLAPPED  overlapped;
 		DWORD bytes_transfered;
 		IocpAsyncEvent():bytes_transfered(0)
 		{
 			//memset(&wsa_buf, 0, sizeof(wsa_buf));
 			memset(&overlapped, 0, sizeof(overlapped));
+			memset(&wsa_buf, 0, sizeof(wsa_buf));
 		}
 	};
 
@@ -343,7 +345,7 @@ namespace sim
 			{
 				Accept(ref);
 			}
-			return ref->sock.GetSocket();
+			return SOCK_SUCCESS;
 		}
 		virtual int AddTcpConnect(AsyncHandle handle, const char* remote_ipaddr, unsigned short remote_port)
 		{
@@ -366,7 +368,7 @@ namespace sim
 				ReleaseCtx(handle);
 				return SOCK_FAILURE;
 			}
-			return ref->sock.GetSocket();
+			return SOCK_SUCCESS;
 		}
 		virtual int AddUdpConnect(AsyncHandle handle)
 		{
@@ -390,7 +392,7 @@ namespace sim
 
 			if (over_lapped)
 			{
-				printf("res =%d\n",res);
+				//printf("res =%d\n",res);
 				IocpAsyncEvent* socket_event = \
 					CONTAINING_RECORD(over_lapped, IocpAsyncEvent, overlapped);
 				RefObject<AsyncContext> ref = GetCtx(socket);
@@ -435,13 +437,13 @@ namespace sim
 						}
 						else if (socket_event->type == ETRecv)
 						{
-							ref->OnRecvData(socket_event->buff.get(), socket_event->bytes_transfered);
 							if (socket_event->bytes_transfered == 0)
 							{
 								ReleaseCtx(socket);
 							}
 							else
 							{
+								ref->OnRecvData(socket_event->buff.get(), socket_event->bytes_transfered);
 								Recv(ref, socket_event->buff);//接收数据
 							}
 						}
@@ -546,14 +548,21 @@ namespace sim
 			e->type = ETSend;
 
 			e->buff = buff;
-			WSABUF wsa_buf;
-			wsa_buf.buf = buff.get();
-			wsa_buf.len = buff.size();
+			e->wsa_buf.buf = buff.get();
+			e->wsa_buf.len = buff.size();
+			DWORD* bytes_transfered = &e->bytes_transfered;
+
+			//测试
+		/*	static char sbuff[100] = "hello world";
+			wsa_buf.buf = sbuff;
+			wsa_buf.len = ::strlen(sbuff);
+			bytes_transfered = new DWORD();*/
+			//pol = new OVERLAPPED();
 
 			DWORD dwFlags = 0;
 
-			int res = WSASend(ref->sock.GetSocket(), &wsa_buf, 1,
-				(DWORD*)&e->bytes_transfered, dwFlags, pol, nullptr);
+			int res = WSASend(ref->sock.GetSocket(), &e->wsa_buf, 1,
+				bytes_transfered, dwFlags, pol, nullptr);
 
 			if ((SOCKET_ERROR == res) && (WSA_IO_PENDING != WSAGetLastError())) {
 				delete e;
@@ -587,13 +596,13 @@ namespace sim
 			e->type = ETRecv;
 
 			e->buff = buff;
-			WSABUF wsa_buf;
-			wsa_buf.buf = e->buff.get();
-			wsa_buf.len = e->buff.size();
+			e->buff.set('\0');
+			e->wsa_buf.buf = e->buff.get();
+			e->wsa_buf.len = e->buff.size();
 
 			DWORD dwFlags = 0;
 
-			int res = WSARecv(ref->sock.GetSocket(), &wsa_buf, 1, (DWORD*)&e->bytes_transfered, &dwFlags, pol, nullptr);
+			int res = WSARecv(ref->sock.GetSocket(), &e->wsa_buf, 1, (DWORD*)&e->bytes_transfered, &dwFlags, pol, nullptr);
 			auto err = WSAGetLastError();
 			if ((SOCKET_ERROR == res) && (WSA_IO_PENDING != WSAGetLastError())) {
 				delete e;
@@ -869,7 +878,7 @@ namespace sim
 			ref->sock.SetNonBlock(true);
 			AddEpoll(ref);
 			Accept(ref);
-			return ref->sock.GetSocket();
+			return SOCK_SUCCESS;
 		}
 		virtual int AddTcpConnect(AsyncHandle handle, const char* remote_ipaddr, unsigned short remote_port)
 		{
@@ -886,7 +895,7 @@ namespace sim
 				ReleaseCtx(handle);
 				return SOCK_FAILURE;
 			}
-			return ref->sock.GetSocket();
+			return SOCK_SUCCESS;
 		}
 		virtual int AddUdpConnect(AsyncHandle handle)
 		{
