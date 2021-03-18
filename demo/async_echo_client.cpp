@@ -49,7 +49,7 @@ void AcceptHandler(sim::AsyncHandle handle, sim::AsyncHandle client, void*data)
 }
 void ConnectHandler(sim::AsyncHandle handle, void*data)
 {
-	printf("%d ConnectHandler th %u\n", handle, sim::Thread::GetThisThreadId());
+	SIM_LINFO(handle << " ConnectHandler th " << sim::Thread::GetThisThreadId());
 	if (ctx.echomsg.empty())
 	{
 		++ctx.done_num;
@@ -74,13 +74,14 @@ void RecvDataHandler(sim::AsyncHandle handle, char *buff, unsigned int buff_len,
 	--ctx.active_num;
 	ctx.async.Close(handle);
 }
-void ErrorHandler(sim::AsyncHandle handle, int error, void*data)
+void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int error, void*data)
 {
-	printf("%d error %d\n", handle, error);
+	SIM_LERROR("close " << handle << " error " << error << " reason " << reason);
 	++ctx.fail_num;
 	--ctx.active_num;
 	ctx.async.Close(handle);
 }
+
 void print_help()
 {
 	/*
@@ -110,7 +111,7 @@ void done()
 	ctx.async.SetAcceptHandler(handle, AcceptHandler, NULL);
 	ctx.async.SetConnectHandler(handle, ConnectHandler, NULL);
 	ctx.async.SetRecvDataHandler(handle, RecvDataHandler, NULL);
-	ctx.async.SetErrorHandler(handle, ErrorHandler, NULL);
+	ctx.async.SetCloseHandler(handle, CloseHandler, NULL);
 
 	int ret = ctx.async.AddTcpConnect(handle, ctx.ip.c_str(), ctx.port);
 	if (ret != SOCK_SUCCESS)
@@ -122,19 +123,20 @@ void done()
 }
 void* APoll(void* lpParam)
 {
-	unsigned int  all = (unsigned int)(lpParam);
+	unsigned int  all = (long)(lpParam);
 	while (all > (ctx.done_num + ctx.fail_num))
 		ctx.async.Poll(100);
 	return NULL;
 }
 int main(int argc, char *argv[])
 {
-	//SIM_LOG_CONSOLE(sim::LDebug);
+	SIM_LOG_CONSOLE(sim::LInfo);
+	SIM_LOG_ADD(sim::LogFileStream, sim::LDebug, ".", "async_echo_client","txt");
 
 	sim::CmdLineParser cmd(argc, argv);
 	ctx.ip = cmd.GetCmdLineParams("i", "127.0.0.1");
 	ctx.port = cmd.GetCmdLineParams("p", 8080);
-	ctx.echomsg = cmd.GetCmdLineParams("e", "1234567890");
+	ctx.echomsg = cmd.GetCmdLineParams("e", "");
 	ctx.try_num = cmd.GetCmdLineParams("n", 10000);
 	ctx.active_limit = cmd.GetCmdLineParams("l", 1000);
 	
@@ -157,11 +159,10 @@ int main(int argc, char *argv[])
 	while (all > (ctx.done_num+ctx.fail_num))
 	{
 		done();
-		printf("poll done %u fail %u active %u no try %u\n", ctx.done_num, ctx.fail_num, ctx.active_num, ctx.try_num);
+		SIM_LINFO("poll done "<< ctx.done_num<<" fail "<< ctx.fail_num<<" active "<< ctx.active_num<<" no try "<<ctx.try_num);
 	}
 	time_t us_s = time(NULL) - t1;
-	auto temp = double(us_s) / (ctx.done_num + ctx.fail_num);
-	printf("poll done %u use %d s %lf\n", ctx.done_num+ ctx.fail_num, int(us_s),double(us_s)/ double(ctx.done_num + ctx.fail_num));
+	SIM_LINFO("poll done "<<ctx.done_num + ctx.fail_num<<" use "<< us_s<<" s "<<double(us_s)/ double(ctx.done_num + ctx.fail_num));
 	getchar();
 	return 0;
 }

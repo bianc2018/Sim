@@ -42,24 +42,25 @@ EchoServerContext ctx;
 
 void AcceptHandler(sim::AsyncHandle handle, sim::AsyncHandle client, void*data)
 {
-	printf("%d accept %d\n", handle, client);
+	SIM_LINFO(handle<<"accept "<<client);
 	++ctx.active_num;
 }
 void ConnectHandler(sim::AsyncHandle handle, void*data)
 {
-	printf("%d ConnectHandler th %u\n", handle, sim::Thread::GetThisThreadId());
+	SIM_LINFO(handle<<" ConnectHandler th "<<sim::Thread::GetThisThreadId());
 	
 }
 void RecvDataHandler(sim::AsyncHandle handle, char *buff, unsigned int buff_len, void*data)
 {
 	ctx.async.Send(handle, buff, buff_len);
 }
-void ErrorHandler(sim::AsyncHandle handle, int error, void*data)
+void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int error, void*data)
 {
-	printf("%d error %d\n", handle, error);
+	SIM_LERROR("close "<< handle<<" error "<< error<<" reason "<< reason);
 	--ctx.active_num;
 	ctx.async.Close(handle);
 }
+
 void print_help()
 {
 	/*
@@ -76,7 +77,7 @@ void done()
 	ctx.async.SetAcceptHandler(handle, AcceptHandler, NULL);
 	ctx.async.SetConnectHandler(handle, ConnectHandler, NULL);
 	ctx.async.SetRecvDataHandler(handle, RecvDataHandler, NULL);
-	ctx.async.SetErrorHandler(handle, ErrorHandler, NULL);
+	ctx.async.SetCloseHandler(handle, CloseHandler, NULL);
 	if (ctx.ip.empty())
 		ctx.async.AddTcpServer(handle, NULL, ctx.port);
 	else
@@ -87,13 +88,14 @@ void* APoll(void* lpParam)
 	while (!ctx.exit_flag)
 	{
 		ctx.async.Poll(100);
-		printf("poll done %u active %u \n", ctx.done_num, ctx.active_num);
+		SIM_LINFO("poll done "<< ctx.done_num<<" active "<< ctx.active_num);
 	}
 	return NULL;
 }
 int main(int argc, char *argv[])
 {
-	//SIM_LOG_CONSOLE(sim::LDebug);
+	SIM_LOG_CONSOLE(sim::LInfo);
+	SIM_LOG_ADD(sim::LogFileStream, sim::LDebug, ".","async_echo_server", "txt");
 
 	sim::CmdLineParser cmd(argc, argv);
 	ctx.ip = cmd.GetCmdLineParams("i", "");
@@ -107,7 +109,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	ctx.thread_num = cmd.GetCmdLineParams("tn", 8);
+	ctx.thread_num = cmd.GetCmdLineParams("tn", 1);
 	if (ctx.thread_num <= 0)
 		ctx.thread_num = 1;
 	ctx.pool = new sim::TaskPool(ctx.thread_num);
