@@ -189,7 +189,7 @@ namespace sim
 		void release()
 		{
 			//ÊÍ·Å
-			if (ref_count_ptr_&&ref_count_ptr_->dec_ref() <= 0)
+			if (ref_count_ptr_->dec_ref() <= 0)
 			{
 				if (ptr_)
 				{
