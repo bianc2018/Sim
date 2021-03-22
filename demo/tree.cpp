@@ -17,7 +17,7 @@ int main(int argc, char* argv[])
 {
 	std::ostream &out = std::cout;
 
-	const int size = 1000000;
+	const int size = 10;
 	clock_t t1 = ::clock();
 	srand(::time(NULL));
 	/*tree_t t;
@@ -37,7 +37,7 @@ int main(int argc, char* argv[])
 		//if (i % 2 == 0&&i!=0)//Ëæ»úÉ¾³ý
 		//	tree1.Del(rand() % i);
 	}
-	tree1.TraverseTree(MyTreeTraverseFunc, NULL, sim::TraverseTypeDLR);
+	tree1.TraverseTree(MyTreeTraverseFunc, NULL, sim::TraverseTypeLDR);
 	clock_t t2 = ::clock();
 	printf("add %d use %ld ms\n", size, t2 - t1);
 	

@@ -16,9 +16,9 @@ void RecvDataHandler(sim::AsyncHandle handle, char *buff, unsigned int buff_len,
 	pasync->Send(handle, buff, buff_len);
 
 }
-void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int error, void*data)
+void ErrorHandler(sim::AsyncHandle handle, int error, void*data)
 {
-	printf("close %d error %d reason %d\n", handle, error, reason);
+	printf("%d error %d\n", handle, error);
 }
 int main(int argc, char*argv[])
 {
@@ -28,7 +28,7 @@ int main(int argc, char*argv[])
 	async.SetAcceptHandler(handle, AcceptHandler,NULL);
 	async.SetConnectHandler(handle, ConnectHandler, NULL);
 	async.SetRecvDataHandler(handle, RecvDataHandler, &async);
-	async.SetCloseHandler(handle, CloseHandler, NULL);
+	async.SetErrorHandler(handle, ErrorHandler, NULL);
 	async.AddTcpServer(handle, NULL, 8080);
 	while (true)
 	{

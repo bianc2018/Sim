@@ -115,6 +115,28 @@ SIM_TEST(ArrayFor)
 	}
 }
 
+SIM_TEST(ArrayAssignment)
+{
+	sim::Array<int> a;
+	int size = 5;
+	for (int i = 0; i < size; ++i)
+	{
+		a.Assign(i);
+	}
+	sim::Array<int> b(a);
+	sim::Array<int> c;
+	c = a;
+
+	SIM_TEST_IS_EQUAL(a.Size(), b.Size());
+	SIM_TEST_IS_EQUAL(a.Size(), c.Size());
+
+	for (int i = 0; i < a.Size(); ++i)
+	{
+		SIM_TEST_IS_EQUAL(a[i], b[i]);
+		SIM_TEST_IS_EQUAL(a[i], c[i]);
+	}
+}
+
 SIM_TEST(ArrayForErase)
 {
 	sim::Array<int> a;
