@@ -55,9 +55,19 @@ namespace sim
 		{
 			Clear();
 		}
-
+		Array(const Array<T> &other)
+			:pbegin_(NULL), size_(0), capacity_(0)
+		{
+			operator=(other);
+		}
+		Array &operator=(const Array<T> &other)
+		{
+			Clear();
+			Assign(other.Begin(), other.Size());
+			return (*this);
+		}
 	public:
-		array_size_t Size()
+		array_size_t Size()const
 		{
 			return size_;
 		}
@@ -65,7 +75,7 @@ namespace sim
 		{
 			return capacity_;
 		}
-		T* Begin()
+		T* Begin()const
 		{
 			return Ptr(0);
 		}
@@ -214,7 +224,7 @@ namespace sim
 				return true;
 			}
 		}
-		T* Ptr(array_size_t index)
+		T* Ptr(array_size_t index)const
 		{
 			//越界处理
 			if (index > size_)
