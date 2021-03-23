@@ -7,14 +7,21 @@
 #include <sstream>
 #include <string>
 #include <iomanip>
-
 //平台相关
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__)
 	#ifndef OS_WINDOWS
 		#define OS_WINDOWS
 	#endif
+	#include <io.h>
+	#include <direct.h>
 	#include <Windows.h>
-	
+	#ifndef SIM_ACCESS 
+	#define SIM_ACCESS _access
+	#endif
+	//_mkdir
+	#ifndef SIM_MKDIR
+	#define SIM_MKDIR _mkdir
+	#endif
 #elif defined(linux) || defined(__linux) || defined(__linux__)
 	#ifndef OS_LINUX
 		#define OS_LINUX
@@ -43,6 +50,12 @@
 	#define YELLOW       "\033[1;33m"
 	#define LIGHT_GRAY   "\033[0;37m"
 	#define WHITE        "\033[1;37m"
+	#ifndef SIM_ACCESS 
+	#define SIM_ACCESS access
+	#endif
+	#ifndef SIM_MKDIR
+	#define SIM_MKDIR(path) mkdir(path,S_IRWXU)
+	#endif
 #else
 	#error "不支持的平台"
 #endif
@@ -127,6 +140,9 @@ namespace sim
 	//日志输出流
 	class LogStream
 	{
+		//不允许复制拷贝
+		LogStream(const LogStream &other) {};
+		LogStream& operator=(const LogStream &other) {};
 	public:
 		LogStream(LogLevel max_level = LInfo) :max_level_(max_level)
 		{}
@@ -289,7 +305,7 @@ namespace sim
 		)
 			:LogStream(max_level),
 			fp_(NULL),
-			dir_(dir),
+			dir_(wipe_space(dir)),
 			name_(name),
 			ext_(ext),
 			max_byte_(max_byte),
@@ -328,13 +344,87 @@ namespace sim
 				fflush(pfile);
 		}
 	private:
+		// 去除前后空格
+		std::string wipe_space(const std::string&path)
+		{
+			int start = 0, end = path.size();
+			for (int i = 0; i < path.size(); ++i)
+			{
+				if (path[i] == ' ' || path[i] == '\t' || path[i] == '\r' || path[i] == '\n')
+				{
+					++start;
+				}
+				else
+				{
+					break;
+				}
+			}
+			for (int i = path.size(); i>=0; --i)
+			{
+				if (path[i] == ' ' || path[i] == '\t' || path[i] == '\r' || path[i] == '\n')
+				{
+					--end;
+				}
+				else
+				{
+					break;
+				}
+			}
+			return path.substr(start, end - start - 1);
+		}
 		//创建文件夹
-		bool create_dir(const std::string &dir);
+		bool create_dir(const std::string &dir)
+		{
+			if (SIM_ACCESS(dir.c_str(), 0) ==0)
+			{
+				return true;
+			}
+
+			int len = dir.length();
+			char tmpDirPath[256] = { 0 };
+			for (int i = 0; i < len; i++)
+			{
+				tmpDirPath[i] = dir[i];
+				if (tmpDirPath[i] == '\\' || tmpDirPath[i] == '/')
+				{
+					//_access()判断文件是否存在，并判断文件是否可写
+					//int _access(const char *pathname, int mode);
+					//pathname: 文件路径或目录路径;  mode: 访问权限（在不同系统中可能用不能的宏定义重新定义）
+					//当pathname为文件时，_access函数判断文件是否存在，并判断文件是否可以用mode值指定的模式进行访问。
+					//当pathname为目录时，_access只判断指定目录是否存在，在Windows NT和Windows 2000中，所有的目录都只有读写权限
+					//0——>只检查文件是否存在
+					if (SIM_ACCESS(tmpDirPath, 0) == -1)
+					{
+						int ret = SIM_MKDIR(tmpDirPath);
+						if (ret == -1)
+							return false;
+						return true;
+					}
+					else
+					{
+						continue;
+					}
+				}
+			}
+
+			if (SIM_ACCESS(tmpDirPath, 0) == -1)
+			{
+				int ret = SIM_MKDIR(tmpDirPath);
+				if (ret == -1)
+					return false;
+				return true;
+			}
+			else
+			{
+				return true;
+			}
+		}
 		//获取文件句柄
 		FILE* get_file_handle()
 		{
 			if (NULL == fp_)
 			{
+				create_dir(dir_);
 				//打开
 				std::string filename = dir_ + "/" + name_ + get_time_str("_%Y%m%d%H%M%S.") + ext_;
 				fp_ = fopen(filename.c_str(), "w");
