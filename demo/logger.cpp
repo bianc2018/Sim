@@ -1,7 +1,7 @@
 /*
 * ÈÕÖ¾Ä£¿édemo
 */
-#define SIM_NO_LOGGER
+//#define SIM_NO_LOGGER
 #include "Logger.hpp"
 #include "TaskPool.hpp"
 std::string msg = std::string(10000, 'i');
@@ -20,7 +20,7 @@ int main(int argc, char* argv[])
 {
 	sim::TaskPool pool(0);
 	SIM_LOG_CONSOLE(sim::LDebug);
-	SIM_LOG_ADD(sim::LogFileStream, sim::LDebug, ".", "test","txt",32);
+	SIM_LOG_ADD(sim::LogFileStream, sim::LDebug, ".", "test", "txt", 32);
 	SIM_FUNC(sim::LDebug);
 	for (int i = 0; i < 100000; i++)
 	{
@@ -28,7 +28,7 @@ int main(int argc, char* argv[])
 	}
 	while (pool.GetTaskNum() > 0)
 	{
-		printf("GetTaskNum %ld\n", pool.GetTaskNum());
+		//printf("GetTaskNum %ld\n", pool.GetTaskNum());
 	}
 	getchar();
 	return 0;

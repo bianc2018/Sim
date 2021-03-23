@@ -118,5 +118,33 @@ SIM_TEST(QueueSwap)
 	SIM_TEST_IS_EQUAL(data1, d);
 }
 
+SIM_TEST(QueueAssignment)
+{
+	sim::Queue<int> a;
+	unsigned int size = 5;
+	for (unsigned int i = 0; i < size; ++i)
+	{
+		a.PushBack(i);
+	}
+	sim::Queue<int> b(a);
+	sim::Queue<int> c;
+	c = a;
+	SIM_TEST_IS_EQUAL(a.Size(), b.Size());
+	SIM_TEST_IS_EQUAL(a.Size(), c.Size());
 
+	sim::QueueNode<int>*pa = a.Next(NULL);
+	sim::QueueNode<int>*pb = b.Next(NULL);
+	sim::QueueNode<int>*pc = c.Next(NULL);
+
+	while(pa&&pb&&pc)
+	{
+		SIM_TEST_IS_EQUAL(pa->data, pb->data);
+		SIM_TEST_IS_EQUAL(pa->data, pc->data);
+
+		pa = a.Next(pa);
+		pb = b.Next(pb);
+		pc = c.Next(pc);
+	}
+	
+}
 SIM_TEST_MAIN(sim::noisy)
