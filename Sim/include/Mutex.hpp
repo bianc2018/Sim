@@ -15,7 +15,7 @@ namespace sim
 	{
 	private:
 		Mutex(const Mutex &other) {};
-		Mutex operator=(const Mutex &other) {};
+		Mutex &operator=(const Mutex &other) {};
 		
 		CRITICAL_SECTION critical_section_;
 	public:
