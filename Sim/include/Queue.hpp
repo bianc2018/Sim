@@ -41,6 +41,29 @@ namespace sim
 			t2 = temp;
 		}
 	public:
+		Queue(const Queue<T>&other) :pHead(NULL), pTail(NULL)
+			, qMalloc(::malloc)
+			, qFree(::free)
+			, qsize(0)
+		{
+			operator=(other);
+		}
+		Queue<T>& operator=(const Queue<T>&other)
+		{
+			//自己赋值给自己的情况不算
+			if (this != &other)
+			{
+				Clear();
+				QueueNode<T>*pn =  other.Next(NULL);
+				while (pn)
+				{
+					PushBack(pn->data);
+					pn = other.Next(pn);
+				}
+			}
+			return (*this);
+		}
+
 		Queue();
 		virtual ~Queue();
 		//出列
@@ -59,7 +82,7 @@ namespace sim
 		virtual bool SetAlloc(QueueMalloc m, QueueFree f);
 
 		//返回迭代器 NULL 标识结束
-		QueueNode<T>* Next(QueueNode<T>*p);
+		QueueNode<T>* Next(QueueNode<T>*p)const;
 		//遍历 返回false终止
 		typedef bool(*TraverseFunc)(T* Now, void*pdata);
 		bool Traverse(TraverseFunc func, void*pdata);
@@ -195,7 +218,7 @@ namespace sim
 		return false;
 	}
 	template<typename T>
-	inline QueueNode<T>* Queue<T>::Next(QueueNode<T>* p)
+	inline QueueNode<T>* Queue<T>::Next(QueueNode<T>* p)const
 	{
 		if (NULL == p)
 			return pHead;
