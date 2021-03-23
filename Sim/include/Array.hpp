@@ -62,8 +62,12 @@ namespace sim
 		}
 		Array &operator=(const Array<T> &other)
 		{
-			Clear();
-			Assign(other.Begin(), other.Size());
+			//自己赋值给自己的情况不算
+			if (this != &other)
+			{
+				Clear();
+				Assign(other.Begin(), other.Size());
+			}
 			return (*this);
 		}
 	public:
