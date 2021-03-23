@@ -12,6 +12,9 @@ namespace sim
 	template<typename T>
 	class ObjectPool :public Memory
 	{
+		//²»ÔÊÐí¿½±´
+		ObjectPool(const ObjectPool&) {};
+		ObjectPool& operator=(const ObjectPool&) {}
 	public:
 		ObjectPool(size_t max_object):
 			max_object_(max_object),init_flag_(false)
