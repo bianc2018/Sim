@@ -104,6 +104,27 @@ namespace sim
 
 	};
 
+	class TimeSpan
+	{
+	public:
+		TimeSpan() :start_(Time::GetTickMS())
+		{
+
+		}
+		void ReSet()
+		{
+			start_ = Time::GetTickMS();
+		}
+		unsigned long long Get()
+		{
+			return Time::GetTickMS() - start_;
+		}
+		~TimeSpan() {};
+
+	private:
+		unsigned long long start_;
+	};
+
 	typedef unsigned long long timer_id;
 	typedef void(*TIMER_OUT_HANDLER)(timer_id timer_id, void *userdata);
 	//计时器管理
