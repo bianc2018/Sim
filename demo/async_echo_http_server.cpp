@@ -43,7 +43,7 @@ EchoServerContext ctx;
 
 void AcceptHandler(sim::AsyncHandle handle, sim::AsyncHandle client, void*data)
 {
-	SIM_LINFO(handle << "accept " << client);
+	SIM_LINFO(handle << " accept " << client);
 	sim::AutoMutex lk(ctx.active_lock);
 	++ctx.active_num;
 }
@@ -64,8 +64,9 @@ void RecvDataHandler(sim::AsyncHandle handle, char *buff, unsigned int buff_len,
 
 void SendCompleteHandler(sim::AsyncHandle handle, char *buff, unsigned int buff_len, void*data)
 {
-	sim::AutoMutex lk(ctx.active_lock);
-	--ctx.active_num;
+	//sim::AutoMutex lk(ctx.active_lock);
+	SIM_LERROR("send complete " << handle );
+	//--ctx.active_num;
 	ctx.async.Close(handle);
 }
 void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int error, void*data)
@@ -95,15 +96,15 @@ void done()
 	ctx.async.SetCloseHandler(handle, CloseHandler, NULL);
 	ctx.async.SetSendCompleteHandler(handle, SendCompleteHandler, NULL);
 	if (ctx.ip.empty())
-		ctx.async.AddTcpServer(handle, NULL, ctx.port);
+		ctx.async.AddTcpServer(handle, NULL, ctx.port,128);
 	else
-		ctx.async.AddTcpServer(handle, ctx.ip.c_str(), ctx.port);
+		ctx.async.AddTcpServer(handle, ctx.ip.c_str(), ctx.port,128);
 }
 void* APoll(void* lpParam)
 {
 	while (!ctx.exit_flag)
 	{
-		ctx.async.Poll(100);
+		ctx.async.Poll(10000);
 		SIM_LINFO("poll done " << ctx.done_num << " active " << ctx.active_num);
 	}
 	return NULL;
@@ -111,7 +112,7 @@ void* APoll(void* lpParam)
 int main(int argc, char *argv[])
 {
 	SIM_LOG_CONSOLE(sim::LInfo);
-	SIM_LOG_ADD(sim::LogFileStream, sim::LDebug, ".", "async_echo_server", "txt");
+	SIM_LOG_ADD(sim::LogFileStream, sim::LDebug, "./debug_log/", "async_echo_server", "txt");
 
 	sim::CmdLineParser cmd(argc, argv);
 	ctx.ip = cmd.GetCmdLineParams("i", "");
