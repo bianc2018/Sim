@@ -56,6 +56,15 @@
 	#ifndef SIM_MKDIR
 	#define SIM_MKDIR(path) mkdir(path,S_IRWXU)
 	#endif
+	#include <sys/syscall.h> /*此头必须带上*/
+	namespace sim
+	{
+		pid_t gettid()
+		{
+			return syscall(SYS_gettid);
+			/*这才是内涵*/
+		}
+	}
 #else
 	#error "不支持的平台"
 #endif
@@ -170,7 +179,8 @@ namespace sim
 #ifdef OS_WINDOWS
 			return::GetCurrentThreadId();
 #else
-			return pthread_self();
+			//int i = gettid();
+			return  static_cast<unsigned int>( gettid());
 #endif
 		}
 		//获取毫秒数
