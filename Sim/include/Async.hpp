@@ -3,11 +3,14 @@
 */
 #ifndef SIM_ASYNC_HPP_
 #define SIM_ASYNC_HPP_
+
 #include "Socket.hpp"
 #include "RefObject.hpp"
 #include "RbTree.hpp"
 #include "Mutex.hpp"
 #include "Queue.hpp"
+#include "Timer.hpp"
+
 #define SIM_ENABLE_LOGGER
 #ifdef SIM_ENABLE_LOGGER
 #include "Logger.hpp"
@@ -92,8 +95,12 @@ namespace sim
 	//typedef void(*ErrorHandler)(AsyncHandle handle,int error, void*data);
 	enum AsyncCloseReason
 	{
-		AsyncEnd,
-		AsyncError,
+		//主动关闭
+		CloseActive,
+		//会话正常接收关闭
+		ClosePassive,
+		//异常关闭
+		CloseError=-1,
 	};
 	typedef void(*CloseHandler)(AsyncHandle handle, AsyncCloseReason reason, int error, void*data);
 
@@ -164,7 +171,7 @@ namespace sim
 			if (sendcomplete_handler&&sock.IsVaild())
 				sendcomplete_handler(sock.GetSocket(), buff, buff_len, sendcomplete_handler_data);
 		}
-		virtual void OnError(int error)
+		/*virtual void OnError(int error)
 		{
 			if (close_handler&&sock.IsVaild())
 				close_handler(sock.GetSocket(), AsyncError, error, close_handler_data);
@@ -173,6 +180,11 @@ namespace sim
 		{
 			if (close_handler&&sock.IsVaild())
 				close_handler(sock.GetSocket(), AsyncEnd, 0, close_handler_data);
+		}*/
+		virtual void OnClose(AsyncCloseReason reason, int error)
+		{
+			if (close_handler&&sock.IsVaild())
+				close_handler(sock.GetSocket(), reason, error, close_handler_data);
 		}
 	};
 
@@ -199,14 +211,17 @@ namespace sim
 
 		virtual int Close(AsyncHandle handle)
 		{
-			RefObject<AsyncContext> ref = GetCtx(handle);
-			if (ref)
-			{
-				ref->sock.Close();
-				ReleaseCtx(handle);
-				return SOCK_SUCCESS;
-			}
-			return SOCK_FAILURE;
+			SIM_FUNC_DEBUG();
+			return Close(handle, CloseActive);
+			//RefObject<AsyncContext> ref = GetCtx(handle);
+			//if (ref)
+			//{
+			//	//ref->sock.Close();
+			//	ReleaseCtx(handle);
+			//	SIM_LDEBUG("handle " << handle << " closed ");
+			//	return SOCK_SUCCESS;
+			//}
+			//return SOCK_FAILURE;
 		}
 
 	public:
@@ -286,7 +301,23 @@ namespace sim
 			AutoMutex lk(ctx_s_lock_);
 			ctx_s_.Del(handle);
 		}
-
+		virtual int Close(AsyncHandle handle, AsyncCloseReason reason)
+		{
+			SIM_FUNC_DEBUG();
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (ref)
+			{
+				ReleaseCtx(handle);
+				SIM_LDEBUG("handle " << handle << " closed ");
+#ifdef OS_WINDOWS
+				ref->OnClose(reason, GetLastError());
+#else
+				ref->OnClose(reason, errno);
+#endif
+				return SOCK_SUCCESS;
+			}
+			return SOCK_FAILURE;
+		}
 	private:
 		Mutex ctx_s_lock_;
 		RbTree<RefObject<AsyncContext> > ctx_s_;
@@ -297,12 +328,13 @@ namespace sim
 	class IocpAsyncEvent
 	{
 	public:
+		OVERLAPPED  overlapped;
 		EType type;
 		//子连接存在
 		Socket accepted;
 		RefBuff buff;
 		WSABUF wsa_buf;
-		OVERLAPPED  overlapped;
+		
 		DWORD bytes_transfered;
 		//RefObject<AsyncContext> ref;
 
@@ -452,7 +484,7 @@ namespace sim
 				ReleaseCtx(handle);
 				return SOCK_FAILURE;
 			}
-			const int accept_size = 10;
+			const int accept_size = 32;
 			if (acctept_num <= 0)
 				acctept_num = accept_size;
 
@@ -517,10 +549,10 @@ namespace sim
 				&bytes_transfered, PULONG_PTR(&socket),
 				&over_lapped, wait_ms);
 			SIM_LDEBUG("GetQueuedCompletionStatus res=" << res
-				<< " socket " << socket << " bytes_transfered " << bytes_transfered << " over_lapped=0x" << SIM_HEX(over_lapped))
+				<< " socket " << socket << " bytes_transfered " << bytes_transfered 
+				<< " over_lapped=0x" << SIM_HEX(over_lapped))
 				if (over_lapped)
 				{
-					//printf("res =%d\n",res);
 					IocpAsyncEvent* socket_event = \
 						CONTAINING_RECORD(over_lapped, IocpAsyncEvent, overlapped);
 					RefObject<AsyncContext> ref = GetCtx(socket);
@@ -536,9 +568,8 @@ namespace sim
 								SIM_LDEBUG("Iocp " << iocp_handler_ << " wait timeout " << wait_ms << " ms");
 							}
 							SIM_LERROR("OnError dw_err=" << dw_err << " by socket " << ref->sock.GetSocket()
-								<< " type " << socket_event->type)
-								ref->OnError(dw_err);
-							ReleaseCtx(socket);
+								<< " type " << socket_event->type);
+							Close(socket, CloseError);
 						}
 						else
 						{
@@ -547,10 +578,8 @@ namespace sim
 								if (false == Accept(ref))
 								{
 									SIM_LERROR("Accept fail " << " sock= " << ref->sock.GetSocket());
-									dw_err = GetLastError();
-									ref->OnError(dw_err);
+									Close(socket, CloseError);
 									delete socket_event;
-									ReleaseCtx(ref->sock.GetSocket());
 									return SOCK_FAILURE;
 								}
 
@@ -567,8 +596,6 @@ namespace sim
 								{
 									SIM_LERROR("CreateIoCompletionPort fail iocp_handler_=" << SIM_HEX(iocp_ctx->iocp_handler)
 										<< " sock= " << accepted->sock.GetSocket() << "  WSAGetLastError()=" << WSAGetLastError());
-									dw_err = GetLastError();
-									accepted->OnError(dw_err);
 									delete socket_event;
 									return SOCK_FAILURE;
 								}
@@ -579,11 +606,9 @@ namespace sim
 
 								if (false == Recv(accepted))//接收数据
 								{
-									SIM_LERROR("Recv fail " << " sock= " << accepted->sock.GetSocket());
-									dw_err = GetLastError();
-									accepted->OnError(dw_err);
+									SIM_LERROR("Recv fail  sock= " << accepted->sock.GetSocket());
+									Close(accepted->sock.GetSocket(), CloseError);
 									delete socket_event;
-									ReleaseCtx(accepted->sock.GetSocket());
 									return SOCK_FAILURE;
 								}
 								
@@ -594,11 +619,9 @@ namespace sim
 								//Recv(ref);//接收数据
 								if (false == Recv(ref))//接收数据
 								{
-									SIM_LERROR("Recv fail " << " sock= " << ref->sock.GetSocket());
-									dw_err = GetLastError();
-									ref->OnError(dw_err);
+									SIM_LERROR("Recv fail  sock= " << ref->sock.GetSocket());
+									Close(ref->sock.GetSocket(), CloseError);
 									delete socket_event;
-									ReleaseCtx(ref->sock.GetSocket());
 									return SOCK_FAILURE;
 								}
 							}
@@ -606,9 +629,8 @@ namespace sim
 							{
 								if (socket_event->bytes_transfered == 0)
 								{
-									SIM_LDEBUG("recv socket_event->bytes_transfered=0 ,socket is end");
-									ref->OnClose();
-									ReleaseCtx(socket);
+									SIM_LERROR("recv socket_event->bytes_transfered=0 ,socket is end");
+									Close(ref->sock.GetSocket(), ClosePassive);
 								}
 								else
 								{
@@ -617,10 +639,8 @@ namespace sim
 									if (false == Recv(ref, socket_event->buff))//接收数据
 									{
 										SIM_LERROR("Recv fail " << " sock= " << ref->sock.GetSocket());
-										dw_err = GetLastError();
-										ref->OnError(dw_err);
+										Close(ref->sock.GetSocket(), CloseError);
 										delete socket_event;
-										ReleaseCtx(ref->sock.GetSocket());
 										return SOCK_FAILURE;
 									}
 								}
@@ -629,9 +649,8 @@ namespace sim
 							{
 								if (socket_event->bytes_transfered == 0)
 								{
-									SIM_LDEBUG("Send socket_event->bytes_transfered=0 ,socket is end");
-									ref->OnClose();
-									ReleaseCtx(socket);
+									SIM_LERROR("Send socket_event->bytes_transfered=0 ,socket is end");
+									Close(ref->sock.GetSocket(), ClosePassive);
 								}
 								else
 								{
@@ -687,19 +706,6 @@ namespace sim
 			return SOCK_FAILURE;
 		}
 
-		virtual int Close(AsyncHandle handle)
-		{
-			SIM_FUNC_DEBUG();
-			RefObject<AsyncContext> ref = GetCtx(handle);
-			if (ref)
-			{
-				//ref->sock.Close();
-				ReleaseCtx(handle);
-				SIM_LDEBUG("handle " << handle << " closed ");
-				return SOCK_SUCCESS;
-			}
-			return SOCK_FAILURE;
-		}
 	protected:
 		virtual bool Connect(RefObject<AsyncContext> ref, const char* ipaddr, unsigned short port)
 		{
@@ -865,6 +871,7 @@ namespace sim
 			}
 			return true;
 		}
+
 	protected:
 		//加载拓展函数
 		WsaExFunction &LoadWsaExFunction()
@@ -914,38 +921,43 @@ namespace sim
 	class EpollAsync :public Async
 	{
 	public:
-		EpollAsync(unsigned int thread_num = 8)
+		EpollAsync(unsigned int thread_num = 4096)
 		{
 			//初始化
 			Socket::Init();
 			epollfd_ = epoll_create(thread_num);
 			if (-1 == epollfd_)
 			{
-				printf("Failed to create epoll context.%s", strerror(errno));
+				SIM_LERROR("Failed to create epoll context."<<strerror(errno));
 				exit(1);
 			}
 		}
 		virtual ~EpollAsync()
 		{
-
+			close(epollfd_);
 		}
 	public:
 		virtual int Poll(unsigned int wait_ms)
 		{
 			unsigned int MAXEVENTS = 100;
 			struct epoll_event events[MAXEVENTS];
+			TimeSpan ts;
 			int n = epoll_wait(epollfd_, events, MAXEVENTS, wait_ms);
+			SIM_LDEBUG("epoll_wait use " << ts.Get() << " ms");
 			if (-1 == n)
 			{
-				printf("Failed to wait.%s\n", strerror(errno));
+				SIM_LERROR("Failed to wait."<<strerror(errno));
 				return SOCK_FAILURE;
 			}
 			for (int i = 0; i < n; i++)
 			{
-				printf("epoll_wait.%d\n", n);
+				SIM_LDEBUG("epoll_wait."<< n);
 				RefObject<AsyncContext> ref = GetCtx(events[i].data.fd);
 				if (!ref)
+				{
+					SIM_LERROR("not found ref " << events[i].data.fd);
 					continue;
+				}
 
 				uint32_t ee = events[i].events;
 
@@ -954,9 +966,8 @@ namespace sim
 					/*
 					* EPOLLHUP and EPOLLERR are always monitored.
 					*/
-					printf("EPOLLHUP and EPOLLERR are always monitored.\n");
-					ref->OnError(errno);
-					ReleaseCtx(ref);
+					SIM_LERROR("EPOLLHUP and EPOLLERR are always monitored.fd "<< events[i].data.fd);
+					Close(ref->sock.GetSocket(), CloseError);
 					continue;
 				}
 
@@ -964,44 +975,55 @@ namespace sim
 
 				if (ep_ref->accept_flag)
 				{
+					ts.ReSet();
+
 					//accept
 					Socket accepted_socket;
 					int ret = ep_ref->sock.Accept(accepted_socket, 1000);
 					if (ret != SOCK_SUCCESS)
 					{
-						ref->OnError(errno);
-						ReleaseCtx(ref);
+						SIM_LERROR(ref->sock.GetSocket()<<" Accept Failed." << strerror(errno));
+						Close(ref->sock.GetSocket(), CloseError);
 						continue;
 					}
+					SIM_LDEBUG("accept")
 					RefObject<AsyncContext> accepted(new EpollAsyncContext());
 					accepted->CopyHandler(ep_ref);
 					accepted->sock = accepted_socket;
 					AddCtx(accepted);
 					ref->OnAccept(accepted->sock.GetSocket());
 					AddEpoll(accepted);
+
+					SIM_LDEBUG("accept use " << ts.Get() << " ms");
 				}
 				else if (ep_ref->connect_flag)
 				{
+					ts.ReSet();
+
 					//连接已经建立了
 					ep_ref->connect_flag = false;
 					ref->OnConnect();
+
+					SIM_LDEBUG("connect use " << ts.Get() << " ms");
 				}
 				//读写
 				else
 				{
 					if (EPOLLIN & ee)//可读
 					{
+						ts.ReSet();
+
 						RefBuff buff(1024 * 4);
 						int ret = ep_ref->sock.Recv(buff.get(), buff.size());
 						if (ret < 0)
 						{
-							ep_ref->OnError(ret);
-							ReleaseCtx(ref);
+							SIM_LERROR(ref->sock.GetSocket() << " Recv Failed." << strerror(errno));
+							Close(ref->sock.GetSocket(), CloseError);
 						}
 						else if (ret == 0)
 						{
-							ep_ref->OnClose();
-							ReleaseCtx(ref);
+							SIM_LINFO(ref->sock.GetSocket() << " Recv 0 socket close.");
+							Close(ref->sock.GetSocket(), ClosePassive);
 						}
 						else
 						{
@@ -1009,13 +1031,18 @@ namespace sim
 							/*ep_ref->eflag = ep_ref->eflag | EPOLLIN;
 							ModifyEpoll(ref);*/
 						}
+
+						SIM_LDEBUG("recv use " << ts.Get() << " ms");
 					}
 					if (EPOLLOUT &ee)
 					{
+						ts.ReSet();
+
 						AutoMutex lk(ep_ref->send_queue_lock);
 						QueueNode<SendBuff>*pHead = ep_ref->send_queue_buff.Next(NULL);
 						if (NULL == pHead)
 						{
+							SIM_LERROR(ref->sock.GetSocket() << " send cache is empty.");
 							ep_ref->eflag = ep_ref->eflag & (~EPOLLOUT);
 							ModifyEpoll(ref);
 							continue;
@@ -1023,8 +1050,8 @@ namespace sim
 						int ret = ep_ref->sock.Send(pHead->data.buff.get() + pHead->data.offset, pHead->data.buff.size() - pHead->data.offset);
 						if (ret < 0)
 						{
-							ep_ref->OnError(ret);
-							ReleaseCtx(ref);
+							SIM_LERROR(ref->sock.GetSocket() << " Send Failed." << strerror(errno));
+							Close(ref->sock.GetSocket(), CloseError);
 						}
 						pHead->data.offset += ret;
 						if (pHead->data.offset >= pHead->data.buff.size())
@@ -1044,6 +1071,8 @@ namespace sim
 							ep_ref->eflag = ep_ref->eflag|EPOLLOUT;
 							ModifyEpoll(ref);
 						}*/
+
+						SIM_LDEBUG("send use " << ts.Get() << " ms");
 					}
 				}
 			}
@@ -1151,15 +1180,7 @@ namespace sim
 
 		virtual int Close(AsyncHandle handle)
 		{
-			RefObject<AsyncContext> ref = GetCtx(handle);
-			if (ref)
-			{
-				RemoveEpoll(ref);
-				ref->sock.Close();
-				ReleaseCtx(handle);
-				return SOCK_SUCCESS;
-			}
-			return SOCK_FAILURE;
+			return Async::Close(handle);
 		}
 	protected:
 		virtual bool Connect(RefObject<AsyncContext> ref, const char* ipaddr, unsigned short port)
@@ -1220,7 +1241,7 @@ namespace sim
 			ep_ref->ep_event.data.fd = ep_ref->sock.GetSocket();
 			if (-1 == epoll_ctl(epollfd_, EPOLL_CTL_ADD, ep_ref->sock.GetSocket(), &ep_ref->ep_event))
 			{
-				printf("Failed to modify an event for socket %d Error:%s", ep_ref->sock.GetSocket(), strerror(errno));
+				SIM_LERROR(ref->sock.GetSocket() << " epoll_ctl Failed." << strerror(errno));
 				return false;
 			}
 			return true;
@@ -1234,7 +1255,7 @@ namespace sim
 			ep_ref->ep_event.data.fd = ep_ref->sock.GetSocket();
 			if (-1 == epoll_ctl(epollfd_, EPOLL_CTL_MOD, ep_ref->sock.GetSocket(), &ep_ref->ep_event))
 			{
-				printf("Failed to modify an event for socket %d Error:%s", ep_ref->sock.GetSocket(), strerror(errno));
+				SIM_LERROR(ref->sock.GetSocket() << " epoll_ctl Failed." << strerror(errno));
 				return false;
 			}
 			return true;
@@ -1249,10 +1270,25 @@ namespace sim
 			ep_ref->ep_event.data.fd = ep_ref->sock.GetSocket();
 			if (-1 == epoll_ctl(epollfd_, EPOLL_CTL_DEL, ep_ref->sock.GetSocket(), &ep_ref->ep_event))
 			{
-				printf("Failed to modify an event for socket %d Error:%s", ep_ref->sock.GetSocket(), strerror(errno));
+				SIM_LERROR(ref->sock.GetSocket() << " epoll_ctl Failed." << strerror(errno));
 				return false;
 			}
 			return true;
+		}
+
+		virtual int Close(AsyncHandle handle, AsyncCloseReason reason)
+		{
+			SIM_FUNC_DEBUG();
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (ref)
+			{
+				RemoveEpoll(ref);
+				ReleaseCtx(handle);
+				SIM_LDEBUG("handle " << handle << " closed ");
+				ref->OnClose(reason, errno);
+				return SOCK_SUCCESS;
+			}
+			return SOCK_FAILURE;
 		}
 	private:
 		int epollfd_;
