@@ -1,6 +1,8 @@
 /*
 	异步连接回复测试服务端端
 */
+
+//#define SIM_NO_LOGGER
 #include "Async.hpp"
 #include "CmdLineParser.hpp"
 #include "TaskPool.hpp"
@@ -54,11 +56,12 @@ void ConnectHandler(sim::AsyncHandle handle, void*data)
 }
 void RecvDataHandler(sim::AsyncHandle handle, char *buff, unsigned int buff_len, void*data)
 {
+	static std::string response_data(1024*4,'0');
 	static std::string response = "HTTP/1.0 200 OK\r\n"
 							"Server: Sim\r\n"
 							"Connection: Close\r\n"
-							"Content-Length: 0\r\n"
-							"\r\n\0";
+							"Content-Length: "+sim::CmdLineParser::SimTo<int,std::string>(response_data.size())+"\r\n"
+							"\r\n"+ response_data+"\r\n";
 	ctx.async.Send(handle, response.c_str(), response.size());
 }
 
