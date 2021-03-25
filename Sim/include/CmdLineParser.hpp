@@ -12,8 +12,9 @@ namespace sim
 {
 	class CmdLineParser
 	{
+	public:
 		template<typename T1, typename T2>
-		T2 SimTo(const T1 &t)
+		static T2 SimTo(const T1 &t)
 		{
 			std::stringstream oss;
 			oss << t;
