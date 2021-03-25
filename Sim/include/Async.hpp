@@ -939,7 +939,7 @@ namespace sim
 	public:
 		virtual int Poll(unsigned int wait_ms)
 		{
-			unsigned int MAXEVENTS = 100;
+			const unsigned int MAXEVENTS = 100;
 			struct epoll_event events[MAXEVENTS];
 			TimeSpan ts;
 			int n = epoll_wait(epollfd_, events, MAXEVENTS, wait_ms);
@@ -979,17 +979,22 @@ namespace sim
 
 					//accept
 					Socket accepted_socket;
-					int ret = ep_ref->sock.Accept(accepted_socket, 1000);
+					int ret = ep_ref->sock.Accept(accepted_socket, 10);
 					if (ret != SOCK_SUCCESS)
 					{
-						SIM_LERROR(ref->sock.GetSocket()<<" Accept Failed." << strerror(errno));
-						Close(ref->sock.GetSocket(), CloseError);
+						SIM_LERROR(ref->sock.GetSocket()<<" Accept Failed.ret="<< ret<<"." << strerror(errno)<<" flag="<<SIM_HEX(ee));
+						SIM_LDEBUG("accept use " << ts.Get() << " ms");
+						//Close(ref->sock.GetSocket(), CloseError);
 						continue;
 					}
+
+					Accept(ref);
+
 					SIM_LDEBUG("accept")
 					RefObject<AsyncContext> accepted(new EpollAsyncContext());
 					accepted->CopyHandler(ep_ref);
 					accepted->sock = accepted_socket;
+					accepted->sock.SetNonBlock(true);
 					AddCtx(accepted);
 					ref->OnAccept(accepted->sock.GetSocket());
 					AddEpoll(accepted);
@@ -1003,7 +1008,8 @@ namespace sim
 					//连接已经建立了
 					ep_ref->connect_flag = false;
 					ref->OnConnect();
-
+					//可读
+					ModifyEpollEvent(ref, EPOLLIN, true);
 					SIM_LDEBUG("connect use " << ts.Get() << " ms");
 				}
 				//读写
@@ -1028,6 +1034,7 @@ namespace sim
 						else
 						{
 							ep_ref->OnRecvData(buff.get(), ret);
+							ModifyEpollEvent(ref, EPOLLIN, true);
 							/*ep_ref->eflag = ep_ref->eflag | EPOLLIN;
 							ModifyEpoll(ref);*/
 						}
@@ -1043,8 +1050,7 @@ namespace sim
 						if (NULL == pHead)
 						{
 							SIM_LERROR(ref->sock.GetSocket() << " send cache is empty.");
-							ep_ref->eflag = ep_ref->eflag & (~EPOLLOUT);
-							ModifyEpoll(ref);
+							ModifyEpollEvent(ref, EPOLLOUT, false);
 							continue;
 						}
 						int ret = ep_ref->sock.Send(pHead->data.buff.get() + pHead->data.offset, pHead->data.buff.size() - pHead->data.offset);
@@ -1063,14 +1069,13 @@ namespace sim
 						//去除写事件
 						if (ep_ref->send_queue_buff.isEmpty())
 						{
-							ep_ref->eflag = ep_ref->eflag&(~EPOLLOUT);
-							ModifyEpoll(ref);
+							ModifyEpollEvent(ref, EPOLLOUT, false);
 						}
-						/*else
+						else
 						{
-							ep_ref->eflag = ep_ref->eflag|EPOLLOUT;
-							ModifyEpoll(ref);
-						}*/
+							//新增
+							ModifyEpollEvent(ref, EPOLLOUT, true);
+						}
 
 						SIM_LDEBUG("send use " << ts.Get() << " ms");
 					}
@@ -1193,11 +1198,7 @@ namespace sim
 				return true;
 			}
 			ep_ref->connect_flag = true;
-			if (!(ep_ref->eflag&EPOLLOUT))
-			{
-				return ModifyEpoll(ref);
-			}
-			return true;
+			return ModifyEpollEvent(ref, EPOLLOUT, true);
 		}
 
 		virtual bool Send(RefObject<AsyncContext> ref, RefBuff buff)
@@ -1211,12 +1212,7 @@ namespace sim
 			send.buff = buff;
 			send.offset = 0;
 			ep_ref->send_queue_buff.PushBack(send);
-			if (!(ep_ref->eflag&EPOLLOUT))
-			{
-				ep_ref->eflag |= EPOLLOUT;
-				return ModifyEpoll(ref);
-			}
-			return true;
+			return ModifyEpollEvent(ref, EPOLLOUT, true);
 		}
 
 		//接收链接
@@ -1224,17 +1220,29 @@ namespace sim
 		{
 			EpollAsyncContext* ep_ref = (EpollAsyncContext*)ref.get();
 			ep_ref->accept_flag = true;
-			if (!(ep_ref->eflag&EPOLLIN))
-			{
-				ep_ref->eflag |= EPOLLIN;
-				ModifyEpoll(ref);
-			}
+			return ModifyEpollEvent(ref, EPOLLIN, true);
 		}
 
+		virtual bool EpollCtrl(RefObject<AsyncContext> ref, int opt,uint32_t flag)
+		{
+			EpollAsyncContext* ep_ref = (EpollAsyncContext*)ref.get();
+
+			ep_ref->ep_event.events = ep_ref->eflag=flag;
+			ep_ref->ep_event.data.ptr = NULL;
+			ep_ref->ep_event.data.fd = ep_ref->sock.GetSocket();
+			if (-1 == epoll_ctl(epollfd_, opt, ep_ref->sock.GetSocket(), &ep_ref->ep_event))
+			{
+				SIM_LERROR(ref->sock.GetSocket() << " epoll_ctl opt "<< opt <<" flag "<<SIM_HEX(flag)<<" Failed." << strerror(errno));
+				return false;
+			}
+			return true;
+		}
 		//Add
 		virtual bool AddEpoll(RefObject<AsyncContext> ref)
 		{
-			EpollAsyncContext* ep_ref = (EpollAsyncContext*)ref.get();
+			return EpollCtrl(ref, EPOLL_CTL_ADD, EPOLLIN | EPOLLHUP | EPOLLERR);
+
+			/*EpollAsyncContext* ep_ref = (EpollAsyncContext*)ref.get();
 
 			ep_ref->ep_event.events = ep_ref->eflag;
 			ep_ref->ep_event.data.ptr = NULL;
@@ -1244,26 +1252,53 @@ namespace sim
 				SIM_LERROR(ref->sock.GetSocket() << " epoll_ctl Failed." << strerror(errno));
 				return false;
 			}
-			return true;
+			return true;*/
 		}
-		virtual bool ModifyEpoll(RefObject<AsyncContext> ref)
+		//virtual bool ModifyEpoll(RefObject<AsyncContext> ref)
+		//{
+		//	/*EpollAsyncContext* ep_ref = (EpollAsyncContext*)ref.get();
+		//	ep_ref->ep_event.events = ep_ref->eflag;
+		//	ep_ref->ep_event.data.ptr = NULL;
+		//	ep_ref->ep_event.data.fd = ep_ref->sock.GetSocket();
+		//	if (-1 == epoll_ctl(epollfd_, EPOLL_CTL_MOD, ep_ref->sock.GetSocket(), &ep_ref->ep_event))
+		//	{
+		//		SIM_LERROR(ref->sock.GetSocket() << " epoll_ctl Failed." << strerror(errno));
+		//		return false;
+		//	}
+		//	return true;*/
+		//}
+		
+		//修改事件is_add =true 添加 否则 删除
+		virtual bool ModifyEpollEvent(RefObject<AsyncContext> ref, uint32_t _event, bool is_add)
 		{
 			EpollAsyncContext* ep_ref = (EpollAsyncContext*)ref.get();
-
-			ep_ref->ep_event.events = ep_ref->eflag;
-			ep_ref->ep_event.data.ptr = NULL;
-			ep_ref->ep_event.data.fd = ep_ref->sock.GetSocket();
-			if (-1 == epoll_ctl(epollfd_, EPOLL_CTL_MOD, ep_ref->sock.GetSocket(), &ep_ref->ep_event))
+			//添加
+			if (is_add)
 			{
-				SIM_LERROR(ref->sock.GetSocket() << " epoll_ctl Failed." << strerror(errno));
-				return false;
+				if (ep_ref->eflag&_event)
+				{
+					//已经存在了，不修改了，减少一次调用
+					return true;
+				}
+				return EpollCtrl(ref, EPOLL_CTL_MOD, ep_ref->eflag | _event);
 			}
-			return true;
-
+			else
+			{
+				if (ep_ref->eflag&_event)
+				{
+					return EpollCtrl(ref, EPOLL_CTL_MOD, ep_ref->eflag &( ~_event));//取反&去除
+				}
+				//不存在了，不修改了，减少一次调用
+				return true;
+				
+			}
 		}
+
 		virtual bool RemoveEpoll(RefObject<AsyncContext> ref)
 		{
-			EpollAsyncContext* ep_ref = (EpollAsyncContext*)ref.get();
+			return EpollCtrl(ref, EPOLL_CTL_DEL,0);
+
+			/*EpollAsyncContext* ep_ref = (EpollAsyncContext*)ref.get();
 
 			ep_ref->ep_event.events = ep_ref->eflag;
 			ep_ref->ep_event.data.ptr = NULL;
@@ -1273,7 +1308,7 @@ namespace sim
 				SIM_LERROR(ref->sock.GetSocket() << " epoll_ctl Failed." << strerror(errno));
 				return false;
 			}
-			return true;
+			return true;*/
 		}
 
 		virtual int Close(AsyncHandle handle, AsyncCloseReason reason)
