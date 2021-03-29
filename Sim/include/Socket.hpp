@@ -132,7 +132,8 @@ namespace sim
 		virtual SockRet Recv(char* data, unsigned int data_len, int wait_ms = -1);
         
 		virtual SockRet Recvfrom(char* data, unsigned int data_len, \
-			const char* ipaddr, unsigned short port, int wait_ms=-1);
+			char* remote_ip, unsigned int ip_len,
+			unsigned short* remote_port, int wait_ms = -1);
         
 		virtual SockRet Close();
 
@@ -403,7 +404,8 @@ namespace sim
 		}
 		return ::recv(sock_, data, data_len, 0);
 	}
-	inline SockRet Socket::Recvfrom(char * data, unsigned int data_len, const char * ipaddr, unsigned short port, int wait_ms)
+	inline SockRet Socket::Recvfrom(char * data, unsigned int data_len, char* remote_ip, unsigned int ip_len,
+		unsigned short* remote_port, int wait_ms)
 	{
 		//创建sockaddr_in结构体变量
 		struct sockaddr_in serv_addr;
@@ -414,18 +416,24 @@ namespace sim
 #ifdef OS_LINUX
 		socklen_t add_len = sizeof(serv_addr);
 #endif
-		if (!IpToAddressV4(ipaddr, port, &serv_addr))
-			return -1;
+		/*if (!IpToAddressV4(ipaddr, port, &serv_addr))
+			return -1;*/
+		::memset(&serv_addr, 0, sizeof(serv_addr));
 
 		int wait_ret = WaitTimeOut(WAIT_READ, wait_ms);
 		if (wait_ret != SOCK_SUCCESS)
 		{
 			return wait_ret;
 		}
-
+		//那个from参数输出的是对方的地址。是一个输出参数，不是输入的。
 		//将套接字和IP、端口绑定
-		return ::recvfrom(sock_, data, data_len, 0,
+		int ret= ::recvfrom(sock_, data, data_len, 0,
 			(struct sockaddr*)&serv_addr, &add_len);
+		if (ret > 0)
+		{
+			AddressToIpV4(&serv_addr,remote_ip, ip_len, remote_port);
+		}
+		return ret;
 	}
 	inline SockRet Socket::Close()
 	{
