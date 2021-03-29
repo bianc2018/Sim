@@ -83,6 +83,7 @@ namespace sim
 		ETConnect,
 		ETAccept,
 		ETRecv,
+		ETRecvFrom,
 		ETSend,
 		ETClose,
 	};
@@ -90,7 +91,10 @@ namespace sim
 	typedef SOCKET AsyncHandle;
 	typedef void(*AcceptHandler)(AsyncHandle handle, AsyncHandle client, void*data);
 	typedef void(*ConnectHandler)(AsyncHandle handle, void*data);
+	//tcp
 	typedef void(*RecvDataHandler)(AsyncHandle handle, char *buff, unsigned int buff_len, void*data);
+	//udp
+	typedef void(*RecvDataFromHandler)(AsyncHandle handle, char *buff, unsigned int buff_len,char *from_ip,unsigned short port, void*data);
 	typedef void(*SendCompleteHandler)(AsyncHandle handle, char *buff, unsigned int buff_len, void*data);
 	//typedef void(*ErrorHandler)(AsyncHandle handle,int error, void*data);
 	enum AsyncCloseReason
@@ -108,6 +112,7 @@ namespace sim
 	{
 	public:
 		Socket sock;
+		SockType type;
 
 		AcceptHandler accept_handler;
 		void*accept_handler_data;
@@ -119,13 +124,16 @@ namespace sim
 		void*sendcomplete_handler_data;
 		CloseHandler close_handler;
 		void*close_handler_data;
+		RecvDataFromHandler recvdatafrom_handler;
+		void*recvdatafrom_handler_data;
 	public:
-		AsyncContext()
+		AsyncContext(SockType t)
 			: accept_handler(NULL), accept_handler_data(NULL)
 			, connect_handler(NULL), connect_handler_data(NULL)
 			, recvdata_handler(NULL), recvdata_handler_data(NULL)
 			, sendcomplete_handler(NULL), sendcomplete_handler_data(NULL)
 			, close_handler(NULL), close_handler_data(NULL)
+			,type(t)
 		{
 			//memset(this, 0, sizeof(*this));
 		}
@@ -143,6 +151,8 @@ namespace sim
 				sendcomplete_handler_data = pctx->sendcomplete_handler_data;
 				close_handler = pctx->close_handler;
 				close_handler_data = pctx->close_handler_data;
+				recvdatafrom_handler = pctx->recvdatafrom_handler;
+				recvdatafrom_handler_data = pctx->recvdatafrom_handler_data;
 			}
 		}
 		virtual ~AsyncContext()
@@ -165,6 +175,11 @@ namespace sim
 		{
 			if (recvdata_handler&&sock.IsVaild())
 				recvdata_handler(sock.GetSocket(), buff, buff_len, recvdata_handler_data);
+		}
+		virtual void OnRecvDataFrom(char *buff, unsigned int buff_len,char *from_ip, unsigned short port)
+		{
+			if (recvdatafrom_handler&&sock.IsVaild())
+				recvdatafrom_handler(sock.GetSocket(), buff, buff_len, from_ip, port, recvdata_handler_data);
 		}
 		virtual void OnSendComplete(char *buff, unsigned int buff_len)
 		{
@@ -202,7 +217,6 @@ namespace sim
 
 		virtual int AddTcpServer(AsyncHandle handle, const char* bind_ipaddr, unsigned short bind_port, unsigned int acctept_num = 10) = 0;
 		virtual int AddTcpConnect(AsyncHandle handle, const char* remote_ipaddr, unsigned short remote_port) = 0;
-		virtual int AddUdpConnect(AsyncHandle handle) = 0;
 		virtual int AddUdpConnect(AsyncHandle handle, const char* bind_ipaddr, unsigned short bind_port) = 0;
 
 		virtual int Send(AsyncHandle handle, const char *buff, unsigned int buff_len) = 0;
@@ -250,6 +264,15 @@ namespace sim
 			{
 				ref->recvdata_handler = handler;
 				ref->recvdata_handler_data = pdata;
+			}
+		}
+		virtual void SetRecvDataFromHandler(AsyncHandle handle, RecvDataFromHandler handler, void *pdata)
+		{
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (ref)
+			{
+				ref->recvdatafrom_handler = handler;
+				ref->recvdatafrom_handler_data = pdata;
 			}
 		}
 		/*virtual void SetErrorHandler(AsyncHandle handle, ErrorHandler handler, void *pdata)
@@ -338,11 +361,16 @@ namespace sim
 		DWORD bytes_transfered;
 		//RefObject<AsyncContext> ref;
 
+		struct sockaddr_in temp_addr;
+		int temp_addr_len;
+
 		IocpAsyncEvent() :bytes_transfered(0)
 		{
 			//memset(&wsa_buf, 0, sizeof(wsa_buf));
 			memset(&overlapped, 0, sizeof(overlapped));
 			memset(&wsa_buf, 0, sizeof(wsa_buf));
+			memset(&temp_addr, 0, sizeof(temp_addr));
+			temp_addr_len = sizeof(temp_addr);
 		}
 
 	};
@@ -353,7 +381,7 @@ namespace sim
 	public:
 		bool bind_flag;
 		HANDLE iocp_handler;
-		IocpAsyncContext() :bind_flag(false), iocp_handler(NULL)
+		IocpAsyncContext(SockType type) :bind_flag(false), iocp_handler(NULL), AsyncContext(type)
 		{
 		}
 		~IocpAsyncContext()
@@ -419,7 +447,7 @@ namespace sim
 		virtual AsyncHandle CreateTcpHandle()
 		{
 			SIM_FUNC_DEBUG();
-			RefObject<AsyncContext> ref(new IocpAsyncContext());
+			RefObject<AsyncContext> ref(new IocpAsyncContext(sim::TCP));
 			ref->sock = Socket(sim::TCP);
 			if (!ref->sock.IsVaild())
 			{
@@ -433,7 +461,7 @@ namespace sim
 		virtual AsyncHandle CreateUdpHandle()
 		{
 			SIM_FUNC_DEBUG();
-			RefObject<AsyncContext> ref(new IocpAsyncContext());
+			RefObject<AsyncContext> ref(new IocpAsyncContext(sim::UDP));
 			ref->sock = Socket(sim::UDP);
 			if (!ref->sock.IsVaild())
 			{
@@ -527,15 +555,38 @@ namespace sim
 			}
 			return SOCK_SUCCESS;
 		}
-		virtual int AddUdpConnect(AsyncHandle handle)
-		{
-			SIM_FUNC_DEBUG();
-			return SOCK_FAILURE;
-		}
 		virtual int AddUdpConnect(AsyncHandle handle, const char* bind_ipaddr, unsigned short bind_port)
 		{
 			SIM_FUNC_DEBUG();
-			return SOCK_FAILURE;
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (!ref)
+			{
+				SIM_LERROR("handle " << handle << " not find");
+				return SOCK_FAILURE;
+			}
+
+			int ret = ref->sock.Bind(bind_ipaddr, bind_port);
+			if (ret != SOCK_SUCCESS)
+			{
+				//bind error
+				SIM_LERROR("handle " << handle << " Bind ipaddr:" << bind_ipaddr << ":" << bind_port << " fail,ret=" << ret);
+				ReleaseCtx(handle);
+				return ret;
+			}
+		
+			ref->sock.SetNonBlock(true);
+			IocpAsyncContext* iocp_ctx = (IocpAsyncContext*)ref.get();
+			iocp_ctx->iocp_handler = CreateIoCompletionPort((HANDLE)ref->sock.GetSocket(), iocp_handler_,
+				(ULONG_PTR)(ref->sock.GetSocket()), 0);
+			if (NULL == iocp_ctx->iocp_handler)
+			{
+				//ReleaseCtx(ref->sock.GetSocket());
+				SIM_LERROR("handle " << handle << " CreateIoCompletionPort fail" << "  WSAGetLastError()=" << WSAGetLastError());
+				ReleaseCtx(handle);
+				return SOCK_FAILURE;
+			}
+			
+			return RecvFrom(ref) ? SOCK_SUCCESS : SOCK_FAILURE;
 		}
 
 		virtual int Poll(unsigned wait_ms)
@@ -583,7 +634,7 @@ namespace sim
 									return SOCK_FAILURE;
 								}
 
-								RefObject<AsyncContext> accepted(new IocpAsyncContext());
+								RefObject<AsyncContext> accepted(new IocpAsyncContext(sim::TCP));
 								accepted->CopyHandler(ref.get());
 								accepted->sock = socket_event->accepted;
 								//需要加到iocp队列里面
@@ -623,6 +674,30 @@ namespace sim
 									Close(ref->sock.GetSocket(), CloseError);
 									delete socket_event;
 									return SOCK_FAILURE;
+								}
+							}
+							else if (socket_event->type == ETRecvFrom)
+							{
+								if (socket_event->bytes_transfered == 0)
+								{
+									SIM_LERROR("recvfrom socket_event->bytes_transfered=0 ,socket is end");
+									Close(ref->sock.GetSocket(), ClosePassive);
+								}
+								else
+								{
+									const int ip_len = 32;
+									char ip[ip_len] = { 0 };
+									unsigned short port = 0;
+									ref->sock.AddressToIpV4(&socket_event->temp_addr, ip, ip_len, &port);
+									ref->OnRecvDataFrom(socket_event->buff.get(), socket_event->bytes_transfered,ip,port);
+									//Recv(ref, socket_event->buff);//接收数据
+									if (false == RecvFrom(ref, socket_event->buff))//接收数据
+									{
+										SIM_LERROR("recvfrom fail " << " sock= " << ref->sock.GetSocket());
+										Close(ref->sock.GetSocket(), CloseError);
+										delete socket_event;
+										return SOCK_FAILURE;
+									}
 								}
 							}
 							else if (socket_event->type == ETRecv)
@@ -703,6 +778,17 @@ namespace sim
 			const char* ipaddr, unsigned short port)
 		{
 			SIM_FUNC_DEBUG();
+			if (buff == NULL || 0 == buff_len)
+			{
+				SIM_LWARN("Send Empty Buff!");
+				return SOCK_SUCCESS;
+			}
+
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (ref)
+			{
+				return SendTo(ref, RefBuff(buff, buff_len), ipaddr,port) ? SOCK_SUCCESS : SOCK_FAILURE;
+			}
 			return SOCK_FAILURE;
 		}
 
@@ -788,13 +874,51 @@ namespace sim
 			return true;
 		}
 
+		virtual bool SendTo(RefObject<AsyncContext> ref, RefBuff buff, const char* ipaddr, unsigned short port)
+		{
+			SIM_FUNC_DEBUG();
+			//新建事件
+			IocpAsyncEvent *e = new IocpAsyncEvent();
+			if (NULL == e)
+			{
+				SIM_LERROR("create IocpAsyncEvent error ");
+				return false;
+			}
+			OVERLAPPED  *pol = &e->overlapped;
+			e->type = ETSend;
+			//e->ref = ref;
+			e->buff = buff;
+			e->wsa_buf.buf = buff.get();
+			e->wsa_buf.len = buff.size();
+			DWORD* bytes_transfered = &e->bytes_transfered;
+
+			ref->sock.IpToAddressV4(ipaddr, port, &e->temp_addr);
+
+			DWORD dwFlags = 0;
+
+			int res = WSASendTo(ref->sock.GetSocket(), &e->wsa_buf, 1,
+				bytes_transfered, dwFlags, (struct sockaddr*)&e->temp_addr, e->temp_addr_len, pol, nullptr);
+
+			if ((SOCKET_ERROR == res) && (WSA_IO_PENDING != WSAGetLastError())) {
+				delete e;
+				SIM_LERROR("WSASend error res=" << res << "  WSAGetLastError()=" << WSAGetLastError());
+				return false;
+			}
+			return true;
+		}
+
 		virtual bool Recv(RefObject<AsyncContext> ref)
 		{
 			SIM_FUNC_DEBUG();
 			const unsigned int buff_size = 4 * 1024;
 			return Recv(ref, RefBuff(buff_size));
 		}
-
+		virtual bool RecvFrom(RefObject<AsyncContext> ref)
+		{
+			SIM_FUNC_DEBUG();
+			const unsigned int buff_size = 4 * 1024*1024;
+			return RecvFrom(ref, RefBuff(buff_size));
+		}
 		//复用缓存
 		virtual bool Recv(RefObject<AsyncContext> ref, RefBuff buff)
 		{
@@ -832,6 +956,45 @@ namespace sim
 			}
 			return true;
 		}
+
+		virtual bool RecvFrom(RefObject<AsyncContext> ref, RefBuff buff)
+		{
+			SIM_FUNC_DEBUG();
+			if (buff.size() <= 0)
+			{
+				//return Recv(ref);
+				SIM_LERROR("recv buff is empty");
+				return false;
+			}
+
+			//新建事件
+			IocpAsyncEvent *e = new IocpAsyncEvent;
+			if (NULL == e)
+			{
+				SIM_LERROR("create IocpAsyncEvent error ");
+				return false;
+			}
+			OVERLAPPED  *pol = &e->overlapped;
+			e->type = ETRecvFrom;
+			//e->ref = ref;
+			e->buff = buff;
+			e->buff.set('\0');
+			e->wsa_buf.buf = e->buff.get();
+			e->wsa_buf.len = e->buff.size();
+
+			DWORD dwFlags = 0;
+
+			int res = WSARecvFrom(ref->sock.GetSocket(), &e->wsa_buf, 1, (DWORD*)&e->bytes_transfered, &dwFlags, 
+				(struct sockaddr*)&e->temp_addr,&e->temp_addr_len, pol, nullptr);
+			int err = WSAGetLastError();
+			if ((SOCKET_ERROR == res) && (WSA_IO_PENDING != WSAGetLastError())) {
+				delete e;
+				SIM_LERROR("WSARecvFrom error res=" << res << " WSAGetLastError = " << err);
+				return false;
+			}
+			return true;
+		}
+
 		//接收链接
 		virtual bool Accept(RefObject<AsyncContext> ref)
 		{
@@ -893,7 +1056,12 @@ namespace sim
 	{
 		RefBuff buff;
 		unsigned int offset;
-
+		//目的地
+		struct sockaddr_in to_addr;
+		SendBuff():offset(0)
+		{
+			memset(&to_addr, 0, sizeof(to_addr));
+		}
 	};
 	//异步上下文
 	class EpollAsyncContext :public AsyncContext
@@ -911,7 +1079,8 @@ namespace sim
 		bool connect_flag;
 		//事件句柄
 		uint32_t eflag;
-		EpollAsyncContext() :accept_flag(false), connect_flag(false), eflag(EPOLLIN | EPOLLHUP | EPOLLERR | EPOLLET)
+		EpollAsyncContext(SockType t) :AsyncContext(t),
+			accept_flag(false), connect_flag(false), eflag(EPOLLIN | EPOLLHUP | EPOLLERR | EPOLLET)
 		{
 			ep_event.data.ptr = (void*)this;
 			ep_event.events = eflag;
@@ -991,7 +1160,7 @@ namespace sim
 					Accept(ref);
 
 					SIM_LDEBUG("accept")
-					RefObject<AsyncContext> accepted(new EpollAsyncContext());
+					RefObject<AsyncContext> accepted(new EpollAsyncContext(sim::TCP));
 					accepted->CopyHandler(ep_ref);
 					accepted->sock = accepted_socket;
 					accepted->sock.SetNonBlock(true);
@@ -1008,6 +1177,7 @@ namespace sim
 					//连接已经建立了
 					ep_ref->connect_flag = false;
 					ref->OnConnect();
+					ModifyEpollEvent(ref, EPOLLOUT, false);
 					//可读
 					ModifyEpollEvent(ref, EPOLLIN, true);
 					SIM_LDEBUG("connect use " << ts.Get() << " ms");
@@ -1017,10 +1187,18 @@ namespace sim
 				{
 					if (EPOLLIN & ee)//可读
 					{
+						
 						ts.ReSet();
+						const int ip_len = 64;
+						char ip_buff[ip_len] = { 0 };
+						unsigned short port = 0;
 
 						RefBuff buff(1024 * 4);
-						int ret = ep_ref->sock.Recv(buff.get(), buff.size());
+						int ret = -1;
+						if(ep_ref->type = TCP)
+							ret = ep_ref->sock.Recv(buff.get(), buff.size());
+						else if (ep_ref->type = UDP)
+							ret = ep_ref->sock.Recvfrom(buff.get(), buff.size(), ip_buff,ip_len,&port);
 						if (ret < 0)
 						{
 							SIM_LERROR(ref->sock.GetSocket() << " Recv Failed." << strerror(errno));
@@ -1033,7 +1211,11 @@ namespace sim
 						}
 						else
 						{
-							ep_ref->OnRecvData(buff.get(), ret);
+							if (ep_ref->type = TCP)
+								ep_ref->OnRecvData(buff.get(), ret);
+							else if (ep_ref->type = UDP)
+								ep_ref->OnRecvDataFrom(buff.get(), ret,ip_buff,port);
+
 							ModifyEpollEvent(ref, EPOLLIN, true);
 							/*ep_ref->eflag = ep_ref->eflag | EPOLLIN;
 							ModifyEpoll(ref);*/
@@ -1053,7 +1235,19 @@ namespace sim
 							ModifyEpollEvent(ref, EPOLLOUT, false);
 							continue;
 						}
-						int ret = ep_ref->sock.Send(pHead->data.buff.get() + pHead->data.offset, pHead->data.buff.size() - pHead->data.offset);
+						int ret = -1;
+						if (ep_ref->type = TCP)
+						{
+							ret = ep_ref->sock.Send(pHead->data.buff.get() + pHead->data.offset,
+								pHead->data.buff.size() - pHead->data.offset);
+						}
+						else
+						{
+							ret = ::sendto(ep_ref->sock.GetSocket(),
+								pHead->data.buff.get() + pHead->data.offset,
+								pHead->data.buff.size() - pHead->data.offset
+								, 0,(struct sockaddr*)&pHead->data.to_addr, sizeof(pHead->data.to_addr));
+						}
 						if (ret < 0)
 						{
 							SIM_LERROR(ref->sock.GetSocket() << " Send Failed." << strerror(errno));
@@ -1087,7 +1281,7 @@ namespace sim
 
 		virtual AsyncHandle CreateTcpHandle()
 		{
-			RefObject<AsyncContext> ref(new EpollAsyncContext());
+			RefObject<AsyncContext> ref(new EpollAsyncContext(sim::TCP));
 			ref->sock = Socket(sim::TCP);
 			if (!ref->sock.IsVaild())
 			{
@@ -1098,7 +1292,7 @@ namespace sim
 		}
 		virtual AsyncHandle CreateUdpHandle()
 		{
-			RefObject<AsyncContext> ref(new EpollAsyncContext());
+			RefObject<AsyncContext> ref(new EpollAsyncContext(sim::UDP));
 			ref->sock = Socket(sim::UDP);
 			if (!ref->sock.IsVaild())
 			{
@@ -1154,13 +1348,25 @@ namespace sim
 			}
 			return SOCK_SUCCESS;
 		}
-		virtual int AddUdpConnect(AsyncHandle handle)
-		{
-			return SOCK_FAILURE;
-		}
 		virtual int AddUdpConnect(AsyncHandle handle, const char* bind_ipaddr, unsigned short bind_port)
 		{
-			return SOCK_FAILURE;
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (!ref)
+			{
+				return SOCK_FAILURE;
+			}
+			ref->sock.SetReusePort(true);
+
+			int ret = ref->sock.Bind(bind_ipaddr, bind_port);
+			if (ret != SOCK_SUCCESS)
+			{
+				//bind error
+				ReleaseCtx(handle);
+				return ret;
+			}
+			ref->sock.SetNonBlock(true);
+			AddEpoll(ref);
+			return SOCK_SUCCESS;
 		}
 
 		virtual int Send(AsyncHandle handle, const char *buff, unsigned int buff_len)
@@ -1173,6 +1379,12 @@ namespace sim
 			RefObject<AsyncContext> ref = GetCtx(handle);
 			if (ref)
 			{
+				if (ref->type != TCP)
+				{
+					SIM_LERROR("Not Tcp");
+					return SOCK_FAILURE;
+				}
+
 				return Send(ref, RefBuff(buff, buff_len)) ? SOCK_SUCCESS : SOCK_FAILURE;
 			}
 			return SOCK_FAILURE;
@@ -1180,6 +1392,22 @@ namespace sim
 		virtual int SendTo(AsyncHandle handle, const char *buff, unsigned int buff_len,
 			const char* ipaddr, unsigned short port)
 		{
+			if (buff == NULL || 0 == buff_len)
+			{
+				return SOCK_SUCCESS;
+			}
+
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (ref)
+			{
+				if (ref->type != UDP)
+				{
+					SIM_LERROR("Not Tcp");
+					return SOCK_FAILURE;
+				}
+
+				return SendTo(ref, RefBuff(buff, buff_len), ipaddr,port) ? SOCK_SUCCESS : SOCK_FAILURE;
+			}
 			return SOCK_FAILURE;
 		}
 
@@ -1214,7 +1442,24 @@ namespace sim
 			ep_ref->send_queue_buff.PushBack(send);
 			return ModifyEpollEvent(ref, EPOLLOUT, true);
 		}
+		virtual bool SendTo(RefObject<AsyncContext> ref, RefBuff buff,const char* ipaddr, unsigned short port)
+		{
+			/*if (NULL == ref)
+				return false;*/
+			SendBuff send;
+			if (!ref->sock.IpToAddressV4(ipaddr, port, &send.to_addr))
+			{
+				SIM_LERROR("SendTo failue,IpToAddressV4 " << ipaddr << ":" << port << " bad!");
+				return false;
+			}
+			send.buff = buff;
+			send.offset = 0;
 
+			EpollAsyncContext* ep_ref = (EpollAsyncContext*)ref.get();
+			AutoMutex lk(ep_ref->send_queue_lock);
+			ep_ref->send_queue_buff.PushBack(send);
+			return ModifyEpollEvent(ref, EPOLLOUT, true);
+		}
 		//接收链接
 		virtual bool Accept(RefObject<AsyncContext> ref)
 		{
