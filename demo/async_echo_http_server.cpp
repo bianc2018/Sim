@@ -70,7 +70,7 @@ void SendCompleteHandler(sim::AsyncHandle handle, char *buff, unsigned int buff_
 	//sim::AutoMutex lk(ctx.active_lock);
 	SIM_LERROR("send complete " << handle );
 	//--ctx.active_num;
-	ctx.async.Close(handle);
+	//ctx.async.Close(handle);
 }
 void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int error, void*data)
 {
