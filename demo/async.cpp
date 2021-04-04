@@ -25,11 +25,14 @@ int main(int argc, char*argv[])
 
 	sim::SimAsync async;
 	sim::AsyncHandle handle = async.CreateTcpHandle();
+	async.ConvertToSSL(handle, true, true);
+	async.SetSSLKeyFile(handle,"cert.pem", "key.pem");
 	async.SetAcceptHandler(handle, AcceptHandler,NULL);
 	async.SetConnectHandler(handle, ConnectHandler, NULL);
 	async.SetRecvDataHandler(handle, RecvDataHandler, &async);
 	async.SetCloseHandler(handle, CloseHandler, NULL);
 	async.AddTcpServer(handle, NULL, 8080);
+
 	while (true)
 	{
 		async.Poll(100);

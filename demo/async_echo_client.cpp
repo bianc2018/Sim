@@ -22,13 +22,14 @@ struct EchoClientContext
 	//线程数量
 	unsigned int thread_num;
 	
+	bool ssl;
 	//统计信息
 	unsigned int done_num;
 	unsigned int fail_num;
 	unsigned int active_num;
 	EchoClientContext() 
 		:port(80), try_num(1), done_num(0),fail_num(0), active_num(0), thread_num(1),
-		active_limit(0), pool(NULL)
+		active_limit(0), pool(NULL), ssl(false)
 	{
 
 	}
@@ -90,7 +91,7 @@ void print_help()
 	std::string echomsg;
 	unsigned int try_num;
 	*/
-	printf("usg:-i 127.0.0.1 -p 8080 -e asdadsda -n 1000 -l 1000 -tn 1\n");
+	printf("usg:-i 127.0.0.1 -p 8080 -e asdadsda -n 1000 -l 1000 -tn 1 -ssl\n");
 }
 void done()
 {
@@ -112,7 +113,10 @@ void done()
 	ctx.async.SetConnectHandler(handle, ConnectHandler, NULL);
 	ctx.async.SetRecvDataHandler(handle, RecvDataHandler, NULL);
 	ctx.async.SetCloseHandler(handle, CloseHandler, NULL);
-
+	if (ctx.ssl)
+	{
+		ctx.async.ConvertToSSL(handle, false, true);
+	}
 	int ret = ctx.async.AddTcpConnect(handle, ctx.ip.c_str(), ctx.port);
 	if (ret != SOCK_SUCCESS)
 	{
@@ -139,7 +143,16 @@ int main(int argc, char *argv[])
 	ctx.echomsg = cmd.GetCmdLineParams("e", "");
 	ctx.try_num = cmd.GetCmdLineParams("n", 10000);
 	ctx.active_limit = cmd.GetCmdLineParams("l", 1000);
-	
+	if (cmd.HasParam("ssl"))
+	{
+#ifdef SIM_USE_OPENSSL
+		ctx.ssl = true;
+#else
+		SIM_LWARN("Not supoort -ssl");
+#endif // SIM_USE_OPENSSL
+
+		
+	}
 	//检查参数
 	if (cmd.HasParam("h")|| cmd.HasParam("help") || ctx.ip.empty()|| ctx.port<=0|| ctx.try_num<=0)
 	{

@@ -25,6 +25,12 @@ struct EchoServerContext
 	//线程数量
 	unsigned int thread_num;
 	bool exit_flag;
+
+	//ssl
+	bool ssl;
+	std::string pub_key;
+	std::string pri_key;
+
 	EchoServerContext()
 		:port(80), active_num(0), thread_num(1), done_num(0),
 		active_limit(0), pool(NULL), exit_flag(false)
@@ -88,7 +94,7 @@ void print_help()
 	std::string echomsg;
 	unsigned int try_num;
 	*/
-	printf("usg:-i 127.0.0.1 -p 8080 -l 1000 -tn 1\n");
+	printf("usg:-i ip地址 -p 监听端口 -l 最大活跃端口 -tn 并发线程 -ssl 启用ssl -pub_key 公钥 -pri_key 私钥\n");
 }
 void done()
 {
@@ -98,6 +104,11 @@ void done()
 	ctx.async.SetRecvDataHandler(handle, RecvDataHandler, NULL);
 	ctx.async.SetCloseHandler(handle, CloseHandler, NULL);
 	ctx.async.SetSendCompleteHandler(handle, SendCompleteHandler, NULL);
+	if (ctx.ssl)
+	{
+		ctx.async.ConvertToSSL(handle, true, true);
+		ctx.async.SetSSLKeyFile(handle, ctx.pub_key.c_str(), ctx.pri_key.c_str());
+	}
 	if (ctx.ip.empty())
 		ctx.async.AddTcpServer(handle, NULL, ctx.port,128);
 	else
@@ -121,7 +132,17 @@ int main(int argc, char *argv[])
 	ctx.ip = cmd.GetCmdLineParams("i", "");
 	ctx.port = cmd.GetCmdLineParams("p", 8080);
 	ctx.active_limit = cmd.GetCmdLineParams("l", 10000);
-
+	if (cmd.HasParam("ssl"))
+	{
+#ifdef SIM_USE_OPENSSL
+		ctx.ssl = true;
+		//"cert.pem", "key.pem"
+		ctx.pub_key = cmd.GetCmdLineParams("pub_key", "cert.pem");
+		ctx.pri_key = cmd.GetCmdLineParams("pri_key", "key.pem");
+#else
+		SIM_LWARN("Not supoort -ssl");
+#endif // SIM_USE_OPENSSL
+	}
 	//检查参数
 	if (cmd.HasParam("h") || cmd.HasParam("help") || ctx.port <= 0)
 	{

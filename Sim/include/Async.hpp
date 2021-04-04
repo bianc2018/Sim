@@ -4,6 +4,10 @@
 #ifndef SIM_ASYNC_HPP_
 #define SIM_ASYNC_HPP_
 
+#ifdef SIM_USE_OPENSSL
+#include "SSLCtx.hpp"
+#endif //! SIM_USE_OPENSSL
+
 #include "Socket.hpp"
 #include "RefObject.hpp"
 #include "RbTree.hpp"
@@ -52,6 +56,7 @@ namespace sim
 #define SIM_LERROR(x) SIM_LOG(sim::LError,x)
 #endif
 #endif
+
 #ifdef OS_WINDOWS
 #ifndef ASYNC_IOCP
 #define ASYNC_IOCP
@@ -76,6 +81,7 @@ namespace sim
 #endif
 #endif
 #endif
+
 namespace sim
 {
 	enum EType
@@ -113,7 +119,12 @@ namespace sim
 	public:
 		Socket sock;
 		SockType type;
-
+#ifdef SIM_USE_OPENSSL
+		//ssl会话上下文
+		RefObject<SSLCtx> ssl_ctx;
+		//ssl会话
+		SSLSession* ssl_session;
+#endif
 		AcceptHandler accept_handler;
 		void*accept_handler_data;
 		ConnectHandler connect_handler;
@@ -134,6 +145,9 @@ namespace sim
 			, sendcomplete_handler(NULL), sendcomplete_handler_data(NULL)
 			, close_handler(NULL), close_handler_data(NULL)
 			,type(t)
+#ifdef SIM_USE_OPENSSL
+			,ssl_session(NULL)
+#endif
 		{
 			//memset(this, 0, sizeof(*this));
 		}
@@ -153,12 +167,118 @@ namespace sim
 				close_handler_data = pctx->close_handler_data;
 				recvdatafrom_handler = pctx->recvdatafrom_handler;
 				recvdatafrom_handler_data = pctx->recvdatafrom_handler_data;
+#ifdef SIM_USE_OPENSSL
+				ssl_ctx = pctx->ssl_ctx;
+#endif
 			}
 		}
 		virtual ~AsyncContext()
 		{
+			ReleaseSSLCtx();
 			SIM_LDEBUG("close sock " << sock.GetSocket());
 			sock.Close();
+		}
+		void ReleaseSSLCtx()
+		{
+#ifdef SIM_USE_OPENSSL
+			if (ssl_session)
+			{
+				ssl_ctx->DelSession(ssl_session);
+				ssl_session = NULL;
+			}
+			ssl_ctx.reset();
+#endif
+		}
+
+		//加密数据
+		virtual RefBuff Encrypt(RefBuff input)
+		{
+#ifdef SIM_USE_OPENSSL
+			if (ssl_session)
+			{
+				RefBuff output;
+				ssl_session->InEncrypt(input.get(), input.size());
+				
+				const int buff_size = 4 * 1024;
+				char buff[buff_size] = {};
+				while (true)
+				{
+					int len = ssl_session->OutEncrypt(buff, buff_size);
+					if (len <= 0)
+						break;
+					output = output + RefBuff(buff, len);
+				}
+				return output;
+			}
+			else
+			{
+				return input;
+			}
+#else
+			return input;
+#endif
+		}
+		virtual RefBuff Decrypt(RefBuff input)
+		{
+#ifdef SIM_USE_OPENSSL
+			if (ssl_session)
+			{
+				RefBuff output;
+				ssl_session->InDecrypt(input.get(), input.size());
+
+				const int buff_size = 4 * 1024;
+				char buff[buff_size] = {};
+				while (true)
+				{
+					int len = ssl_session->OutDecrypt(buff, buff_size);
+					if (len <= 0)
+						break;
+					output = output + RefBuff(buff, len);
+				}
+				return output;
+			}
+			else
+			{
+				return input;
+			}
+#else
+			return input;
+#endif
+		}
+
+		//新建session
+		virtual bool NewSSLSession()
+		{
+#ifdef SIM_USE_OPENSSL
+			if (ssl_session)
+			{
+				//已存在
+				return true;
+			}
+			else
+			{
+				if (ssl_ctx)
+				{
+					ssl_session =ssl_ctx->NewSession(sock.GetSocket());
+					if (NULL == ssl_session)
+					{
+						SIM_LERROR("sock.GetSocket()"<< sock.GetSocket()
+							<< " NewSession return NULL");
+						return false;
+					}
+					//握手失败
+					if (false == ssl_session->HandShake())
+					{
+						SIM_LERROR("sock.GetSocket()" << sock.GetSocket()
+							<< " HandShake fail");
+						return false;
+					}
+				}
+				return true;
+			}
+#else
+			return false;
+#endif
 		}
 	public:
 		virtual void OnAccept(AsyncHandle client)
@@ -173,13 +293,28 @@ namespace sim
 		}
 		virtual void OnRecvData(char *buff, unsigned int buff_len)
 		{
+#ifdef SIM_USE_OPENSSL
+			RefBuff data = Decrypt(RefBuff(buff, buff_len));
+
+			if (recvdata_handler&&sock.IsVaild()&& data.size()>0)
+				recvdata_handler(sock.GetSocket(), data.get(), data.size(), recvdata_handler_data);
+#else
 			if (recvdata_handler&&sock.IsVaild())
 				recvdata_handler(sock.GetSocket(), buff, buff_len, recvdata_handler_data);
+#endif
 		}
 		virtual void OnRecvDataFrom(char *buff, unsigned int buff_len,char *from_ip, unsigned short port)
 		{
+#ifdef SIM_USE_OPENSSL
+			RefBuff data = Decrypt(RefBuff(buff, buff_len));
+
+			if (recvdatafrom_handler&&sock.IsVaild() && data.size() > 0)
+				recvdatafrom_handler(sock.GetSocket(), data.get(), data.size(), from_ip, port, recvdata_handler_data);
+#else
 			if (recvdatafrom_handler&&sock.IsVaild())
 				recvdatafrom_handler(sock.GetSocket(), buff, buff_len, from_ip, port, recvdata_handler_data);
+#endif
+			
 		}
 		virtual void OnSendComplete(char *buff, unsigned int buff_len)
 		{
@@ -218,6 +353,77 @@ namespace sim
 		virtual int AddTcpServer(AsyncHandle handle, const char* bind_ipaddr, unsigned short bind_port, unsigned int acctept_num = 10) = 0;
 		virtual int AddTcpConnect(AsyncHandle handle, const char* remote_ipaddr, unsigned short remote_port) = 0;
 		virtual int AddUdpConnect(AsyncHandle handle, const char* bind_ipaddr, unsigned short bind_port) = 0;
+
+		//ssl协议簇
+#ifdef SIM_USE_OPENSSL
+		virtual int ConvertToSSL(AsyncHandle handle, const SSL_METHOD *meth)
+		{
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (!ref)
+				return SOCK_FAILURE;
+			return ConvertToSSL(ref, meth);
+		}
+#endif
+		//return SOCK_FAILURE; is_server 是否为协议服务端 is_add 是否已经添加
+		virtual int ConvertToSSL(AsyncHandle handle, bool is_server, bool is_add)
+		{
+#ifndef SIM_USE_OPENSSL
+			return SOCK_FAILURE;
+#else
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (!ref)
+				return SOCK_FAILURE;
+
+			if (!is_add)
+			{
+				//释放
+				ref->ReleaseSSLCtx();
+				return SOCK_SUCCESS;
+			}
+			else
+			{
+				if (is_server)
+				{
+					if (ref->type == TCP)
+						return ConvertToSSL(ref, SSLv23_server_method());
+					else if (ref->type == UDP)
+						return ConvertToSSL(ref, DTLSv1_2_server_method());
+				}
+				else
+				{
+					if (ref->type == TCP)
+						return ConvertToSSL(ref, SSLv23_client_method());
+					else if (ref->type == UDP)
+						return ConvertToSSL(ref, DTLSv1_2_client_method());
+				}
+			}
+			return SOCK_FAILURE;
+#endif
+		}
+		//设置 ssl证书 0无错误
+		virtual int SetSSLKeyFile(AsyncHandle handle, const char *pub_key_file, const char*pri_key_file)
+		{
+#ifndef SIM_USE_OPENSSL
+			return SOCK_FAILURE;
+#else
+			SIM_FUNC_DEBUG();
+			if (NULL == pub_key_file || NULL == pri_key_file)
+			{
+				SIM_LERROR("SetSSLKeyFile Fail,some file is NULL");
+				return SOCK_FAILURE;
+			}
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (ref)
+			{
+				SIM_LDEBUG("handle " << handle << " SetSSLKeyFile  pub:"<< pub_key_file<<",pri:"<< pri_key_file);
+				if (ref->ssl_ctx)
+					if(!ref->ssl_ctx->SetKeyFile(pub_key_file, pri_key_file))
+						return SOCK_FAILURE;
+				return SOCK_SUCCESS;
+			}
+			return SOCK_FAILURE;
+#endif
+		}
 
 		virtual int Send(AsyncHandle handle, const char *buff, unsigned int buff_len) = 0;
 		virtual int SendTo(AsyncHandle handle, const char *buff, unsigned int buff_len,
@@ -341,6 +547,19 @@ namespace sim
 			}
 			return SOCK_FAILURE;
 		}
+
+#ifdef SIM_USE_OPENSSL
+		virtual int ConvertToSSL(RefObject<AsyncContext> ref, const SSL_METHOD *meth)
+		{
+			if (ref->ssl_session)
+			{
+				ref->ssl_ctx->DelSession(ref->ssl_session);
+				ref->ssl_session = NULL;
+			}
+			ref->ssl_ctx = RefObject<SSLCtx>(new SSLCtx(meth));
+			return SOCK_SUCCESS;
+		}
+#endif
 	private:
 		Mutex ctx_s_lock_;
 		RbTree<RefObject<AsyncContext> > ctx_s_;
@@ -629,7 +848,6 @@ namespace sim
 								if (false == Accept(ref))
 								{
 									SIM_LERROR("Accept fail " << " sock= " << ref->sock.GetSocket());
-									Close(socket, CloseError);
 									delete socket_event;
 									return SOCK_FAILURE;
 								}
@@ -637,6 +855,16 @@ namespace sim
 								RefObject<AsyncContext> accepted(new IocpAsyncContext(sim::TCP));
 								accepted->CopyHandler(ref.get());
 								accepted->sock = socket_event->accepted;
+
+#ifdef SIM_USE_OPENSSL
+								if (!accepted->NewSSLSession())
+								{
+									SIM_LERROR("NewSSLSession fail " << ref->sock.GetSocket() << " sock= " << accepted->sock.GetSocket());
+									delete socket_event;
+									return SOCK_FAILURE;
+								}
+#endif
+
 								//需要加到iocp队列里面
 								IocpAsyncContext* iocp_ctx = (IocpAsyncContext*)accepted.get();
 								iocp_ctx->iocp_handler = CreateIoCompletionPort((HANDLE)accepted->sock.GetSocket(), iocp_handler_,
@@ -666,7 +894,16 @@ namespace sim
 							}
 							else if (socket_event->type == ETConnect)
 							{
+#ifdef SIM_USE_OPENSSL
+								if (!ref->NewSSLSession())
+								{
+									SIM_LERROR("NewSSLSession fail " << ref->sock.GetSocket());
+									delete socket_event;
+									return SOCK_FAILURE;
+								}
+#endif
 								ref->OnConnect();
+
 								//Recv(ref);//接收数据
 								if (false == Recv(ref))//接收数据
 								{
@@ -704,11 +941,28 @@ namespace sim
 							{
 								if (socket_event->bytes_transfered == 0)
 								{
-									SIM_LERROR("recv socket_event->bytes_transfered=0 ,socket is end");
+									SIM_LERROR("recv socket_event->bytes_transfered=0 ,socket is end.sock= " << ref->sock.GetSocket());
 									Close(ref->sock.GetSocket(), ClosePassive);
 								}
 								else
 								{
+//#ifdef SIM_USE_OPENSSL
+//									if (ref->ssl_session)
+//									{
+//										RefBuff buff(socket_event->bytes_transfered*1.5 + 1, 0);
+//										int len = ref->ssl_session->Decrypt(socket_event->buff.get(), socket_event->bytes_transfered,
+//											buff.get(), buff.size());
+//										if (len <= 0)
+//										{
+//											SIM_LERROR("Recv fail " << " sock= " << ref->sock.GetSocket());
+//											Close(ref->sock.GetSocket(), CloseError);
+//											delete socket_event;
+//											return SOCK_FAILURE;
+//										}
+//										socket_event->buff = buff;
+//										socket_event->bytes_transfered = len;
+//									}
+//#endif
 									ref->OnRecvData(socket_event->buff.get(), socket_event->bytes_transfered);
 									//Recv(ref, socket_event->buff);//接收数据
 									if (false == Recv(ref, socket_event->buff))//接收数据
@@ -724,7 +978,7 @@ namespace sim
 							{
 								if (socket_event->bytes_transfered == 0)
 								{
-									SIM_LERROR("Send socket_event->bytes_transfered=0 ,socket is end");
+									SIM_LERROR("Send socket_event->bytes_transfered=0 ,socket is end.sock= " << ref->sock.GetSocket());
 									Close(ref->sock.GetSocket(), ClosePassive);
 								}
 								else
@@ -770,7 +1024,12 @@ namespace sim
 			RefObject<AsyncContext> ref = GetCtx(handle);
 			if (ref)
 			{
+				
+#ifdef SIM_USE_OPENSSL
+				return Send(ref, ref->Encrypt(RefBuff(buff, buff_len))) ? SOCK_SUCCESS : SOCK_FAILURE;
+#else
 				return Send(ref, RefBuff(buff, buff_len)) ? SOCK_SUCCESS : SOCK_FAILURE;
+#endif
 			}
 			return SOCK_FAILURE;
 		}
@@ -787,7 +1046,12 @@ namespace sim
 			RefObject<AsyncContext> ref = GetCtx(handle);
 			if (ref)
 			{
-				return SendTo(ref, RefBuff(buff, buff_len), ipaddr,port) ? SOCK_SUCCESS : SOCK_FAILURE;
+#ifdef SIM_USE_OPENSSL
+				return Send(ref, ref->Encrypt(RefBuff(buff, buff_len))) ? SOCK_SUCCESS : SOCK_FAILURE;
+#else
+				return SendTo(ref, RefBuff(buff, buff_len), ipaddr, port) ? SOCK_SUCCESS : SOCK_FAILURE;
+#endif
+				/*return SendTo(ref, RefBuff(buff, buff_len), ipaddr,port) ? SOCK_SUCCESS : SOCK_FAILURE;*/
 			}
 			return SOCK_FAILURE;
 		}
@@ -1163,6 +1427,13 @@ namespace sim
 					RefObject<AsyncContext> accepted(new EpollAsyncContext(sim::TCP));
 					accepted->CopyHandler(ep_ref);
 					accepted->sock = accepted_socket;
+#ifdef SIM_USE_OPENSSL
+					if (!accepted->NewSSLSession())
+					{
+						SIM_LERROR("NewSSLSession fail " << ref->sock.GetSocket());
+						continue;
+					}
+#endif
 					accepted->sock.SetNonBlock(true);
 					AddCtx(accepted);
 					ref->OnAccept(accepted->sock.GetSocket());
@@ -1176,6 +1447,13 @@ namespace sim
 
 					//连接已经建立了
 					ep_ref->connect_flag = false;
+#ifdef SIM_USE_OPENSSL
+					if (!ep_ref->NewSSLSession())
+					{
+						SIM_LERROR("NewSSLSession fail " << ref->sock.GetSocket());
+						continue;
+					}
+#endif
 					ref->OnConnect();
 					ModifyEpollEvent(ref, EPOLLOUT, false);
 					//可读
@@ -1195,9 +1473,9 @@ namespace sim
 
 						RefBuff buff(1024 * 4);
 						int ret = -1;
-						if(ep_ref->type = TCP)
+						if(ep_ref->type == TCP)
 							ret = ep_ref->sock.Recv(buff.get(), buff.size());
-						else if (ep_ref->type = UDP)
+						else if (ep_ref->type == UDP)
 							ret = ep_ref->sock.Recvfrom(buff.get(), buff.size(), ip_buff,ip_len,&port);
 						if (ret < 0)
 						{
@@ -1211,9 +1489,9 @@ namespace sim
 						}
 						else
 						{
-							if (ep_ref->type = TCP)
+							if (ep_ref->type == TCP)
 								ep_ref->OnRecvData(buff.get(), ret);
-							else if (ep_ref->type = UDP)
+							else if (ep_ref->type == UDP)
 								ep_ref->OnRecvDataFrom(buff.get(), ret,ip_buff,port);
 
 							ModifyEpollEvent(ref, EPOLLIN, true);
@@ -1236,7 +1514,7 @@ namespace sim
 							continue;
 						}
 						int ret = -1;
-						if (ep_ref->type = TCP)
+						if (ep_ref->type == TCP)
 						{
 							ret = ep_ref->sock.Send(pHead->data.buff.get() + pHead->data.offset,
 								pHead->data.buff.size() - pHead->data.offset);
@@ -1384,8 +1662,12 @@ namespace sim
 					SIM_LERROR("Not Tcp");
 					return SOCK_FAILURE;
 				}
-
+#ifdef SIM_USE_OPENSSL
+				return Send(ref, ref->Encrypt(RefBuff(buff, buff_len))) ? SOCK_SUCCESS : SOCK_FAILURE;
+#else
 				return Send(ref, RefBuff(buff, buff_len)) ? SOCK_SUCCESS : SOCK_FAILURE;
+#endif
+				//return Send(ref, RefBuff(buff, buff_len)) ? SOCK_SUCCESS : SOCK_FAILURE;
 			}
 			return SOCK_FAILURE;
 		}
@@ -1405,8 +1687,13 @@ namespace sim
 					SIM_LERROR("Not Tcp");
 					return SOCK_FAILURE;
 				}
-
-				return SendTo(ref, RefBuff(buff, buff_len), ipaddr,port) ? SOCK_SUCCESS : SOCK_FAILURE;
+#ifdef SIM_USE_OPENSSL
+				//return Send(ref, ref->Encrypt(RefBuff(buff, buff_len))) ? SOCK_SUCCESS : SOCK_FAILURE;
+				return SendTo(ref, ref->Encrypt(RefBuff(buff, buff_len)), ipaddr, port) ? SOCK_SUCCESS : SOCK_FAILURE;
+#else
+				return SendTo(ref, RefBuff(buff, buff_len), ipaddr, port) ? SOCK_SUCCESS : SOCK_FAILURE;
+#endif
+				//return SendTo(ref, RefBuff(buff, buff_len), ipaddr,port) ? SOCK_SUCCESS : SOCK_FAILURE;
 			}
 			return SOCK_FAILURE;
 		}

@@ -77,7 +77,7 @@ void* APoll(void* lpParam)
 		}
 		else
 		{
-			SIM_LERROR("udp.Recv error ret=" << readlen << " port=" << ctx.port << "  WSAGetLastError()=" << WSAGetLastError());
+			SIM_LERROR("udp.Recv error ret=" << readlen << " port=" << ctx.port << "  WSAGetLastError()=" << errno);
 		}
 	}
 	delete[]buff;
