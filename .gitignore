@@ -14,3 +14,4 @@ _deps
 /out/build/Linux-GCC-Debug
 /CMakeSettings.json
 /Sim/include/HttpParser.h
+/Sim/include/openssl
