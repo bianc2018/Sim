@@ -260,6 +260,18 @@ namespace sim
 			}
 			return *this;
 		}
+		virtual RefBuff operator+(const RefBuff& rhs)
+		{
+			if (this->buff_size_ + rhs.buff_size_ <= 0)
+				return RefBuff();
+
+			RefBuff temp(this->buff_size_ + rhs.buff_size_);
+			if(this->buff_size_>0)
+				memcpy(temp.ptr_, this->ptr_, this->buff_size_);
+			if (rhs.buff_size_ > 0)
+				memcpy(temp.ptr_+ this->buff_size_, rhs.ptr_, rhs.buff_size_);
+			return temp;
+		}
 		virtual unsigned int size()
 		{
 			return buff_size_;
