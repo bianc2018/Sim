@@ -160,34 +160,44 @@ namespace sim
 			if (!is_do_handshake_)
 			{
 				int ret = SSL_set_fd(ssl_, fd_);
-				if (SSL_is_server(ssl_))
-					ret = SSL_accept(ssl_);
-				else
-					ret = SSL_connect(ssl_);
-				/*X509 *cert;
-				char *line;
-
-				cert = SSL_get_peer_certificate(ssl_);
-				if (cert != NULL) {
-					printf("数字证书信息:\n");
-					line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
-					printf("证书: %s\n", line);
-					free(line);
-					line = X509_NAME_oneline(X509_get_issuer_name(cert), 0, 0);
-					printf("颁发者: %s\n", line);
-					free(line);
-					X509_free(cert);
-				}
-				else
-					printf("无证书信息！\n");*/
-					//ret = SSL_connect(ssl_);
-				if (ret != 1)
+				while (true)
 				{
-					char buff[4 * 1024] = { 0 };
-					int e = SSL_get_error(ssl_, -1);
-					printf("SSL_do_handshake fail ret=%d SSL_get_error=%d %s\n", ret, e, ERR_error_string(e, buff));
-					ERR_print_errors_fp(stderr);
-					return false;
+					if (SSL_is_server(ssl_))
+						ret = SSL_accept(ssl_);
+					else
+						ret = SSL_connect(ssl_);
+					/*X509 *cert;
+					char *line;
+
+					cert = SSL_get_peer_certificate(ssl_);
+					if (cert != NULL) {
+						printf("数字证书信息:\n");
+						line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+						printf("证书: %s\n", line);
+						free(line);
+						line = X509_NAME_oneline(X509_get_issuer_name(cert), 0, 0);
+						printf("颁发者: %s\n", line);
+						free(line);
+						X509_free(cert);
+					}
+					else
+						printf("无证书信息！\n");*/
+					if (ret != 1)
+					{
+						int e = SSL_get_error(ssl_, -1);
+						if (e == SSL_ERROR_WANT_READ)//等待
+							continue;
+
+						char buff[4 * 1024] = { 0 };
+						//错误
+						printf("SSL_do_handshake fail ret=%d SSL_get_error=%d %s\n", ret, e, ERR_error_string(e, buff));
+						ERR_print_errors_fp(stderr);
+						return false;
+					}
+					else
+					{
+						break;
+					}
 				}
 				SSL_set_bio(ssl_, bio_[SSL_CTX_IO_RECV], bio_[SSL_CTX_IO_SEND]);
 				is_do_handshake_ = true;
