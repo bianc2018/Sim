@@ -23,6 +23,8 @@ namespace sim
 			return t2;
 		}
 	public:
+		CmdLineParser() {};
+
 		CmdLineParser(int argc, char* argv[])
 		{
 		/*	printf("argc %d argv %p\n", argc, argv);
@@ -56,7 +58,6 @@ namespace sim
 			}
 			return false;
 		}
-	private:
 		bool Parser(int argc, char* argv[])
 		{
 			if (argc < 1)
