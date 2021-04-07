@@ -280,7 +280,7 @@ namespace sim
 		//…Ë÷√÷µ
 		virtual void set(int _val)
 		{
-			memset(ptr_, 0, buff_size_);
+			memset(ptr_, _val, buff_size_);
 		}
 	private:
 		unsigned int buff_size_;
