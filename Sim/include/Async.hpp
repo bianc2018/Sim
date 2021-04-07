@@ -349,6 +349,7 @@ namespace sim
 
 		virtual AsyncHandle CreateTcpHandle() = 0;
 		virtual AsyncHandle CreateUdpHandle() = 0;
+		virtual AsyncHandle CreateHandle(SockType type) = 0;
 
 		virtual int AddTcpServer(AsyncHandle handle, const char* bind_ipaddr, unsigned short bind_port, unsigned int acctept_num = 10) = 0;
 		virtual int AddTcpConnect(AsyncHandle handle, const char* remote_ipaddr, unsigned short remote_port) = 0;
@@ -663,33 +664,29 @@ namespace sim
 			iocp_handler_ = INVALID_HANDLE_VALUE;
 		}
 	public:
-		virtual AsyncHandle CreateTcpHandle()
+		virtual AsyncHandle CreateHandle(SockType type)
 		{
 			SIM_FUNC_DEBUG();
-			RefObject<AsyncContext> ref(new IocpAsyncContext(sim::TCP));
-			ref->sock = Socket(sim::TCP);
+			RefObject<AsyncContext> ref(new IocpAsyncContext(type));
+			ref->sock = Socket(type);
 			if (!ref->sock.IsVaild())
 			{
 				SIM_LERROR("sock Create error");
 				return SOCK_FAILURE;
 			}
 			AddCtx(ref);
-			SIM_LDEBUG("TCP.handle " << ref->sock.GetSocket() << " is cteated");
+			SIM_LDEBUG((sim::TCP == type?"TCP":"UDP")<<".handle " << ref->sock.GetSocket() << " is cteated");
 			return ref->sock.GetSocket();
+		}
+		virtual AsyncHandle CreateTcpHandle()
+		{
+			SIM_FUNC_DEBUG();
+			return CreateHandle(TCP);
 		}
 		virtual AsyncHandle CreateUdpHandle()
 		{
 			SIM_FUNC_DEBUG();
-			RefObject<AsyncContext> ref(new IocpAsyncContext(sim::UDP));
-			ref->sock = Socket(sim::UDP);
-			if (!ref->sock.IsVaild())
-			{
-				SIM_LERROR("sock Create error");
-				return SOCK_FAILURE;
-			}
-			AddCtx(ref);
-			SIM_LDEBUG("UDP.handle " << ref->sock.GetSocket() << " is cteated");
-			return ref->sock.GetSocket();
+			return CreateHandle(UDP);
 		}
 
 		virtual int AddTcpServer(AsyncHandle handle, const char* bind_ipaddr, unsigned short bind_port, unsigned int acctept_num = 10)
@@ -1557,10 +1554,10 @@ namespace sim
 			return SOCK_SUCCESS;
 		}
 
-		virtual AsyncHandle CreateTcpHandle()
+		virtual AsyncHandle CreateHandle(SockType type)
 		{
-			RefObject<AsyncContext> ref(new EpollAsyncContext(sim::TCP));
-			ref->sock = Socket(sim::TCP);
+			RefObject<AsyncContext> ref(new EpollAsyncContext(type));
+			ref->sock = Socket(type);
 			if (!ref->sock.IsVaild())
 			{
 				return SOCK_FAILURE;
@@ -1568,16 +1565,14 @@ namespace sim
 			AddCtx(ref);
 			return ref->sock.GetSocket();
 		}
+
+		virtual AsyncHandle CreateTcpHandle()
+		{
+			return CreateHandle(TCP);
+		}
 		virtual AsyncHandle CreateUdpHandle()
 		{
-			RefObject<AsyncContext> ref(new EpollAsyncContext(sim::UDP));
-			ref->sock = Socket(sim::UDP);
-			if (!ref->sock.IsVaild())
-			{
-				return SOCK_FAILURE;
-			}
-			AddCtx(ref);
-			return ref->sock.GetSocket();
+			return CreateHandle(UDP);
 		}
 
 		virtual int AddTcpServer(AsyncHandle handle, const char* bind_ipaddr, unsigned short bind_port, unsigned int acctept_num = 10)
