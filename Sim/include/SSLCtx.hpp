@@ -160,6 +160,7 @@ namespace sim
 			if (!is_do_handshake_)
 			{
 				int ret = SSL_set_fd(ssl_, fd_);
+				printf("SSL HandShake:start\n");
 				while (true)
 				{
 					if (SSL_is_server(ssl_))
@@ -186,7 +187,10 @@ namespace sim
 					{
 						int e = SSL_get_error(ssl_, -1);
 						if (e == SSL_ERROR_WANT_READ)//µÈ´ý
+						{
+							//printf("HandShake:SSL_ERROR_WANT_READ\n");
 							continue;
+						}
 
 						char buff[4 * 1024] = { 0 };
 						//´íÎó
@@ -199,6 +203,7 @@ namespace sim
 						break;
 					}
 				}
+				printf("SSL¡¡HandShake:ok\n");
 				SSL_set_bio(ssl_, bio_[SSL_CTX_IO_RECV], bio_[SSL_CTX_IO_SEND]);
 				is_do_handshake_ = true;
 			}
