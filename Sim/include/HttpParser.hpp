@@ -15,36 +15,56 @@
 #define SIM_HTTP_VERSION_1_1	"HTTP/1.1"
 //Content-Length
 #define SIM_HTTP_CL				"Content-Length"
+#define SIM_HTTP_CON				"Connection"
 namespace sim
 {
 	class HttpParser;
 
 	typedef std::string Str;
 
-	typedef bool(*HTTP_HEAD_TRA_FUNC)(const Str& key, const Str& val, void*pdata);
-	struct HttpHead
+
+	//<scheme>://<user>:<password>@<host>:<port>/<path>;<params>?<query>#<frag>
+	//httpurl
+	struct HttpUrl
 	{
-		struct HttpHeadNode
+		//协议
+		Str scheme;
+		//主机
+		Str host;
+		//端口
+		unsigned port;
+		//资源路径
+		Str path;
+		HttpUrl() :scheme(""),port(0), path("")
+		{
+
+		}
+	};
+
+	typedef bool(*HTTP_MAP_TRA_FUNC)(const Str& key, const Str& val, void*pdata);
+	struct HttpMap
+	{
+		struct HttpMapNode
 		{
 			Str Key, Value;
-			HttpHeadNode*next;
-			HttpHeadNode():next(NULL){}
+			HttpMapNode*next;
+			HttpMapNode():next(NULL){}
 		};
 	public:
-		HttpHeadNode*pHead;
+		HttpMapNode*pHead;
 	public:
-		HttpHead() :pHead(NULL)
+		HttpMap() :pHead(NULL)
 		{}
-		HttpHead(const HttpHead&other) :pHead(NULL)
+		HttpMap(const HttpMap&other) :pHead(NULL)
 		{
 			operator=(other);
 		}
-		HttpHead&operator=(const HttpHead&other) 
+		HttpMap&operator=(const HttpMap&other) 
 		{
 			if (this != &other)
 			{
 				Release();
-				HttpHeadNode*pn = other.pHead;
+				HttpMapNode*pn = other.pHead;
 				while (pn)
 				{
 					Append(pn->Key, pn->Value);
@@ -53,7 +73,8 @@ namespace sim
 			}
 			return (*this);
 		}
-		~HttpHead()
+
+		~HttpMap()
 		{
 			Release();
 		}
@@ -64,7 +85,7 @@ namespace sim
 			{
 				return notfound;
 			}
-			HttpHeadNode* pn = pHead;
+			HttpMapNode* pn = pHead;
 			while (pn)
 			{
 				if (pn->Key == key)
@@ -73,31 +94,43 @@ namespace sim
 			}
 			return notfound;
 		}
+		//不区分key大小写
+		Str GetCase(const Str& key, const Str &notfound);
 
 		void Append(const Str& key, const Str& val)
 		{
 			if (pHead == NULL)
 			{
-				pHead = new HttpHeadNode;
+				pHead = new HttpMapNode;
 				pHead->Key = key;
 				pHead->Value = val;
 				return;
 			}
-			HttpHeadNode* pn = pHead;
+			HttpMapNode* pn = pHead;
 			while (pn->next != NULL)
 			{
 				pn = pn->next;
 			}
-			pn->next = new HttpHeadNode;;
+			pn->next = new HttpMapNode;;
 			pn->next->Key = key;
 			pn->next->Value = val;
 			return;
 		}
 
+		void AppendMap(const HttpMap&other)
+		{
+			HttpMapNode*pn = other.pHead;
+			while (pn)
+			{
+				Append(pn->Key, pn->Value);
+				pn = pn->next;
+			}
+		}
+
 		int Count(const Str& key)
 		{
 			int count = 0;
-			HttpHeadNode* pn = pHead;
+			HttpMapNode* pn = pHead;
 			while (pn)
 			{
 				if (pn->Key == key)
@@ -110,7 +143,7 @@ namespace sim
 		int Count()
 		{
 			int count = 0;
-			HttpHeadNode* pn = pHead;
+			HttpMapNode* pn = pHead;
 			while (pn)
 			{
 				++count;
@@ -124,7 +157,7 @@ namespace sim
 			//释放内存
 			while (pHead)
 			{
-				HttpHeadNode* pn = pHead->next;
+				HttpMapNode* pn = pHead->next;
 				delete pHead;
 				pHead = pn;
 			}
@@ -132,12 +165,12 @@ namespace sim
 		}
 
 		//遍历
-		void Traverse(HTTP_HEAD_TRA_FUNC func, void*pdata)
+		void Traverse(HTTP_MAP_TRA_FUNC func, void*pdata)
 		{
 			if (NULL == func)
 				return;
 
-			HttpHeadNode* pn = pHead;
+			HttpMapNode* pn = pHead;
 			while (pn)
 			{
 				if (false == func(pn->Key, pn->Value, pdata))
@@ -154,7 +187,7 @@ namespace sim
 		Str Url;
 		Str Version;
 		
-		HttpHead Head;
+		HttpMap Head;
 
 		Str Body;
 
@@ -174,7 +207,7 @@ namespace sim
 		Str Status;
 		Str Reason;
 
-		HttpHead Head;
+		HttpMap Head;
 
 		Str Body;
 		void Clear()
@@ -298,6 +331,178 @@ namespace sim
 			return data;
 
 		}
+	public:
+		//去除前后的空格
+		static Str Trim(const Str&s)
+		{
+			int size = s.size();
+			if (size <= 0)
+				return "";
+			int start = 0, end = size - 1;
+			for (int i = 0; i < size; ++i)
+			{
+				if (s[i] != SIM_HTTP_SPACE)
+				{
+					start = i;
+					break;
+				}
+			}
+			for (int i = size - 1; i >= 0; --i)
+			{
+				if (s[i] != SIM_HTTP_SPACE)
+				{
+					end = i;
+					break;
+				}
+			}
+			Str res;
+			for (int i = start; i <= end; ++i)
+			{
+				res += s[i];
+			}
+			return  res;
+		}
+		//转换为大小写
+		static Str ToLower(const Str &s)
+		{
+			Str result = s;
+			unsigned int size = s.size();
+			for (int i = 0; i < size; ++i)
+				if (s[i] >= 'A'&&s[i] <= 'Z')
+					result[i] = 'a' + s[i] - 'A';
+			return result;
+		}
+		static Str ToUpper(const Str &s)
+		{
+			Str result = s;
+			unsigned int size = s.size();
+			for (int i = 0; i < size; ++i)
+				if (s[i] >= 'a'&&s[i] <= 'z')
+					result[i] = 'A' + s[i] - 'a';
+			return result;
+		}
+		static int StrToInt(const Str&s, int fail = -1)
+		{
+			int size = s.size();
+			if (size == 0)
+				return fail;
+
+			int i = 0;
+			int num = 0;
+			bool is_neg = false;
+			if (s[0] == '-')
+			{
+				is_neg = true;
+				i = 1;
+			}
+
+			for (; i < size; ++i)
+			{
+				if (s[i] >= '0'&& s[i] <= '9')
+					num = num * 10 + (s[i] - '0');
+				else
+					return fail;
+			}
+			return is_neg ? -num : num;
+		}
+		static Str IntToStr(const int&s, Str fail = "")
+		{
+			const int temp_buff_size = 256;
+			char temp_buff[temp_buff_size] = { 0 };
+			snprintf(temp_buff, temp_buff_size, "%d", s);
+			return temp_buff;
+		}
+
+		//<scheme>://<host>:<port>/<path>
+		//解析Url
+		static bool ParserUrl(const Str &url, HttpUrl &out)
+		{
+			Str tmp;
+			bool find_scheme = false, find_host = false,find_port=false/*,find_path=false*/,has_port=false;
+			unsigned int url_len= url.size();
+			for (unsigned int i = 0; i < url_len; ++i)
+			{
+				if (':' == url[i])
+				{
+					//scheme
+					if (i + 1 < url_len && url[i + 1] == '/'&&i + 2 < url_len&&url[i + 2] == '/')
+					{
+						out.scheme = tmp;
+						find_scheme = true;
+						tmp = "";
+						i += 2;
+						continue;
+					}
+					else
+					{
+						out.host = tmp;
+						find_host = true;
+						tmp = "";
+						has_port = true;//接下来是port
+						continue;
+					}
+				}
+				else if ('/' == url[i])
+				{
+					if (!find_host)
+					{
+						out.host = tmp;
+						find_host = true;
+						tmp = "";
+					}
+					else if (!find_port)
+					{
+						out.port = HttpParser::StrToInt(tmp);
+						find_port = true;
+						tmp = "";
+					}
+					//find_path = true;
+				}
+				tmp += url[i];
+			}
+
+			//填充默认值
+			if (!find_scheme)
+			{
+				out.scheme = "http";
+			}
+			if (!find_host)
+			{
+				if (tmp.size() == 0)
+					return false;
+				out.host = tmp;
+				tmp = "";
+			}
+			if (!find_port)
+			{
+				if (!has_port)
+				{
+					if (out.scheme == "http")
+						out.port = 80;
+					else if (out.scheme == "https")
+						out.port = 443;
+				}
+				else
+				{
+					//:结尾
+					if (tmp.size() == 0)
+					{
+						return false;
+					}
+					else
+					{
+						out.port = HttpParser::StrToInt(tmp);
+						tmp = "";
+					}
+				}
+
+			}
+			if (tmp.size() == 0)
+				out.path = "/";
+			else
+				out.path = tmp;
+			return true;
+		}
 	private:
 		bool OnStartLine()
 		{
@@ -414,72 +619,11 @@ namespace sim
 			temp_ = "";
 		}
 	private:
-		static int StrToInt(const Str&s,int fail =- 1)
-		{
-			int size = s.size();
-			if (size == 0)
-				return fail;
-
-			int i = 0;
-			int num = 0;
-			bool is_neg = false;
-			if (s[0] == '-')
-			{
-				is_neg = true;
-				i = 1;
-			}
-
-			for (; i < size; ++i)
-			{
-				if (s[i] >= '0'&& s[i] <= '9')
-					num = num * 10 + (s[i] - '0');
-				else
-					return fail;
-			}
-			return is_neg?-num:num;
-		}
-		static Str IntToStr(const int&s, Str fail = "")
-		{
-			const int temp_buff_size = 256;
-			char temp_buff[temp_buff_size] = { 0 };
-			snprintf(temp_buff, temp_buff_size, "%d", s);
-			return temp_buff;
-		}
 		static bool PrintHead(const Str& key, const Str& val, void*pdata)
 		{
 			Str *pd = (Str*)pdata;
 			(*pd) += key + ": " + val + SIM_HTTP_CRLF;
 			return true;
-		}
-		//去除前后的空格
-		static Str Trim(const Str&s)
-		{
-			int size = s.size();
-			if (size <= 0)
-				return "";
-			int start = 0, end = size-1;
-			for (int i = 0; i < size; ++i)
-			{
-				if (s[i] != SIM_HTTP_SPACE)
-				{
-					start = i;
-					break;
-				}
-			}
-			for (int i = size-1; i >=0; --i)
-			{
-				if (s[i] != SIM_HTTP_SPACE)
-				{
-					end = i;
-					break;
-				}
-			}
-			Str res;
-			for (int i = start; i <= end; ++i)
-			{
-				res += s[i];
-			}
-			return  res;
 		}
 		static bool ParserStartLine(const Str&s, Str&d1, Str&d2, Str&d3)
 		{
@@ -556,6 +700,20 @@ namespace sim
 
 	};
 
-
+	Str HttpMap::GetCase(const Str & key, const Str & notfound)
+	{
+		if (pHead == NULL)
+		{
+			return notfound;
+		}
+		HttpMapNode* pn = pHead;
+		while (pn)
+		{
+			if (HttpParser::ToLower(pn->Key) == HttpParser::ToLower(key))
+				return pn->Value;
+			pn = pn->next;
+		}
+		return notfound;
+	}
 }
 #endif
