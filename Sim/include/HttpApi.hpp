@@ -3,6 +3,7 @@
 */
 #ifndef SIM_HTTP_API_HTTP_
 #define SIM_HTTP_API_HTTP_
+//#include "Timer.hpp"
 #include "HttpParser.hpp"
 #include "Async.hpp"
 #include "TaskPool.hpp"
@@ -54,6 +55,7 @@ namespace sim
 		HttpGetResquest,
 		HttpClose
 	};
+	
 
 	typedef void(*HTTP_CLI_HANDLER)(HTTP_S_STATUS status,HttpResponse *response, void *pdata);
 	class HttpClient
@@ -68,14 +70,20 @@ namespace sim
 			parser_(HTTP_CLI_RESPONSE_HANDLER,this),
 			handler_(NULL),
 			pdata_(NULL),
+			close_flag_(false),
 			handle_(-1)
 		{
 			
 		}
-		HttpClient() :HttpClient(HttpGlobalCtx::Get()) {};
+		HttpClient() :async_(HttpGlobalCtx::Get()),
+			parser_(HTTP_CLI_RESPONSE_HANDLER, this),
+			handler_(NULL),
+			pdata_(NULL),
+			close_flag_(false),
+			handle_(-1) {};
 		~HttpClient()
 		{
-			async_.Close(handle_);
+			Close();
 		}
 		bool ConnectHttp(const char*ip, int port)
 		{
@@ -99,6 +107,23 @@ namespace sim
 			async_.AddTcpConnect(handle_, ip, port);
 			return true;
 		}
+		bool Connect(const char*host)
+		{
+			if (NULL == host)
+				return false;
+			HttpUrl out;
+			if (!HttpParser::ParserUrl(host,out))
+				return false;
+			sim::Socket::Init();
+			Str ip="";
+			if (0 != sim::Socket::GetHostByName(out.host.c_str(), HttpClient::HTTP_CLI_GetHostByNameCallBack,&ip))
+				return false;
+			if (out.scheme == "https")
+				return ConnectHttps(ip.c_str(), out.port);
+			else if (out.scheme == "http")
+				return ConnectHttp(ip.c_str(), out.port);
+			return false;
+		}
 		bool SetHandler(HTTP_CLI_HANDLER handler, void*pdata)
 		{
 			handler_ = handler;
@@ -116,7 +141,7 @@ namespace sim
 			req.Method = "GET";
 			req.Url = path;
 			req.Version = "HTTP/1.1";
-			req.Head.Append("Connection", "Keep-Alive");
+			req.Head.Append("Connection", "Close");
 			req.Head.Append("Server", "Sim.HttpApi");
 			return Request(req);
 		}
@@ -130,6 +155,91 @@ namespace sim
 			req.Head.Append("Server", "Sim.HttpApi");
 			req.Body = data;
 			return Request(req);
+		}
+		bool Close()
+		{
+			return async_.Close(handle_)==SOCK_SUCCESS;
+		}
+	public:
+		//上下文
+		struct SyncCtx
+		{
+			HttpClient *cli;
+			HttpRequest *request;
+			HttpResponse *response;
+			bool is_ok;
+			bool is_close;//是否已经关闭
+		};
+		static bool Request(const Str&Method, const Str &Url, const Str &Body,
+			HttpResponse &response, int timeout_ms = 1000, HttpMap *exthead = NULL)
+		{
+			SyncCtx ctx;
+			HttpClient cli;
+
+			//解析连接
+			HttpUrl out;
+			if (!HttpParser::ParserUrl(Url, out))
+				return false;
+
+			HttpRequest request;
+			request.Method = Method;
+			request.Url = out.path;
+			request.Version = "HTTP/1.1";
+			request.Body = Body;
+			request.Head.Append("Connection", "Close");
+			request.Head.Append("Server", "Sim.HttpApi");
+			if (exthead)
+			{
+				request.Head.AppendMap(*exthead);
+			}
+
+			//解析域名
+			sim::Socket::Init();
+			Str ip = "";
+			if (0 != sim::Socket::GetHostByName(out.host.c_str(), HttpClient::HTTP_CLI_GetHostByNameCallBack, &ip))
+				return false;
+			
+			ctx.cli = &cli;
+			ctx.request = &request;
+			ctx.response = &response;
+			ctx.is_ok = false;
+			ctx.is_close = false;
+			cli.SetHandler((HTTP_CLI_HANDLER)HttpClient::HTTP_CLI_Sync_Response, &ctx);
+			//连接
+			if (out.scheme == "https")
+			{
+				if (!cli.ConnectHttps(ip.c_str(), out.port))
+					return false;
+			}
+			else if (out.scheme == "http")
+			{
+				if (!cli.ConnectHttp(ip.c_str(), out.port))
+					return false;
+			}
+			else
+			{
+				return false;
+			}
+			//等待
+			const int wait_ms = 10;
+			bool no_time_out = timeout_ms <= 0; //<=0 不退出
+			while (timeout_ms > 0||no_time_out)
+			{
+				if (ctx.is_ok|| ctx.is_close)
+					break;
+				Time::Sleep(wait_ms);
+				timeout_ms -= wait_ms;
+			}
+			return ctx.is_ok;
+		}
+		//静态通用接口
+		static bool Get(const Str&Url, HttpResponse &response,int timeout_ms = 1000,HttpMap *exthead=NULL)
+		{
+			return Request("GET", Url, "", response, timeout_ms, exthead);
+		}
+		static bool Post(const Str&Url, const Str&Body, HttpResponse &response, int timeout_ms = 1000, HttpMap *exthead = NULL)
+		{
+			return Request("POST", Url, Body, response, timeout_ms, exthead);
 		}
 	private:
 		static void HTTP_CLI_ConnectHandler(sim::AsyncHandle handle, void*data)
@@ -162,6 +272,41 @@ namespace sim
 			{
 				HttpClient*cli = (HttpClient*)pdata;
 				cli->OnHttpHandler(HttpGetResponse, response);
+				if (HttpParser::ToLower(response->Head.GetCase(SIM_HTTP_CON, "Close")) == HttpParser::ToLower("Close"))
+				{
+					cli->Close();
+				}
+			}
+		}
+		static bool HTTP_CLI_GetHostByNameCallBack(const char* ip, void* pdata)
+		{
+			if (pdata)
+			{
+				Str*s = (Str*)pdata;
+				(*s) = ip;
+			}
+			return false;
+		}
+
+		//
+		static void HTTP_CLI_Sync_Response(HTTP_S_STATUS status, HttpResponse *response, void *pdata)
+		{
+			if (pdata)
+			{
+				SyncCtx* pc = (SyncCtx*)pdata;
+				if (status == HttpConnect)
+				{
+					pc->cli->Request(*pc->request);
+				}
+				else if (status == HttpGetResponse)
+				{
+					*(pc->response) = (*response);
+					pc->is_ok = true;
+				}
+				else if (status == HttpClose)
+				{
+					pc->is_close = true;
+				}
 			}
 		}
 	private:
@@ -170,7 +315,12 @@ namespace sim
 			if (handler_)
 				handler_(status,response, pdata_);
 		}
+		
+		/*static bool Request(HttpClient &cli, HttpUrl &Url, HttpRequest &request,
+			HttpResponse &response, int timeout_ms = 1000)*/
+		
 	private:
+		bool close_flag_;
 		HTTP_CLI_HANDLER handler_;
 		void *pdata_;
 		SimAsync &async_;
@@ -178,8 +328,7 @@ namespace sim
 		HttpParser parser_;
 	};
 	
-
-	typedef bool(*HTTP_SERV_HANDLER)(HttpRequest*request, HttpResponse *response, void *pdata);
+	typedef void(*HTTP_SERV_HANDLER)(HttpRequest*request, HttpResponse *response, void *pdata);
 	class HttpServer
 	{
 		struct HttpSession
@@ -187,10 +336,22 @@ namespace sim
 			HttpParser parser;
 			AsyncHandle handle;
 			HttpServer &srv;
+			bool close_flag;
 			HttpSession(HttpServer &s, AsyncHandle cli)
-				:srv(s), parser(HttpServer::HTTP_SERV_REQUEST_HANDLER,this), handle(cli)
+				:srv(s), parser(HttpServer::HTTP_SERV_REQUEST_HANDLER,this), handle(cli), close_flag(false)
 			{
 
+			}
+			void Close()
+			{
+				srv.async_.Close(handle);
+			}
+			void OnSendComplete()
+			{
+				if (close_flag)
+				{
+					Close();
+				}
 			}
 		};
 	public:
@@ -200,7 +361,9 @@ namespace sim
 		{
 
 		}
-		HttpServer() :HttpServer(HttpGlobalCtx::Get())
+		HttpServer():handler_(NULL), async_(HttpGlobalCtx::Get()),
+			pdata_(NULL),
+			handle_(-1)
 		{
 
 		}
@@ -274,24 +437,29 @@ namespace sim
 				response.Status = "200";
 				response.Reason = "OK";
 				response.Version = "HTTP/1.1";
-				if (ss->srv.OnHttpHandler(request, &response))
+				ss->srv.OnHttpHandler(request, &response);
+				if (HttpParser::ToLower(response.Head.GetCase(SIM_HTTP_CON, "Close")) == HttpParser::ToLower("Close"))
 				{
-					Str data =  ctx->PrintResponse(&response);
-					ss->srv.async_.Send(ss->handle, data.c_str(), data.size());
-				}
-				else
-				{
-					ss->srv.async_.Close(ss->handle);
+					ss->close_flag = true;
 				}
 
+				Str data = ctx->PrintResponse(&response);
+				ss->srv.async_.Send(ss->handle, data.c_str(), data.size());
+			}
+		}
+		static void HTTP_CLI_SendCompleteHandler(sim::AsyncHandle handle, char *buff, unsigned int buff_len, void*data)
+		{
+			if (data)
+			{
+				HttpSession*ss = (HttpSession*)data;
+				ss->OnSendComplete();
 			}
 		}
 	private:
-		bool OnHttpHandler(HttpRequest *request,HttpResponse *response)
+		void OnHttpHandler(HttpRequest *request,HttpResponse *response)
 		{
 			if (handler_)
-				return handler_(request, response,pdata_);
-			return false;
+				 handler_(request, response,pdata_);
 		}
 	private:
 		HTTP_SERV_HANDLER handler_;
