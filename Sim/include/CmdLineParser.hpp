@@ -50,6 +50,13 @@ namespace sim
 			return SimTo<std::string, T>(GetCmdLineParams(key,SimTo<T, std::string>(notfind)));
 		}
 
+		template<typename T>
+		CmdLineParser& InitCmdLineParams(const std::string&key, const T&value)
+		{
+			cmd_line_params_[key] = SimTo<T, std::string>(value);
+			return (*this);
+		}
+
 		bool HasParam(const std::string&key)
 		{
 			if (cmd_line_params_.count(key))
