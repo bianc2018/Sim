@@ -1451,8 +1451,8 @@ namespace sim
 						continue;
 					}
 #endif
-					ref->OnConnect();
 					ModifyEpollEvent(ref, EPOLLOUT, false);
+					ref->OnConnect();
 					//¿É¶Á
 					ModifyEpollEvent(ref, EPOLLIN, true);
 					SIM_LDEBUG("connect use " << ts.Get() << " ms");
