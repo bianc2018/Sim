@@ -13,9 +13,11 @@
 	#endif
 	
     #include <stdio.h>
-	#ifndef _INC_WINDOWS 
-	#include <WinSock2.h>
+	#ifndef WIN32_LEAN_AND_MEAN
+	#define WIN32_LEAN_AND_MEAN  
 	#endif
+	#include <WinSock2.h>
+	
     #ifndef INVALID_SOCKET
         #define INVALID_SOCKET (SOCKET)(~0)
     #endif

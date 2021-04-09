@@ -61,6 +61,9 @@ namespace sim
 #ifndef ASYNC_IOCP
 #define ASYNC_IOCP
 #endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN  
+#endif
 #include <winsock2.h>
 #include <MSWSock.h>
 #else

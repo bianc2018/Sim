@@ -5,7 +5,32 @@
 #include "HttpApi.hpp"
 #include "CmdLineParser.hpp"
 sim::CmdLineParser cmd;
+sim::TimeSpan ts;//计时
 sim::HttpMap *pex = NULL;
+
+sim::Str print_bytes(double bytes)
+{
+	const int buff_size = 1024;
+	char buff[buff_size] = { 0 };
+	if (bytes < 1024)
+	{
+		snprintf(buff, buff_size, "%u bytes", bytes);
+	}
+	else if (bytes < 1024*1024)
+	{
+		snprintf(buff, buff_size, "%0.3lf kb", double(bytes)/1024);
+	}
+	else if (bytes < 1024 * 1024 * 1024)
+	{
+		snprintf(buff, buff_size, "%0.3lf mb", double(bytes) / (1024*1024));
+	}
+	else if (bytes > 1024 * 1024 * 1024)
+	{
+		snprintf(buff, buff_size, "%0.3lf gb", double(bytes) / (1024 * 1024* 1024));
+	}
+	return buff;
+}
+
 void init_exhead(const sim::Str&map)
 {
 	bool is_key = true;
@@ -46,6 +71,23 @@ void init_exhead(const sim::Str&map)
 		}
 	}
 }
+
+bool SyncProgress(unsigned int total_bytes, unsigned int now_bytes, void*pdata)
+{
+	 if (cmd.HasParam("print"))
+	 {
+		 unsigned long long use_ms = ts.Get();
+		 //进度百分比
+		 double ps = total_bytes==0?100:(double(now_bytes) / total_bytes) * 100;
+		 double speed = use_ms==0?0:double(now_bytes) / (use_ms / double(1000));
+		 printf("recv body(%%%0.3lf) %s [total %s] use %0.3lf s speed %s/s\n",
+			 ps,
+			 print_bytes(now_bytes).c_str(), print_bytes(total_bytes).c_str(),
+			 double(use_ms)/1000,
+			 print_bytes(speed).c_str());
+	 }
+	 return true;
+}
 void print_help()
 {
 	printf("usg:-m 请求方法(GET、POST) -u URL -body 消息体 -timeout 超时单位毫秒 -log 输出日志 -save filename 保存报文 -print 打印详情 -no_print_body 不打印消息体 -ext_head 拓展头 \"key:value:key1:value1\"\n");
@@ -53,11 +95,14 @@ void print_help()
 
 int main(int argc, char* argv[])
 {
-#if 0
-	cmd.InitCmdLineParams("u", "http://www.baidu.com")
+#if 1
+	cmd.InitCmdLineParams("u", "https://cdn.mysql.com//Downloads/MySQL-8.0/mysql-8.0.23-1.el7.x86_64.rpm-bundle.tar")
 		.InitCmdLineParams("print","")
-		.InitCmdLineParams("timeout", 10000)
+		.InitCmdLineParams("m", "HEAD")
+		//.InitCmdLineParams("log", "")
+		.InitCmdLineParams("timeout", -1)
 		.InitCmdLineParams("no_print_body","");
+
 #endif
 	if (!cmd.Parser(argc, argv)
 		|| cmd.HasParam("h")
@@ -100,13 +145,15 @@ int main(int argc, char* argv[])
 			printf("body[%u bytes]\n",body.size());
 		else
 			printf("body[%u bytes]:%s\n", body.size(), body.c_str());
+		printf("\n");
 
 	}
-	sim::TimeSpan ts;//计时
-
+	
+	ts.ReSet();
 	sim::HttpResponse response;
-	if (!sim::HttpClient::Request(method, url, body, response, timeout, pex))
+	if (!sim::HttpClient::Request(method, url, body, response, timeout, pex, SyncProgress,NULL))
 	{
+		printf("\n");
 		printf("Request error use %llu ms\n", ts.Get());
 		getchar();
 		return -1;
@@ -114,6 +161,7 @@ int main(int argc, char* argv[])
 	
 	if (cmd.HasParam("print"))
 	{
+		printf("\n");
 		printf("end request :%s %s \n", method.c_str(), url.c_str());
 		printf("response:%s %s use %llu ms\n", response.Status.c_str(), response.Reason.c_str(), ts.Get());
 		printf("response head:\n");

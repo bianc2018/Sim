@@ -14,6 +14,9 @@
 	#endif
 	#include <io.h>
 	#include <direct.h>
+	#ifndef WIN32_LEAN_AND_MEAN
+	#define WIN32_LEAN_AND_MEAN  
+	#endif
 	#include <Windows.h>
 	#ifndef SIM_ACCESS 
 	#define SIM_ACCESS _access

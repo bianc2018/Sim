@@ -2,7 +2,12 @@
 #define SIM_MUTEX_HPP_
 
 #ifdef WIN32
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN  
+#endif
 #include <Windows.h>
+
 #else
 #include <pthread.h>
 typedef pthread_mutex_t CRITICAL_SECTION ;

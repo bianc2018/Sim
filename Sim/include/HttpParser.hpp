@@ -6,6 +6,14 @@
 #include <stdio.h>
 #include <string>
 
+#define SIM_PARSER_MULTI_THREAD
+//多线程情况下运行
+#ifdef SIM_PARSER_MULTI_THREAD
+#include "Mutex.hpp"
+#endif
+//100M
+#define MAX_HTTP_BODY_SIZE 100*1024*1024
+
 #define SIM_HTTP_SPACE			' '
 #define SIM_HTTP_CR				'\r'
 #define SIM_HTTP_LF				'\n'
@@ -41,6 +49,16 @@ namespace sim
 		}
 	};
 
+	//追加模式
+	enum HttpMapAppendMode
+	{
+		//覆盖
+		HM_COVER,
+		//不存在才新增，已存在忽略掉
+		HM_ADD_IF_NO_EXIST,
+		//追加一个项
+		HM_APPEND,
+	};
 	typedef bool(*HTTP_MAP_TRA_FUNC)(const Str& key, const Str& val, void*pdata);
 	struct HttpMap
 	{
@@ -97,7 +115,7 @@ namespace sim
 		//不区分key大小写
 		Str GetCase(const Str& key, const Str &notfound);
 
-		void Append(const Str& key, const Str& val)
+		void Append(const Str& key, const Str& val, HttpMapAppendMode mode = HM_ADD_IF_NO_EXIST)
 		{
 			if (pHead == NULL)
 			{
@@ -109,6 +127,21 @@ namespace sim
 			HttpMapNode* pn = pHead;
 			while (pn->next != NULL)
 			{
+				//如果存在相同键值的项
+				if (pn->Key == key)
+				{
+					if (HM_ADD_IF_NO_EXIST == mode)
+					{
+						return;//不处理
+					}
+					else if (HM_COVER == mode)
+					{
+						//覆盖
+						pn->Value = val;
+						return;
+					}
+				}
+
 				pn = pn->next;
 			}
 			pn->next = new HttpMapNode;;
@@ -117,12 +150,12 @@ namespace sim
 			return;
 		}
 
-		void AppendMap(const HttpMap&other)
+		void AppendMap(const HttpMap&other, HttpMapAppendMode mode = HM_ADD_IF_NO_EXIST)
 		{
 			HttpMapNode*pn = other.pHead;
 			while (pn)
 			{
-				Append(pn->Key, pn->Value);
+				Append(pn->Key, pn->Value, mode);
 				pn = pn->next;
 			}
 		}
@@ -180,6 +213,20 @@ namespace sim
 			return ;
 		}
 	};
+	
+	//content 状态
+	struct HttpContent
+	{
+		//当前块
+		Str chunk;
+		//是否为完整的。true就是整个报文了，false 只是其中一块
+		bool is_complete;
+		//报文体的长度
+		unsigned int content_length;
+		//当前块的开头
+		unsigned int offset;
+
+	};
 
 	struct HttpRequest
 	{
@@ -231,24 +278,41 @@ namespace sim
 		HTTP_HEAD_CR,
 		HTTP_HEAD_LF,
 		HTTP_BODY,
+		HTTP_COMPLETE,//完整
 	};
 
 	class HttpParser
 	{
 	public:
-		HttpParser(HTTP_REQUEST_HANDLER req_hanler, void*pdata) 
-			:req_hanler_(req_hanler), pdata_(pdata), response_handler_(NULL),status_(HTTP_START_LINE_CR), content_length_(0)
+		HttpParser(HTTP_REQUEST_HANDLER req_hanler, void*pdata,bool is_cb_process = false)
+			:req_hanler_(req_hanler),
+			pdata_(pdata), 
+			response_handler_(NULL),
+			status_(HTTP_START_LINE_CR),
+			content_length_(0),
+			is_cb_process_(is_cb_process),
+			max_body_size_(MAX_HTTP_BODY_SIZE)
 		{
 			
 		}
 
-		HttpParser(HTTP_RESPONSE_HANDLER response_handler, void*pdata)
-			:req_hanler_(NULL), pdata_(pdata), response_handler_(response_handler), status_(HTTP_START_LINE_CR), content_length_(0)
+		HttpParser(HTTP_RESPONSE_HANDLER response_handler, void*pdata, bool is_cb_process = false)
+			:req_hanler_(NULL), 
+			pdata_(pdata), 
+			response_handler_(response_handler), 
+			status_(HTTP_START_LINE_CR), 
+			content_length_(0),
+			is_cb_process_(is_cb_process),
+			max_body_size_(MAX_HTTP_BODY_SIZE)
 		{}
 		~HttpParser() {};
 
 		bool Parser(const char*data, unsigned int len)
 		{
+			//并行情况
+#ifdef SIM_PARSER_MULTI_THREAD
+			sim::AutoMutex lk( parser_lock_);
+#endif
 			/*if (req_hanler_)
 				return ParserRequest(data, len);
 			if (response_handler_)
@@ -298,9 +362,18 @@ namespace sim
 					if (!OnBody(data, len, offset))
 						return false;
 				}
+				else if (status_ == HTTP_COMPLETE)
+				{
+					status_ = HTTP_START_LINE_CR;
+				}
 				else
 				{
 					return false;
+				}
+				//是否每次都要回调
+				if (is_cb_process_)
+				{
+					OnHandler();
 				}
 			}
 			return true;
@@ -331,6 +404,22 @@ namespace sim
 			return data;
 
 		}
+
+		//获取解析状态
+		HttpParserStatus GetParserStatus()
+		{
+			return status_;
+		}
+
+		//设置最大body缓存
+		bool SetMaxHttpBodySize(const unsigned int &max_body_size)
+		{
+			if(max_body_size<=0)
+				return false;
+			max_body_size_ = max_body_size;
+			return true;
+		}
+		
 	public:
 		//去除前后的空格
 		static Str Trim(const Str&s)
@@ -450,7 +539,7 @@ namespace sim
 						find_host = true;
 						tmp = "";
 					}
-					else if (!find_port)
+					else if (!find_port&&has_port)
 					{
 						out.port = HttpParser::StrToInt(tmp);
 						find_port = true;
@@ -503,6 +592,12 @@ namespace sim
 				out.path = tmp;
 			return true;
 		}
+
+		//获取HttpMap 中content字段 大小找不到或者不存在返回0
+		static  int GetHeadContentLen(HttpMap &Head)
+		{
+			return HttpParser::StrToInt(Head.GetCase(SIM_HTTP_CL, "0"), 0);
+		}
 	private:
 		bool OnStartLine()
 		{
@@ -545,14 +640,15 @@ namespace sim
 				//head 结束了
 				if (req_hanler_)
 				{
-					content_length_ = StrToInt(t_request_.Head.Get(SIM_HTTP_CL, "0"), 0);
+					content_length_ = GetHeadContentLen(t_request_.Head);
 				}
 				else
 				{
-					content_length_ = StrToInt(t_response_.Head.Get(SIM_HTTP_CL, "0"), 0);
+					content_length_ = GetHeadContentLen(t_response_.Head);
 				}
 				if (content_length_ == 0)
 				{
+					status_ = HTTP_COMPLETE;
 					OnHandler();
 					return true;
 				}
@@ -576,6 +672,7 @@ namespace sim
 			unsigned int need_bytes = content_length_ - pbody->size();
 			if (need_bytes <= 0)
 			{
+				status_ = HTTP_COMPLETE;
 				OnHandler();
 				return  true;
 			}
@@ -583,10 +680,16 @@ namespace sim
 			(*pbody) += Str(data + offset, copy_bytes);
 			offset += copy_bytes;
 			
+			if (max_body_size_ < pbody->size())
+			{
+				return false;
+			}
+
 			need_bytes = content_length_ - pbody->size();
 			//printf("copy_bytes %u need_bytes %u content_lenght %u body %u\n", copy_bytes, need_bytes, content_length_, pbody->size());
 			if (need_bytes <= 0)
 			{
+				status_ = HTTP_COMPLETE;
 				OnHandler();
 				return  true;
 			}
@@ -612,11 +715,15 @@ namespace sim
 				req_hanler_(this, &t_request_, pdata_);
 			else if (response_handler_)
 				response_handler_(this, &t_response_, pdata_);
-			t_response_.Clear();
-			t_request_.Clear();
-			status_ = HTTP_START_LINE_CR;
-			content_length_ = 0;
-			temp_ = "";
+
+			if (status_ == HTTP_COMPLETE)
+			{
+				t_response_.Clear();
+				t_request_.Clear();
+				status_ = HTTP_START_LINE_CR;
+				content_length_ = 0;
+				temp_ = "";
+			}
 		}
 	private:
 		static bool PrintHead(const Str& key, const Str& val, void*pdata)
@@ -689,15 +796,24 @@ namespace sim
 			return true;
 		}
 	private:
+		
+#ifdef SIM_PARSER_MULTI_THREAD
+		sim::Mutex parser_lock_;
+#endif
 		Str temp_;//缓存
 		int content_length_;
 		HttpParserStatus status_;
+
 		HttpRequest t_request_;
 		HTTP_REQUEST_HANDLER req_hanler_;
 		HttpResponse t_response_;
 		HTTP_RESPONSE_HANDLER response_handler_;
 		void*pdata_;
 
+		//是否回调过程
+		bool is_cb_process_;
+
+		unsigned int max_body_size_;
 	};
 
 	Str HttpMap::GetCase(const Str & key, const Str & notfound)
