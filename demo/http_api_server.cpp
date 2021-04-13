@@ -9,7 +9,7 @@ sim::HttpServer Srv;
 void HTTP_SERV_HANDLER(sim::HttpRequest*request, sim::HttpResponse *response, void *pdata)
 {
 	printf("recv request path:%s\n", request->Url.c_str());
-	response->Body = "Hello world";
+	response->Content.chunk = "Hello world";
 	//return true;
 }
 void print_help()

@@ -14,7 +14,7 @@ int main(int argc, char*argv[])
 	req.Url = "/";
 	req.Version = "HTTP/1.1";
 	req.Head.Append("Accept", "text/plain");
-	req.Body = "123132132132131313132";
+	req.Content.chunk = "123132132132131313132";
 	sim::Str data =  sim::HttpParser::PrintRequest(&req);
 	printf("req:\n%s\n", data.c_str());
 	data += data;

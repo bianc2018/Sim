@@ -11,14 +11,14 @@ void HTTP_CLI_HANDLER(sim::HTTP_S_STATUS status,sim::HttpResponse *response, voi
 		printf("Connect \n");
 		cli.Get(cmd.GetCmdLineParams("path", "/").c_str());
 	}
-	else if (status == sim::HttpGetResponse)
+	else if (status == sim::HttpGetResponseComplete)
 	{
 		printf("Get Response %s %s body size=%u Connection %s\n",
-			response->Status.c_str(), response->Reason.c_str(), response->Body.size()
+			response->Status.c_str(), response->Reason.c_str(), response->Content.chunk.size()
 		, response->Head.Get("Connection","").c_str());
 		if (cmd.HasParam("print"))
 		{
-			printf("body :\n%s\n", response->Body.c_str());
+			printf("body :\n%s\n", response->Content.chunk.c_str());
 		}
 		sim::Str filename = cmd.GetCmdLineParams("save", "");
 		if (!filename.empty())
@@ -29,7 +29,7 @@ void HTTP_CLI_HANDLER(sim::HTTP_S_STATUS status,sim::HttpResponse *response, voi
 				printf("save to %s fail\n", filename.c_str());
 				return;
 			}
-			fwrite(response->Body.c_str(), response->Body.size(), 1, f);
+			fwrite(response->Content.chunk.c_str(), response->Content.chunk.size(), 1, f);
 			fflush(f);
 			fclose(f);
 		}
