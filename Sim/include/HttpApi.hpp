@@ -50,11 +50,16 @@ namespace sim
 	};
 	enum HTTP_S_STATUS
 	{
+		//http 连接建立
 		HttpConnect,
-		HttpGetResponse,
-		HttpGetResponseBody,
-		HttpGetResquest,
-		HttpGetResquestBody,
+		//接收到一个完整的报文
+		HttpGetResponseComplete,
+		//接收到一个部分文件块
+		HttpGetResponseChunk,
+		HttpGetResquestComplete,
+		HttpGetResquestChunk,
+		//处理过程
+		HttpProgress,
 		HttpClose
 	};
 	
@@ -160,7 +165,11 @@ namespace sim
 			req.Version = "HTTP/1.1";
 			req.Head.Append("Connection", "Close");
 			req.Head.Append("Server", "Sim.HttpApi");
-			req.Body = data;
+			//req.Body = data;
+			req.Content.chunk = data;
+			req.Content.is_complete = true;
+			req.Content.content_length = data.size();
+			req.Content.offset = 0;
 			return Request(req);
 		}
 		bool Close()
@@ -169,7 +178,7 @@ namespace sim
 		}
 	public:
 		//进度回调
-		typedef bool(*SyncProgress)(unsigned int total_bytes,unsigned int now_bytes,void*pdata);
+		typedef bool(*SyncProgress)(ContentLength_t total_bytes, ContentLength_t now_bytes, HttpResponse *response,void*pdata);
 		//上下文
 		struct SyncCtx
 		{
@@ -183,7 +192,7 @@ namespace sim
 			void* pdata;
 		};
 		static bool Request(const Str&Method, const Str &Url, const Str &Body,
-			HttpResponse &response, int timeout_ms = 1000, HttpMap *exthead = NULL
+			HttpResponse &last_response, int timeout_ms = 1000, HttpMap *exthead = NULL
 		, SyncProgress pro_handler=NULL,void*pdata=NULL)
 		{
 			SyncCtx ctx;
@@ -198,7 +207,12 @@ namespace sim
 			request.Method = Method;
 			request.Url = out.path;
 			request.Version = "HTTP/1.1";
-			request.Body = Body;
+			//request.Body = Body;
+			request.Content.chunk = Body;
+			request.Content.is_complete = true;
+			request.Content.content_length = Body.size();
+			request.Content.offset = 0;
+
 			request.Head.Append("Connection", "Close");
 			request.Head.Append("User-Agent", "Sim.HttpApi");
 			request.Head.Append("Host", out.host);
@@ -216,7 +230,7 @@ namespace sim
 			
 			ctx.cli = &cli;
 			ctx.request = &request;
-			ctx.response = &response;
+			ctx.response = &last_response;
 			ctx.is_ok = false;
 			ctx.is_close = false;
 			ctx.pro_handler = pro_handler;
@@ -250,6 +264,7 @@ namespace sim
 			}
 			return ctx.is_ok;
 		}
+
 		//静态通用接口
 		static bool Get(const Str&Url, HttpResponse &response,int timeout_ms = 1000,
 			HttpMap *exthead=NULL, SyncProgress pro_handler = NULL, void*pdata = NULL)
@@ -297,15 +312,19 @@ namespace sim
 				HttpClient*cli = (HttpClient*)pdata;
 				if (ctx->GetParserStatus() == HTTP_COMPLETE)
 				{
-					cli->OnHttpHandler(HttpGetResponse, response);
+					cli->OnHttpHandler(HttpGetResponseComplete, response);
 					if (HttpParser::ToLower(response->Head.GetCase(SIM_HTTP_CON, "Close")) == HttpParser::ToLower("Close"))
 					{
 						cli->Close();
 					}
 				}
+				else if (ctx->GetParserStatus() == HTTP_CHUNK)
+				{
+					cli->OnHttpHandler(HttpGetResponseChunk, response);
+				}
 				else if (ctx->GetParserStatus() == HTTP_BODY)
 				{
-					cli->OnHttpHandler(HttpGetResponseBody, response);
+					cli->OnHttpHandler(HttpProgress, response);
 				}
 			}
 		}
@@ -328,11 +347,12 @@ namespace sim
 				{
 					pc->cli->Request(*pc->request);
 				}
-				else if (status == HttpGetResponse)
+				else if (status == HttpGetResponseComplete)
 				{
 					if (pc->pro_handler)
 					{
-						if (!pc->pro_handler(HttpParser::GetHeadContentLen(response->Head), response->Body.size(), pdata))
+						if (!pc->pro_handler(HttpParser::GetHeadContentLen(response->Head), 
+							response->Content.offset+response->Content.chunk.size(), response,pdata))
 						{
 							pc->is_close = true;
 							return;
@@ -342,11 +362,12 @@ namespace sim
 					*(pc->response) = (*response);
 					pc->is_ok = true;
 				}
-				else if (status == HttpGetResponseBody)
+				else if (status == HttpGetResponseChunk||status == HttpProgress)
 				{
 					if (pc->pro_handler)
 					{
-						if (!pc->pro_handler(HttpParser::GetHeadContentLen(response->Head), response->Body.size(), pdata))
+						if (!pc->pro_handler(HttpParser::GetHeadContentLen(response->Head),
+							response->Content.offset + response->Content.chunk.size(),response,pdata))
 						{
 							pc->is_close = true;
 						}
@@ -482,18 +503,26 @@ namespace sim
 			if (pdata)
 			{
 				HttpSession*ss = (HttpSession*)pdata;
-				HttpResponse response;
-				response.Status = "200";
-				response.Reason = "OK";
-				response.Version = "HTTP/1.1";
-				ss->srv.OnHttpHandler(request, &response);
-				if (HttpParser::ToLower(response.Head.GetCase(SIM_HTTP_CON, "Close")) == HttpParser::ToLower("Close"))
-				{
-					ss->close_flag = true;
-				}
 
-				Str data = ctx->PrintResponse(&response);
-				ss->srv.async_.Send(ss->handle, data.c_str(), data.size());
+				if (ctx->GetParserStatus() == HTTP_COMPLETE)
+				{
+					HttpResponse response;
+					response.Status = "200";
+					response.Reason = "OK";
+					response.Version = "HTTP/1.1";
+					ss->srv.OnHttpHandler(request, &response);
+					if (HttpParser::ToLower(response.Head.GetCase(SIM_HTTP_CON, "Close")) == HttpParser::ToLower("Close"))
+					{
+						ss->close_flag = true;
+					}
+
+					Str data = ctx->PrintResponse(&response);
+					ss->srv.async_.Send(ss->handle, data.c_str(), data.size());
+				}
+				else if (ctx->GetParserStatus() == HTTP_CHUNK)
+				{
+					ss->srv.OnHttpHandler(request, NULL);
+				}
 			}
 		}
 		static void HTTP_CLI_SendCompleteHandler(sim::AsyncHandle handle, char *buff, unsigned int buff_len, void*data)

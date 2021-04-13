@@ -213,7 +213,8 @@ namespace sim
 			return ;
 		}
 	};
-	
+	//长度类型
+	typedef  unsigned long long ContentLength_t;
 	//content 状态
 	struct HttpContent
 	{
@@ -221,11 +222,25 @@ namespace sim
 		Str chunk;
 		//是否为完整的。true就是整个报文了，false 只是其中一块
 		bool is_complete;
+		//是否最后一次回调，回调之后回收
+		bool is_last;
 		//报文体的长度
-		unsigned int content_length;
+		ContentLength_t content_length;
 		//当前块的开头
-		unsigned int offset;
+		ContentLength_t offset;
 
+		HttpContent()
+		{
+			Clear();
+		}
+		void Clear()
+		{
+			chunk = "";
+			is_complete = true;
+			content_length = 0;
+			offset = 0;
+			is_last = false;
+		}
 	};
 
 	struct HttpRequest
@@ -236,14 +251,14 @@ namespace sim
 		
 		HttpMap Head;
 
-		Str Body;
+		HttpContent Content;
 
 		void Clear()
 		{
 			Method = "";
 			Url = "";
 			Version = SIM_HTTP_VERSION_1_1;
-			Body = "";
+			
 			Head.Release();
 		}
 	};
@@ -256,13 +271,13 @@ namespace sim
 
 		HttpMap Head;
 
-		Str Body;
+		HttpContent Content;
 		void Clear()
 		{
 			Status = "";
 			Reason = "";
 			Version = SIM_HTTP_VERSION_1_1;
-			Body = "";
+			Content.Clear();
 			Head.Release();
 		}
 	};
@@ -278,6 +293,7 @@ namespace sim
 		HTTP_HEAD_CR,
 		HTTP_HEAD_LF,
 		HTTP_BODY,
+		HTTP_CHUNK,//body块
 		HTTP_COMPLETE,//完整
 	};
 
@@ -289,7 +305,6 @@ namespace sim
 			pdata_(pdata), 
 			response_handler_(NULL),
 			status_(HTTP_START_LINE_CR),
-			content_length_(0),
 			is_cb_process_(is_cb_process),
 			max_body_size_(MAX_HTTP_BODY_SIZE)
 		{
@@ -300,8 +315,7 @@ namespace sim
 			:req_hanler_(NULL), 
 			pdata_(pdata), 
 			response_handler_(response_handler), 
-			status_(HTTP_START_LINE_CR), 
-			content_length_(0),
+			status_(HTTP_START_LINE_CR),
 			is_cb_process_(is_cb_process),
 			max_body_size_(MAX_HTTP_BODY_SIZE)
 		{}
@@ -381,26 +395,28 @@ namespace sim
 
 		static Str PrintRequest(HttpRequest *request)
 		{
-			if (NULL == request)
+			if (NULL == request|| request->Content.is_complete == false)
 				return "";
 			Str data = request->Method+SIM_HTTP_SPACE+request->Url+SIM_HTTP_SPACE+request->Version+ SIM_HTTP_CRLF;
 			if (request->Head.Count(SIM_HTTP_CL) <= 0)
-				request->Head.Append(SIM_HTTP_CL, IntToStr(request->Body.size()));
+			{
+				request->Head.Append(SIM_HTTP_CL, IntToStr(request->Content.chunk.size()));
+			}
 			request->Head.Traverse(HttpParser::PrintHead, &data);
 			data += SIM_HTTP_CRLF;
-			data += request->Body;
+			data += request->Content.chunk;
 			return data;
 		}
 		static Str PrintResponse(HttpResponse *response)
 		{
-			if (NULL == response)
+			if (NULL == response||response->Content.is_complete == false)
 				return "";
 			Str data = response->Version + SIM_HTTP_SPACE + response->Status + SIM_HTTP_SPACE + response->Reason + SIM_HTTP_CRLF;
 			if (response->Head.Count(SIM_HTTP_CL) <= 0)
-				response->Head.Append(SIM_HTTP_CL, IntToStr(response->Body.size()));
+				response->Head.Append(SIM_HTTP_CL, IntToStr(response->Content.chunk.size()));
 			response->Head.Traverse(HttpParser::PrintHead, &data);
 			data += SIM_HTTP_CRLF;
-			data += response->Body;
+			data += response->Content.chunk;
 			return data;
 
 		}
@@ -472,12 +488,17 @@ namespace sim
 		}
 		static int StrToInt(const Str&s, int fail = -1)
 		{
+			return StrToNum<int>(s, fail);
+		}
+		template <typename T>
+		static T StrToNum(const Str&s, T fail = -1)
+		{
 			int size = s.size();
 			if (size == 0)
 				return fail;
 
 			int i = 0;
-			int num = 0;
+			T num = 0;
 			bool is_neg = false;
 			if (s[0] == '-')
 			{
@@ -594,9 +615,10 @@ namespace sim
 		}
 
 		//获取HttpMap 中content字段 大小找不到或者不存在返回0
-		static  int GetHeadContentLen(HttpMap &Head)
+		static  ContentLength_t GetHeadContentLen(HttpMap &Head)
 		{
-			return HttpParser::StrToInt(Head.GetCase(SIM_HTTP_CL, "0"), 0);
+			//ContentLength_t
+			return HttpParser::StrToNum<ContentLength_t>(Head.GetCase(SIM_HTTP_CL, "0"), 0);
 		}
 	private:
 		bool OnStartLine()
@@ -638,16 +660,21 @@ namespace sim
 			else
 			{
 				//head 结束了
+				HttpContent *pcontent = NULL;
 				if (req_hanler_)
 				{
-					content_length_ = GetHeadContentLen(t_request_.Head);
+					t_request_.Content.content_length = GetHeadContentLen(t_request_.Head);
+					pcontent = &t_request_.Content;
 				}
 				else
 				{
-					content_length_ = GetHeadContentLen(t_response_.Head);
+					t_response_.Content.content_length = GetHeadContentLen(t_response_.Head);
+					pcontent = &t_response_.Content;
 				}
-				if (content_length_ == 0)
+
+				if (pcontent->content_length == 0)
 				{
+					pcontent->is_complete = true;
 					status_ = HTTP_COMPLETE;
 					OnHandler();
 					return true;
@@ -658,38 +685,56 @@ namespace sim
 		}
 		bool OnBody(const char*data, unsigned int len, unsigned int &offset)
 		{
-			Str *pbody = NULL;
+			HttpContent *pcontent = NULL;
 			if (req_hanler_)
 			{
-				pbody = &t_request_.Body;
+				pcontent = &t_request_.Content;
 			}
 			else
 			{
-				pbody = &t_response_.Body;
+				pcontent = &t_response_.Content;
 			}
 			//有效字节数
 			unsigned int valid_bytes = len - offset;
-			unsigned int need_bytes = content_length_ - pbody->size();
+			unsigned int need_bytes = pcontent->content_length - (pcontent->offset+pcontent->chunk.size());
 			if (need_bytes <= 0)
 			{
+				pcontent->is_complete = true;
+				pcontent->is_last = true;
 				status_ = HTTP_COMPLETE;
 				OnHandler();
 				return  true;
 			}
 			unsigned int copy_bytes = valid_bytes > need_bytes ? need_bytes : valid_bytes;//取最小
-			(*pbody) += Str(data + offset, copy_bytes);
+			pcontent->chunk += Str(data + offset, copy_bytes);
 			offset += copy_bytes;
-			
-			if (max_body_size_ < pbody->size())
+
+			need_bytes = pcontent->content_length - (pcontent->offset + pcontent->chunk.size());
+			//已经超过最大缓存
+			if (max_body_size_ < pcontent->offset + pcontent->chunk.size())
 			{
-				return false;
+				if(need_bytes > 0)
+				{
+					status_ = HTTP_CHUNK;
+					pcontent->is_complete = false;
+					pcontent->is_last = true;
+					OnHandler();
+					//清空
+					pcontent->offset += pcontent->chunk.size();
+					pcontent->chunk = "";
+					status_ = HTTP_BODY;
+					pcontent->is_last = false;
+					return  true;
+				}
 			}
 
-			need_bytes = content_length_ - pbody->size();
+			
 			//printf("copy_bytes %u need_bytes %u content_lenght %u body %u\n", copy_bytes, need_bytes, content_length_, pbody->size());
 			if (need_bytes <= 0)
 			{
 				status_ = HTTP_COMPLETE;
+				pcontent->is_last = true;
+				pcontent->is_complete = true;
 				OnHandler();
 				return  true;
 			}
@@ -721,7 +766,6 @@ namespace sim
 				t_response_.Clear();
 				t_request_.Clear();
 				status_ = HTTP_START_LINE_CR;
-				content_length_ = 0;
 				temp_ = "";
 			}
 		}
@@ -801,7 +845,7 @@ namespace sim
 		sim::Mutex parser_lock_;
 #endif
 		Str temp_;//缓存
-		int content_length_;
+		//int content_length_;
 		HttpParserStatus status_;
 
 		HttpRequest t_request_;
