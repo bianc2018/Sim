@@ -18,9 +18,12 @@
 #ifndef _WINSOCK_DEPRECATED_NO_WARNINGS
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 1
 #endif
-#ifndef _INC_WINDOWS 
-#include <Windows.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN  
 #endif
+#include <WinSock2.h>
+#include <Windows.h>
+
 #pragma comment (lib, "ws2_32.lib")  //╪сть ws2_32.dll
 #elif defined(linux) || defined(__linux) || defined(__linux__)
 	#ifndef OS_LINUX
