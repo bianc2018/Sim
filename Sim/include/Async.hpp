@@ -706,7 +706,7 @@ namespace sim
 			if (ret != SOCK_SUCCESS)
 			{
 				//bind error
-				SIM_LERROR("handle " << handle << " Bind ipaddr:" << bind_ipaddr << ":" << bind_port << " fail,ret=" << ret);
+				SIM_LERROR("handle " << handle << " Bind ipaddr:" << (bind_ipaddr==NULL?"NULL": bind_ipaddr) << ":" << bind_port << " fail,ret=" << ret);
 				ReleaseCtx(handle);
 				return ret;
 			}
