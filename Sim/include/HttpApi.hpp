@@ -4,6 +4,7 @@
 #ifndef SIM_HTTP_API_HTTP_
 #define SIM_HTTP_API_HTTP_
 //#include "Timer.hpp"
+#include <stdio.h>
 #include "HttpParser.hpp"
 #include "Async.hpp"
 #include "TaskPool.hpp"
@@ -13,6 +14,15 @@
 #define SIM_HTTP_GLOBAL_CTX_POLL_WAIT_MS 10000
 namespace sim
 {
+	//获取文件大小
+	size_t GetFileSize(const Str& file_name) {
+		FILE* fp = fopen(file_name.c_str(), "r");
+		fseek(fp, 0, SEEK_END);
+		size_t size = ftell(fp);
+		fclose(fp);
+		return size; //单位是：byte
+	}
+
 	class HttpGlobalCtx
 	{
 		HttpGlobalCtx(int thread_num= SIM_HTTP_GLOBAL_CTX_THREAD_NUM)
@@ -398,19 +408,20 @@ namespace sim
 		HttpParser parser_;
 	};
 	
-	typedef void(*HTTP_SERV_HANDLER)(HttpRequest*request, HttpResponse *response, void *pdata);
-	class HttpServer
+	typedef void(*HTTP_SIMPLE_SERV_HANDLER)(HttpRequest*request, HttpResponse *response, void *pdata);
+	class HttpSimpleServer
 	{
 		struct HttpSession
 		{
 			HttpParser parser;
+			HttpResponse response;
 			AsyncHandle handle;
-			HttpServer &srv;
+			HttpSimpleServer &srv;
 			bool close_flag;
-			HttpSession(HttpServer &s, AsyncHandle cli)
-				:srv(s), parser(HttpServer::HTTP_SERV_REQUEST_HANDLER,this), handle(cli), close_flag(false)
+			HttpSession(HttpSimpleServer &s, AsyncHandle cli)
+				:srv(s), parser(HttpSimpleServer::HTTP_SERV_REQUEST_HANDLER,this), handle(cli), close_flag(false)
 			{
-
+				response.Clear();
 			}
 			void Close()
 			{
@@ -425,13 +436,13 @@ namespace sim
 			}
 		};
 	public:
-		HttpServer(SimAsync &async) :handler_(NULL), async_(async),
+		HttpSimpleServer(SimAsync &async) :handler_(NULL), async_(async),
 			pdata_(NULL),
 			handle_(-1)
 		{
 
 		}
-		HttpServer():handler_(NULL), async_(HttpGlobalCtx::Get()),
+		HttpSimpleServer():handler_(NULL), async_(HttpGlobalCtx::Get()),
 			pdata_(NULL),
 			handle_(-1)
 		{
@@ -462,7 +473,7 @@ namespace sim
 			async_.AddTcpServer(handle_, ip, port);
 			return true;
 		}
-		bool SetHandler(HTTP_SERV_HANDLER handler, void*pdata)
+		bool SetHandler(HTTP_SIMPLE_SERV_HANDLER handler, void*pdata)
 		{
 			handler_ = handler;
 			pdata_ = pdata;
@@ -474,7 +485,7 @@ namespace sim
 			printf("accept %d\n", client);
 			if (data)
 			{
-				HttpServer*ss = (HttpServer*)data;
+				HttpSimpleServer*ss = (HttpSimpleServer*)data;
 				HttpSession*pss = new HttpSession((*ss),client);
 				ss->async_.SetCloseHandler(client, HTTP_SERV_CloseHandler, pss);
 				ss->async_.SetRecvDataHandler(client, HTTP_SERV_RecvDataHandler, pss);
@@ -506,22 +517,19 @@ namespace sim
 
 				if (ctx->GetParserStatus() == HTTP_COMPLETE)
 				{
-					HttpResponse response;
-					response.Status = "200";
-					response.Reason = "OK";
-					response.Version = "HTTP/1.1";
-					ss->srv.OnHttpHandler(request, &response);
-					if (HttpParser::ToLower(response.Head.GetCase(SIM_HTTP_CON, "Close")) == HttpParser::ToLower("Close"))
+					ss->srv.OnHttpHandler(request, &ss->response);
+					if (HttpParser::ToLower(ss->response.Head.GetCase(SIM_HTTP_CON, "Close")) == HttpParser::ToLower("Close"))
 					{
 						ss->close_flag = true;
 					}
 
-					Str data = ctx->PrintResponse(&response);
+					Str data = ctx->PrintResponse(&ss->response);
 					ss->srv.async_.Send(ss->handle, data.c_str(), data.size());
+					ss->response.Clear();
 				}
 				else if (ctx->GetParserStatus() == HTTP_CHUNK)
 				{
-					ss->srv.OnHttpHandler(request, NULL);
+					ss->srv.OnHttpHandler(request, &ss->response);
 				}
 			}
 		}
@@ -540,6 +548,143 @@ namespace sim
 				 handler_(request, response,pdata_);
 		}
 	private:
+		HTTP_SIMPLE_SERV_HANDLER handler_;
+		void *pdata_;
+		SimAsync &async_;
+		AsyncHandle handle_;
+		//解析器句柄
+		//RbTree<RefObject<HttpParser> > parser_map_;
+	};
+
+	class HttpServer;
+
+	class HttpSession
+	{
+		friend class HttpServer;
+	public:
+		//发送请求
+		bool SendResponse(HttpResponse *response);
+		//发送文件回复
+		bool SendFile(const Str&filepath,HttpMap*ext_head=NULL,ContentLength_t buff_size =1024*1024*4);
+		//发送裸数据
+		bool SendData(const char*buff, unsigned int bufflen);
+		HttpParserStatus GetStatus();
+	private:
+		HttpParser parser;
+		AsyncHandle handle;
+		HttpServer &srv;
+		bool close_flag;
+		HttpSession(HttpServer &s, AsyncHandle cli);
+		void Close();
+		void OnSendComplete()
+		{
+			if (close_flag)
+			{
+				Close();
+			}
+		}
+	};
+	typedef void(*HTTP_SERV_HANDLER)(HttpSession *ss,HttpRequest*request, void *pdata);
+	class HttpServer
+	{
+		friend class HttpSession;
+	public:
+		HttpServer(SimAsync &async) :handler_(NULL), async_(async),
+			pdata_(NULL),
+			handle_(-1)
+		{
+
+		}
+		HttpServer() :handler_(NULL), async_(HttpGlobalCtx::Get()),
+			pdata_(NULL),
+			handle_(-1)
+		{
+
+		}
+	public:
+		bool ListenHttp(int port,
+			const char*ip = NULL)
+		{
+			async_.Close(handle_);
+			handle_ = async_.CreateHandle(sim::TCP);
+			async_.SetAcceptHandler(handle_, HTTP_SERV_AcceptHandler, this);
+			async_.AddTcpServer(handle_, ip, port);
+			return true;
+		}
+		bool ListenHttps(int port,
+			const char *pub_file = "cert.pem",
+			const char *pri_file = "key.pem",
+			const char*ip = NULL)
+		{
+			async_.Close(handle_);
+			handle_ = async_.CreateHandle(sim::TCP);
+			async_.ConvertToSSL(handle_, true, true);
+			async_.SetSSLKeyFile(handle_, pub_file, pri_file);
+			async_.SetAcceptHandler(handle_, HTTP_SERV_AcceptHandler, this);
+			async_.AddTcpServer(handle_, ip, port);
+			return true;
+		}
+		bool SetHandler(HTTP_SERV_HANDLER handler, void*pdata)
+		{
+			handler_ = handler;
+			pdata_ = pdata;
+			return true;
+		}
+	private:
+		static void HTTP_SERV_AcceptHandler(sim::AsyncHandle handle, sim::AsyncHandle client, void*data)
+		{
+			printf("accept %d\n", client);
+			if (data)
+			{
+				HttpServer*ss = (HttpServer*)data;
+				HttpSession*pss = new HttpSession((*ss), client);
+				ss->async_.SetCloseHandler(client, HTTP_SERV_CloseHandler, pss);
+				ss->async_.SetRecvDataHandler(client, HTTP_SERV_RecvDataHandler, pss);
+			}
+		}
+		static void HTTP_SERV_RecvDataHandler(sim::AsyncHandle handle, char *buff, unsigned int buff_len, void*data)
+		{
+			printf("recv %d\n", handle);
+			if (data)
+			{
+				HttpSession*ss = (HttpSession*)data;
+				ss->parser.Parser(buff, buff_len);
+			}
+		}
+		static void HTTP_SERV_CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int error, void*data)
+		{
+			printf("close %d\n", handle);
+			if (data)
+			{
+				HttpSession*ss = (HttpSession*)data;
+				delete ss;
+			}
+		}
+		static void HTTP_SERV_REQUEST_HANDLER(HttpParser*ctx, HttpRequest *request, void *pdata)
+		{
+			if (pdata)
+			{
+				HttpSession*ss = (HttpSession*)pdata;
+
+				if(ss)
+					ss->srv.OnHttpHandler(ss, request);
+			}
+		}
+		static void HTTP_CLI_SendCompleteHandler(sim::AsyncHandle handle, char *buff, unsigned int buff_len, void*data)
+		{
+			if (data)
+			{
+				HttpSession*ss = (HttpSession*)data;
+				ss->OnSendComplete();
+			}
+		}
+	private:
+		void OnHttpHandler(HttpSession *ss, HttpRequest*request)
+		{
+			if (handler_)
+				handler_(ss, request, pdata_);
+		}
+	private:
 		HTTP_SERV_HANDLER handler_;
 		void *pdata_;
 		SimAsync &async_;
@@ -548,5 +693,100 @@ namespace sim
 		//RbTree<RefObject<HttpParser> > parser_map_;
 	};
 
+	HttpSession::HttpSession(HttpServer &s, AsyncHandle cli)
+		:srv(s), parser(HttpServer::HTTP_SERV_REQUEST_HANDLER, this), handle(cli), close_flag(false)
+	{
+	}
+	void HttpSession::Close()
+	{
+		srv.async_.Close(handle);
+	}
+	bool HttpSession::SendResponse(HttpResponse *response)
+	{
+		Str data = HttpParser::PrintResponse(response);
+		if (data.size() == 0)
+		{
+			return false;
+		}
+		if (HttpParser::IsClose(response->Head))
+		{
+			close_flag = true;
+		}
+		return SendData(data.c_str(), data.size());
+	}
+	inline bool HttpSession::SendFile(const Str & filepath, HttpMap * ext_head, ContentLength_t buff_size)
+	{
+		HttpResponse response;
+		if(ext_head)
+			response.Head.AppendMap(*ext_head);
+		
+		response.Head.Append(SIM_HTTP_CON, "Close");
+		//
+		response.Head.Append("Server", "Sim.HttpApi");
+
+		FILE* fp = fopen(filepath.c_str(), "rb");
+		if (NULL == fp)
+		{
+			//文件打开失败
+			response.Status = "404";
+			response.Reason = "Not Found";
+			response.Head.Append(SIM_HTTP_CON, "Close");
+			return SendResponse(&response);
+		}
+		fseek(fp, 0, SEEK_END);
+		ContentLength_t size = ftell(fp);
+
+		//返回开头 重新打开
+		//fclose(fp);
+		//fp = fopen(filepath.c_str(), "r");
+		fseek(fp, 0, SEEK_SET);
+
+		//设置body长度 SIM_HTTP_CL 后续支持range
+		response.Head.Append(SIM_HTTP_CL, HttpParser::NumToStr<ContentLength_t>(size, "%llu"), HM_COVER);//直接覆盖掉
+		
+		//发送报文头
+		Str Head = HttpParser::PrintStartLine(response.Version, response.Status, response.Reason) + SIM_HTTP_CRLF 
+			+ HttpParser::PrintHead(response.Head) + SIM_HTTP_CRLF;
+		if (false == SendData(Head.c_str(), Head.size()))
+		{
+			fclose(fp);
+			return false;
+		}
+		
+		//发送报文体
+		RefBuff buff(buff_size);
+		while (true)
+		{
+			int readlen = fread(buff.get(), sizeof(char), buff.size(), fp);
+			if (readlen == 0)
+			{
+				fclose(fp);
+				if (HttpParser::IsClose(response.Head))
+				{
+					close_flag = true;
+				}
+				return true;
+			}
+			if (readlen < 0)
+			{
+				fclose(fp);
+				return false;
+			}
+			if (false == SendData(buff.get(), readlen))
+			{
+				fclose(fp);
+				return false;
+			}
+		}
+		
+	}
+	bool HttpSession::SendData(const char*buff, unsigned int bufflen)
+	{
+		return SOCK_SUCCESS == srv.async_.Send(handle, buff, bufflen);
+	}
+	HttpParserStatus HttpSession::GetStatus()
+	{
+		return parser.GetParserStatus();
+	}
 }
 #endif

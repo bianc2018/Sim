@@ -198,7 +198,7 @@ namespace sim
 		}
 
 		//遍历
-		void Traverse(HTTP_MAP_TRA_FUNC func, void*pdata)
+		void Traverse(HTTP_MAP_TRA_FUNC func, void*pdata)const
 		{
 			if (NULL == func)
 				return;
@@ -253,6 +253,10 @@ namespace sim
 
 		HttpContent Content;
 
+		HttpRequest()
+		{
+			Clear();
+		}
 		void Clear()
 		{
 			Method = "";
@@ -272,10 +276,15 @@ namespace sim
 		HttpMap Head;
 
 		HttpContent Content;
+
+		HttpResponse()
+		{
+			Clear();
+		}
 		void Clear()
 		{
-			Status = "";
-			Reason = "";
+			Status = "200";
+			Reason = "OK";
 			Version = SIM_HTTP_VERSION_1_1;
 			Content.Clear();
 			Head.Release();
@@ -393,6 +402,16 @@ namespace sim
 			return true;
 		}
 
+		static Str PrintStartLine(const Str &Version, const Str &Status, const Str &Reason)
+		{
+			return Version + SIM_HTTP_SPACE + Status + SIM_HTTP_SPACE + Reason;
+		}
+		static Str PrintHead(const HttpMap &Head)
+		{
+			Str data="";
+			Head.Traverse(HttpParser::PrintHead, &data);
+			return data;
+		}
 		static Str PrintRequest(HttpRequest *request)
 		{
 			if (NULL == request|| request->Content.is_complete == false)
@@ -522,6 +541,14 @@ namespace sim
 			snprintf(temp_buff, temp_buff_size, "%d", s);
 			return temp_buff;
 		}
+		template <typename T>
+		static Str NumToStr(const T&s,const Str& d = "%d")
+		{
+			const int temp_buff_size = 256;
+			char temp_buff[temp_buff_size] = { 0 };
+			snprintf(temp_buff, temp_buff_size, d.c_str(), s);
+			return temp_buff;
+		}
 
 		//<scheme>://<host>:<port>/<path>
 		//解析Url
@@ -619,6 +646,11 @@ namespace sim
 		{
 			//ContentLength_t
 			return HttpParser::StrToNum<ContentLength_t>(Head.GetCase(SIM_HTTP_CL, "0"), 0);
+		}
+		//检查头是否为关闭
+		static  bool IsClose(HttpMap &Head)
+		{
+			return HttpParser::ToLower(Head.GetCase(SIM_HTTP_CON, "Close")) == HttpParser::ToLower("Close");
 		}
 	private:
 		bool OnStartLine()

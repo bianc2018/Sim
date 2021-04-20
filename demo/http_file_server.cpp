@@ -2,20 +2,21 @@
 #include "CmdLineParser.hpp"
 
 #define SIM_DEFUALT_PORT 8080
-
+#define SIM_DEFUALT_MOUNT "."
 sim::CmdLineParser cmd;
-sim::HttpSimpleServer Srv;
+sim::HttpServer Srv;
 
-void HTTP_SERV_HANDLER(sim::HttpRequest*request, sim::HttpResponse *response, void *pdata)
+void HTTP_SERV_HANDLER(sim::HttpSession *ss, sim::HttpRequest*request, void *pdata)
 {
-	printf("recv request path:%s\n", request->Url.c_str());
-	response->Content.chunk = "Hello world";
-	//return true;
+	if (ss->GetStatus() == sim::HTTP_COMPLETE)
+	{
+		sim::Str filepath = cmd.GetCmdLineParams("m", SIM_DEFUALT_MOUNT) +request->Url;
+		ss->SendFile(filepath);
+	}
 }
 void print_help()
 {
-	
-	printf("usg:-i ip地址 -p 监听端口 -ssl 启用ssl -pub_key 公钥 -pri_key 私钥 -debug 打印详细日志\n");
+	printf("usg:-i ip地址 -p 监听端口 -ssl 启用ssl -pub_key 公钥 -pri_key 私钥 -debug 打印详细日志 -m 挂载的位置\n");
 }
 int main(int argc, char* argv[])
 {
@@ -23,7 +24,7 @@ int main(int argc, char* argv[])
 	cmd.InitCmdLineParams("p", 8080);
 #endif
 
-	if (!cmd.Parser(argc, argv)|| cmd.HasParam("h") || cmd.HasParam("help") || cmd.GetCmdLineParams("p", SIM_DEFUALT_PORT) <= 0)
+	if (!cmd.Parser(argc, argv) || cmd.HasParam("h") || cmd.HasParam("help") || cmd.GetCmdLineParams("p", SIM_DEFUALT_PORT) <= 0)
 	{
 		print_help();
 		return -1;
@@ -40,7 +41,7 @@ int main(int argc, char* argv[])
 	sim::Str ip = cmd.GetCmdLineParams("i", "");
 	if (!ip.empty())
 		c_ip = (char*)ip.c_str();
-	printf("Listen %d SSL %s\n", cmd.GetCmdLineParams("p", SIM_DEFUALT_PORT), cmd.HasParam("ssl")?"ON":"OFF");
+	printf("Listen %d SSL %s\n", cmd.GetCmdLineParams("p", SIM_DEFUALT_PORT), cmd.HasParam("ssl") ? "ON" : "OFF");
 	if (!cmd.HasParam("ssl"))
 	{
 		Srv.ListenHttp(cmd.GetCmdLineParams("p", SIM_DEFUALT_PORT), c_ip);
@@ -48,10 +49,10 @@ int main(int argc, char* argv[])
 	else
 	{
 		Srv.ListenHttps(cmd.GetCmdLineParams("p", SIM_DEFUALT_PORT),
-			cmd.GetCmdLineParams("pub_key","cert.pem").c_str(),
-			cmd.GetCmdLineParams("pri_key", "key.pem").c_str(),c_ip);
+			cmd.GetCmdLineParams("pub_key", "cert.pem").c_str(),
+			cmd.GetCmdLineParams("pri_key", "key.pem").c_str(), c_ip);
 	}
-	
+
 	getchar();
 	return 0;
 }
