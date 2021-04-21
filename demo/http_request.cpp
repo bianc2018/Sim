@@ -6,7 +6,7 @@
 #include "CmdLineParser.hpp"
 sim::CmdLineParser cmd;
 sim::TimeSpan ts;//¼ÆÊ±
-sim::HttpMap *pex = NULL;
+sim::KvMap *pex = NULL;
 FILE*f =NULL;
 bool is_print_head = true;
 sim::Str print_bytes(double bytes)
@@ -50,7 +50,7 @@ void init_exhead(const sim::Str&map)
 				if (key.size() != 0)
 				{
 					if (NULL == pex)
-						pex = new sim::HttpMap;
+						pex = new sim::KvMap;
 					pex->Append(key, value);
 				}
 				key = value = "";
@@ -67,7 +67,7 @@ void init_exhead(const sim::Str&map)
 		if (key.size() != 0)
 		{
 			if (NULL == pex)
-				pex = new sim::HttpMap;
+				pex = new sim::KvMap;
 			pex->Append(key, value);
 		}
 	}
@@ -81,7 +81,7 @@ bool SyncProgress(sim::ContentLength_t total_bytes, sim::ContentLength_t now_byt
 		 {
 			 printf("response head :%s %s use %llu ms\n", response->Status.c_str(), response->Reason.c_str(), ts.Get());
 			 printf("response head:\n");
-			 sim::HttpMap::HttpMapNode *pn = response->Head.pHead;
+			 sim::KvMap::KvMapNode *pn = response->Head.pHead;
 			 int index = 0;
 			 while (pn)
 			 {
@@ -171,7 +171,7 @@ int main(int argc, char* argv[])
 		if (pex)
 		{
 			printf("ex head:\n");
-			sim::HttpMap::HttpMapNode *pn = pex->pHead;
+			sim::KvMap::KvMapNode *pn = pex->pHead;
 			int index = 0;
 			while (pn)
 			{

@@ -202,7 +202,7 @@ namespace sim
 			void* pdata;
 		};
 		static bool Request(const Str&Method, const Str &Url, const Str &Body,
-			HttpResponse &last_response, int timeout_ms = 1000, HttpMap *exthead = NULL
+			HttpResponse &last_response, int timeout_ms = 1000, KvMap *exthead = NULL
 		, SyncProgress pro_handler=NULL,void*pdata=NULL)
 		{
 			SyncCtx ctx;
@@ -277,12 +277,12 @@ namespace sim
 
 		//静态通用接口
 		static bool Get(const Str&Url, HttpResponse &response,int timeout_ms = 1000,
-			HttpMap *exthead=NULL, SyncProgress pro_handler = NULL, void*pdata = NULL)
+			KvMap *exthead=NULL, SyncProgress pro_handler = NULL, void*pdata = NULL)
 		{
 			return Request("GET", Url, "", response, timeout_ms, exthead, pro_handler,pdata);
 		}
 		static bool Post(const Str&Url, const Str&Body, HttpResponse &response, int timeout_ms = 1000,
-			HttpMap *exthead = NULL, SyncProgress pro_handler = NULL, void*pdata = NULL)
+			KvMap *exthead = NULL, SyncProgress pro_handler = NULL, void*pdata = NULL)
 		{
 			return Request("POST", Url, Body, response, timeout_ms, exthead, pro_handler, pdata);
 		}
@@ -565,7 +565,7 @@ namespace sim
 		//发送请求
 		bool SendResponse(HttpResponse *response);
 		//发送文件回复
-		bool SendFile(const Str&filepath,HttpMap*ext_head=NULL,ContentLength_t buff_size =1024*1024*4);
+		bool SendFile(const Str&filepath,KvMap*ext_head=NULL,ContentLength_t buff_size =1024*1024*4);
 		//发送裸数据
 		bool SendData(const char*buff, unsigned int bufflen);
 		HttpParserStatus GetStatus();
@@ -714,7 +714,7 @@ namespace sim
 		}
 		return SendData(data.c_str(), data.size());
 	}
-	inline bool HttpSession::SendFile(const Str & filepath, HttpMap * ext_head, ContentLength_t buff_size)
+	inline bool HttpSession::SendFile(const Str & filepath, KvMap * ext_head, ContentLength_t buff_size)
 	{
 		HttpResponse response;
 		if(ext_head)

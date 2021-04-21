@@ -6,13 +6,19 @@
 #include <stdio.h>
 #include <string>
 
-#define SIM_PARSER_MULTI_THREAD
 //多线程情况下运行
 #ifdef SIM_PARSER_MULTI_THREAD
 #include "Mutex.hpp"
 #endif
+
+#include "BaseParser.hpp"
+
 //100M
 #define MAX_HTTP_BODY_SIZE 100*1024*1024
+
+#ifndef SIM_HTTP_PAESER_TYPE
+#define SIM_HTTP_PAESER_TYPE 1
+#endif
 
 #define SIM_HTTP_SPACE			' '
 #define SIM_HTTP_CR				'\r'
@@ -27,9 +33,6 @@
 namespace sim
 {
 	class HttpParser;
-
-	typedef std::string Str;
-
 
 	//<scheme>://<user>:<password>@<host>:<port>/<path>;<params>?<query>#<frag>
 	//httpurl
@@ -49,170 +52,6 @@ namespace sim
 		}
 	};
 
-	//追加模式
-	enum HttpMapAppendMode
-	{
-		//覆盖
-		HM_COVER,
-		//不存在才新增，已存在忽略掉
-		HM_ADD_IF_NO_EXIST,
-		//追加一个项
-		HM_APPEND,
-	};
-	typedef bool(*HTTP_MAP_TRA_FUNC)(const Str& key, const Str& val, void*pdata);
-	struct HttpMap
-	{
-		struct HttpMapNode
-		{
-			Str Key, Value;
-			HttpMapNode*next;
-			HttpMapNode():next(NULL){}
-		};
-	public:
-		HttpMapNode*pHead;
-	public:
-		HttpMap() :pHead(NULL)
-		{}
-		HttpMap(const HttpMap&other) :pHead(NULL)
-		{
-			operator=(other);
-		}
-		HttpMap&operator=(const HttpMap&other) 
-		{
-			if (this != &other)
-			{
-				Release();
-				HttpMapNode*pn = other.pHead;
-				while (pn)
-				{
-					Append(pn->Key, pn->Value);
-					pn = pn->next;
-				}
-			}
-			return (*this);
-		}
-
-		~HttpMap()
-		{
-			Release();
-		}
-
-		Str Get(const Str& key, const Str &notfound)
-		{
-			if (pHead == NULL)
-			{
-				return notfound;
-			}
-			HttpMapNode* pn = pHead;
-			while (pn)
-			{
-				if (pn->Key == key)
-					return pn->Value;
-				pn = pn->next;
-			}
-			return notfound;
-		}
-		//不区分key大小写
-		Str GetCase(const Str& key, const Str &notfound);
-
-		void Append(const Str& key, const Str& val, HttpMapAppendMode mode = HM_ADD_IF_NO_EXIST)
-		{
-			if (pHead == NULL)
-			{
-				pHead = new HttpMapNode;
-				pHead->Key = key;
-				pHead->Value = val;
-				return;
-			}
-			HttpMapNode* pn = pHead;
-			while (pn->next != NULL)
-			{
-				//如果存在相同键值的项
-				if (pn->Key == key)
-				{
-					if (HM_ADD_IF_NO_EXIST == mode)
-					{
-						return;//不处理
-					}
-					else if (HM_COVER == mode)
-					{
-						//覆盖
-						pn->Value = val;
-						return;
-					}
-				}
-
-				pn = pn->next;
-			}
-			pn->next = new HttpMapNode;;
-			pn->next->Key = key;
-			pn->next->Value = val;
-			return;
-		}
-
-		void AppendMap(const HttpMap&other, HttpMapAppendMode mode = HM_ADD_IF_NO_EXIST)
-		{
-			HttpMapNode*pn = other.pHead;
-			while (pn)
-			{
-				Append(pn->Key, pn->Value, mode);
-				pn = pn->next;
-			}
-		}
-
-		int Count(const Str& key)
-		{
-			int count = 0;
-			HttpMapNode* pn = pHead;
-			while (pn)
-			{
-				if (pn->Key == key)
-					++count;
-				pn = pn->next;
-			}
-			return count;
-		}
-		
-		int Count()
-		{
-			int count = 0;
-			HttpMapNode* pn = pHead;
-			while (pn)
-			{
-				++count;
-				pn = pn->next;
-			}
-			return count;
-		}
-
-		void Release()
-		{
-			//释放内存
-			while (pHead)
-			{
-				HttpMapNode* pn = pHead->next;
-				delete pHead;
-				pHead = pn;
-			}
-			pHead = NULL;
-		}
-
-		//遍历
-		void Traverse(HTTP_MAP_TRA_FUNC func, void*pdata)const
-		{
-			if (NULL == func)
-				return;
-
-			HttpMapNode* pn = pHead;
-			while (pn)
-			{
-				if (false == func(pn->Key, pn->Value, pdata))
-					break;
-				pn = pn->next;
-			}
-			return ;
-		}
-	};
 	//长度类型
 	typedef  unsigned long long ContentLength_t;
 	//content 状态
@@ -249,7 +88,7 @@ namespace sim
 		Str Url;
 		Str Version;
 		
-		HttpMap Head;
+		KvMap Head;
 
 		HttpContent Content;
 
@@ -273,7 +112,7 @@ namespace sim
 		Str Status;
 		Str Reason;
 
-		HttpMap Head;
+		KvMap Head;
 
 		HttpContent Content;
 
@@ -306,7 +145,7 @@ namespace sim
 		HTTP_COMPLETE,//完整
 	};
 
-	class HttpParser
+	class HttpParser:public BaseParser
 	{
 	public:
 		HttpParser(HTTP_REQUEST_HANDLER req_hanler, void*pdata,bool is_cb_process = false)
@@ -315,7 +154,8 @@ namespace sim
 			response_handler_(NULL),
 			status_(HTTP_START_LINE_CR),
 			is_cb_process_(is_cb_process),
-			max_body_size_(MAX_HTTP_BODY_SIZE)
+			max_body_size_(MAX_HTTP_BODY_SIZE),
+			BaseParser(SIM_HTTP_PAESER_TYPE)
 		{
 			
 		}
@@ -326,11 +166,12 @@ namespace sim
 			response_handler_(response_handler), 
 			status_(HTTP_START_LINE_CR),
 			is_cb_process_(is_cb_process),
-			max_body_size_(MAX_HTTP_BODY_SIZE)
+			max_body_size_(MAX_HTTP_BODY_SIZE),
+			BaseParser(SIM_HTTP_PAESER_TYPE)
 		{}
 		~HttpParser() {};
 
-		bool Parser(const char*data, unsigned int len)
+		virtual bool Parser(const char*data, unsigned int len)
 		{
 			//并行情况
 #ifdef SIM_PARSER_MULTI_THREAD
@@ -406,7 +247,7 @@ namespace sim
 		{
 			return Version + SIM_HTTP_SPACE + Status + SIM_HTTP_SPACE + Reason;
 		}
-		static Str PrintHead(const HttpMap &Head)
+		static Str PrintHead(const KvMap &Head)
 		{
 			Str data="";
 			Head.Traverse(HttpParser::PrintHead, &data);
@@ -456,100 +297,7 @@ namespace sim
 		}
 		
 	public:
-		//去除前后的空格
-		static Str Trim(const Str&s)
-		{
-			int size = s.size();
-			if (size <= 0)
-				return "";
-			int start = 0, end = size - 1;
-			for (int i = 0; i < size; ++i)
-			{
-				if (s[i] != SIM_HTTP_SPACE)
-				{
-					start = i;
-					break;
-				}
-			}
-			for (int i = size - 1; i >= 0; --i)
-			{
-				if (s[i] != SIM_HTTP_SPACE)
-				{
-					end = i;
-					break;
-				}
-			}
-			Str res;
-			for (int i = start; i <= end; ++i)
-			{
-				res += s[i];
-			}
-			return  res;
-		}
-		//转换为大小写
-		static Str ToLower(const Str &s)
-		{
-			Str result = s;
-			unsigned int size = s.size();
-			for (int i = 0; i < size; ++i)
-				if (s[i] >= 'A'&&s[i] <= 'Z')
-					result[i] = 'a' + s[i] - 'A';
-			return result;
-		}
-		static Str ToUpper(const Str &s)
-		{
-			Str result = s;
-			unsigned int size = s.size();
-			for (int i = 0; i < size; ++i)
-				if (s[i] >= 'a'&&s[i] <= 'z')
-					result[i] = 'A' + s[i] - 'a';
-			return result;
-		}
-		static int StrToInt(const Str&s, int fail = -1)
-		{
-			return StrToNum<int>(s, fail);
-		}
-		template <typename T>
-		static T StrToNum(const Str&s, T fail = -1)
-		{
-			int size = s.size();
-			if (size == 0)
-				return fail;
-
-			int i = 0;
-			T num = 0;
-			bool is_neg = false;
-			if (s[0] == '-')
-			{
-				is_neg = true;
-				i = 1;
-			}
-
-			for (; i < size; ++i)
-			{
-				if (s[i] >= '0'&& s[i] <= '9')
-					num = num * 10 + (s[i] - '0');
-				else
-					return fail;
-			}
-			return is_neg ? -num : num;
-		}
-		static Str IntToStr(const int&s, Str fail = "")
-		{
-			const int temp_buff_size = 256;
-			char temp_buff[temp_buff_size] = { 0 };
-			snprintf(temp_buff, temp_buff_size, "%d", s);
-			return temp_buff;
-		}
-		template <typename T>
-		static Str NumToStr(const T&s,const Str& d = "%d")
-		{
-			const int temp_buff_size = 256;
-			char temp_buff[temp_buff_size] = { 0 };
-			snprintf(temp_buff, temp_buff_size, d.c_str(), s);
-			return temp_buff;
-		}
-
+		
 		//<scheme>://<host>:<port>/<path>
 		//解析Url
 		static bool ParserUrl(const Str &url, HttpUrl &out)
@@ -641,14 +389,14 @@ namespace sim
 			return true;
 		}
 
-		//获取HttpMap 中content字段 大小找不到或者不存在返回0
-		static  ContentLength_t GetHeadContentLen(HttpMap &Head)
+		//获取KvMap 中content字段 大小找不到或者不存在返回0
+		static  ContentLength_t GetHeadContentLen(KvMap &Head)
 		{
 			//ContentLength_t
 			return HttpParser::StrToNum<ContentLength_t>(Head.GetCase(SIM_HTTP_CL, "0"), 0);
 		}
 		//检查头是否为关闭
-		static  bool IsClose(HttpMap &Head)
+		static  bool IsClose(KvMap &Head)
 		{
 			return HttpParser::ToLower(Head.GetCase(SIM_HTTP_CON, "Close")) == HttpParser::ToLower("Close");
 		}
@@ -891,21 +639,5 @@ namespace sim
 
 		unsigned int max_body_size_;
 	};
-
-	Str HttpMap::GetCase(const Str & key, const Str & notfound)
-	{
-		if (pHead == NULL)
-		{
-			return notfound;
-		}
-		HttpMapNode* pn = pHead;
-		while (pn)
-		{
-			if (HttpParser::ToLower(pn->Key) == HttpParser::ToLower(key))
-				return pn->Value;
-			pn = pn->next;
-		}
-		return notfound;
-	}
 }
 #endif
