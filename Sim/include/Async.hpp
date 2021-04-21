@@ -140,6 +140,9 @@ namespace sim
 		void*close_handler_data;
 		RecvDataFromHandler recvdatafrom_handler;
 		void*recvdatafrom_handler_data;
+
+		//上下文data
+		void*ctx_data;
 	public:
 		AsyncContext(SockType t)
 			: accept_handler(NULL), accept_handler_data(NULL)
@@ -512,6 +515,26 @@ namespace sim
 				ref->sendcomplete_handler = handler;
 				ref->sendcomplete_handler_data = pdata;
 			}
+		}
+
+		virtual void SetCtxData(AsyncHandle handle, void *pdata)
+		{
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (ref)
+			{
+				ref->ctx_data = pdata;
+			}
+		}
+
+		//获取ctx数据
+		virtual void* GetCtxData(AsyncHandle handle)
+		{
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (ref)
+			{
+				return ref->ctx_data ;
+			}
+			return NULL;
 		}
 	protected:
 		virtual void AddCtx(RefObject<AsyncContext> ctx)
