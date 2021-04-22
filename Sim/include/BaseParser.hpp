@@ -88,7 +88,7 @@ namespace sim
 				return;
 			}
 			KvMapNode* pn = pHead;
-			while (pn->next != NULL)
+			while (pn != NULL)
 			{
 				//如果存在相同键值的项
 				if (pn->Key == key)
@@ -104,12 +104,17 @@ namespace sim
 						return;
 					}
 				}
-
+				
+				if (pn->next == NULL)
+				{
+					//追加
+					pn->next = new KvMapNode;;
+					pn->next->Key = key;
+					pn->next->Value = val;
+					return;
+				}
 				pn = pn->next;
 			}
-			pn->next = new KvMapNode;;
-			pn->next->Key = key;
-			pn->next->Value = val;
 			return;
 		}
 

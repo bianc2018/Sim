@@ -43,6 +43,7 @@ namespace sim
 			, connect_handler(NULL), connect_handler_data(NULL)
 			, close_handler(NULL), close_handler_data(NULL)
 			, close_flag_(false)
+			, is_server(false)
 			,async_(async)
 		{
 
@@ -79,6 +80,11 @@ namespace sim
 		{
 			if (response_handler_)
 				response_handler_(handle_, Head, content_lenght, offset, buff, len, response_handler_data_);
+			//close 或者已经关闭了 最后一个请求
+			if (offset+len>= content_lenght&&(HttpParser::IsClose(Head->Head) || close_flag_))
+			{
+				Close();
+			}
 		}
 		virtual void OnAccept(AsyncHandle client)
 		{
@@ -112,7 +118,7 @@ namespace sim
 		void*close_handler_data;
 	public:
 		AsyncSessionType type_;
-
+		bool is_server;
 		//句柄
 		AsyncHandle handle_;
 
@@ -131,6 +137,10 @@ namespace sim
 	class AsyncHttp:protected SimAsync
 	{
 	public:
+		virtual int Poll(unsigned int wait_ms)
+		{
+			return SimAsync::Poll(wait_ms);
+		}
 		//生成一个空的会话
 		virtual AsyncHandle CreateSession()
 		{
@@ -149,6 +159,8 @@ namespace sim
 				ref->connect_handler_data = ref->ctx_data;
 				ref->recvdata_handler = AsyncHttp::SessionRecvDataHandler;
 				ref->recvdata_handler_data = ref->ctx_data;
+				ref->sendcomplete_handler = AsyncHttp::SessionSendCompleteHandler;
+				ref->sendcomplete_handler_data = ref->ctx_data;
 				ss->handle_ = handle;
 			}
 			return handle;
@@ -239,11 +251,11 @@ namespace sim
 				if (0 != sim::Socket::GetHostByName(out.host.c_str(), AsyncHttp::HTTP_CLI_GetHostByNameCallBack, &ip))
 					return false;
 				//添加通用头
-				ss->http_common_head_.Append("Connection", "Close");
+				ss->http_common_head_.Append("Connection", "keep-alive");
 				ss->http_common_head_.Append("User-Agent", "Sim.HttpApi");
 				ss->http_common_head_.Append("Host", out.host);
 				ss->http_common_head_.Append("Accept", "*/*");
-
+				ss->is_server = false;
 				if (out.scheme == "http")
 				{
 					ss->type_ = AS_HTTP;
@@ -292,9 +304,9 @@ namespace sim
 					if (0 != sim::Socket::GetHostByName(out.host.c_str(), AsyncHttp::HTTP_CLI_GetHostByNameCallBack, &ip))
 						return false;
 				//添加通用头
-				ss->http_common_head_.Append("Connection", "Close");
+				ss->http_common_head_.Append("Connection", "keep-alive");
 				ss->http_common_head_.Append("Server", "Sim.HttpApi");
-
+				ss->is_server = true;
 
 				if (out.scheme == "http")
 				{
@@ -336,16 +348,18 @@ namespace sim
 			ContentLength_t content_lenght, ContentLength_t& offset,
 			const char* buff, ContentLength_t len)
 		{
+			AsyncSession* ss = GetSession(handle);
+			if (NULL == ss)
+			{
+				return false;
+			}
+			Head.Head.AppendMap(ss->http_common_head_);
 			Str data = HttpParser::PrintRequest(Head, content_lenght, offset, buff, len);
 			if (offset == content_lenght)
 			{
 				if (HttpParser::IsClose(Head.Head))
 				{
-					AsyncSession* ss = GetSession(handle);
-					if (ss)
-					{
-						ss->close_flag_ = true;
-					}
+					ss->close_flag_ = true;
 				}
 			}
 			return Send(handle, data.c_str(), data.size());
@@ -354,16 +368,18 @@ namespace sim
 			ContentLength_t content_lenght, ContentLength_t& offset,
 			const char* buff, ContentLength_t len)
 		{
+			AsyncSession* ss = GetSession(handle);
+			if (NULL == ss)
+			{
+				return false;
+			}
+			Head.Head.AppendMap(ss->http_common_head_);
 			Str data = HttpParser::PrintResponse(Head, content_lenght, offset, buff, len);
 			if (offset == content_lenght)
 			{
 				if (HttpParser::IsClose(Head.Head))
 				{
-					AsyncSession* ss = GetSession(handle);
-					if (ss)
-					{
-						ss->close_flag_ = true;
-					}
+					ss->close_flag_ = true;
 				}
 			}
 			return Send(handle, data.c_str(), data.size());
@@ -417,7 +433,7 @@ namespace sim
 			}
 		}
 		
-		static  void SessionAcceptHandler(AsyncHandle handle, AsyncHandle client, void*data)
+		static void SessionAcceptHandler(AsyncHandle handle, AsyncHandle client, void*data)
 		{
 			if (data)
 			{
@@ -436,12 +452,14 @@ namespace sim
 					ref->connect_handler_data = ref->ctx_data;
 					ref->recvdata_handler = AsyncHttp::SessionRecvDataHandler;
 					ref->recvdata_handler_data = ref->ctx_data;
+					ref->sendcomplete_handler = AsyncHttp::SessionSendCompleteHandler;
+					ref->sendcomplete_handler_data = ref->ctx_data;
 					client_session->CopyHandler(ss);
 					client_session->type_ = ss->type_;
-					client_session->handle_ = handle;
+					client_session->handle_ = client;
 					//都是http解析器
 					client_session->parser_ = RefObject<BaseParser>(new HttpRequestParser(AsyncHttp::Session_HTTP_REQUEST_HANDLER, client_session));
-
+					client_session->http_common_head_ = ss->http_common_head_;
 					//回调
 					ss->OnAccept(client);
 				}
@@ -467,6 +485,7 @@ namespace sim
 				ss->OnConnect();
 			}
 		}
+		
 		//tcp
 		static void SessionRecvDataHandler(AsyncHandle handle, char *buff, unsigned int buff_len, void*data)
 		{
@@ -477,6 +496,7 @@ namespace sim
 					ss->parser_->Parser(buff, buff_len);
 			}
 		}
+		
 		static void SessionSendCompleteHandler(AsyncHandle handle, char *buff, unsigned int buff_len, void*data)
 		{
 			if (data)
@@ -485,6 +505,7 @@ namespace sim
 				ss->OnSendComplete();
 			}
 		}
+		
 		static bool HTTP_CLI_GetHostByNameCallBack(const char* ip, void* pdata)
 		{
 			if (pdata)
@@ -499,7 +520,7 @@ namespace sim
 
 	void sim::AsyncSession::OnSendComplete()
 	{
-		if (close_flag_)
+		if (is_server&&close_flag_)
 		{
 			async_.Close(handle_);
 		}

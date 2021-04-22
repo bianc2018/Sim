@@ -213,8 +213,8 @@ namespace sim
 			AutoMutex lk(timers_lock_);
 			return timers_.Del(id);
 		}
-
-		void Poll()
+		//wait_ms 无效参数
+		void Poll(unsigned int wait_ms=0)
 		{
 			Queue<timer_id>result;
 			Queue<Timer>timers;

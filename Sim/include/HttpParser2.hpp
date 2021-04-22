@@ -389,18 +389,20 @@ namespace sim
 		virtual bool OnBody(const char*data, unsigned int len, unsigned int &offset)
 		{
 			//有效字节数
-			unsigned int valid_bytes = len - offset;
-			unsigned int need_bytes = content_lenght_ - content_offset_;
+			ContentLength_t valid_bytes = len - offset;
+			ContentLength_t need_bytes = content_lenght_ - content_offset_;
 			if (need_bytes <= 0)
 			{
 				status_ = HTTP_COMPLETE;
 				OnHandler(NULL, 0);
 				return  true;
 			}
-			unsigned int copy_bytes = valid_bytes > need_bytes ? need_bytes : valid_bytes;//取最小
+			ContentLength_t copy_bytes = valid_bytes > need_bytes ? need_bytes : valid_bytes;//取最小
+			if (copy_bytes <= 0)
+				return true;
 			OnHandler(data + offset, copy_bytes);//返回
 			offset += copy_bytes;
-
+			content_offset_ += copy_bytes;
 			return true;
 		}
 		virtual bool FindCR(const char*data, unsigned int len, unsigned int &offset)
@@ -558,7 +560,7 @@ namespace sim
 			//报文完整了
 			if (content_lenght_ <= content_offset_ + len)
 				status_ = HTTP_COMPLETE;
-
+			
 			if (handler_)
 				handler_(this, &t_request_,content_lenght_,content_offset_,buff,len,pdata_);
 
@@ -634,7 +636,9 @@ namespace sim
 			//报文完整了
 			if (content_lenght_ <= content_offset_ + len)
 				status_ = HTTP_COMPLETE;
-
+			printf("status %d content_lenght_ %llu content_offset_ %llu buff  %p len %llu\n",
+				status_, content_lenght_, content_offset_,
+				buff, len);
 			if (handler_)
 				handler_(this, &t_response_, content_lenght_, content_offset_, buff, len, pdata_);
 
