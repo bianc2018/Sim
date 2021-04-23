@@ -6,6 +6,7 @@
 #include "Async.hpp"
 #define SIM_PARSER_MULTI_THREAD
 #include "HttpParser2.hpp"
+#include "WebSocketParser.hpp"
 namespace sim
 {
 	class AsyncSession;
@@ -17,6 +18,11 @@ namespace sim
 	typedef void(*ASYNC_HTTP_RESPONSE_HANDLE)(AsyncHandle handle, HttpResponseHead *Head,
 		ContentLength_t content_lenght, ContentLength_t offset,
 		const char*buff, ContentLength_t len, void *pdata);
+
+	typedef void(*ASYNC_WS_HANDLER)(AsyncHandle handle, WebSocketFrameHead* pFrame,
+		PayLoadLength_t payload_offset,
+		const char*payload_data, PayLoadLength_t data_len,
+		void* pdata);
 
 	enum AsyncSessionType
 	{
@@ -42,8 +48,10 @@ namespace sim
 			accept_handler(NULL), accept_handler_data(NULL)
 			, connect_handler(NULL), connect_handler_data(NULL)
 			, close_handler(NULL), close_handler_data(NULL)
+			, ws_handler_(NULL), ws_handler_data_(NULL)
 			, close_flag_(false)
 			, is_server(false)
+			, websocket_handshake_(false)
 			,async_(async)
 		{
 
@@ -64,6 +72,9 @@ namespace sim
 
 				response_handler_ = pctx->response_handler_;
 				response_handler_data_ = pctx->response_handler_data_;
+
+				ws_handler_ = pctx->ws_handler_;
+				ws_handler_data_ = pctx->ws_handler_data_;
 			}
 		}
 	public:
@@ -81,11 +92,28 @@ namespace sim
 			if (response_handler_)
 				response_handler_(handle_, Head, content_lenght, offset, buff, len, response_handler_data_);
 			//close 或者已经关闭了 最后一个请求
-			if (offset+len>= content_lenght&&(HttpParser::IsClose(Head->Head) || close_flag_))
+			if (offset+len>= content_lenght&&(HttpParser::IsClose(Head->Head)))
 			{
 				Close();
 			}
 		}
+
+		void OnWsFrame(WebSocketFrameHead* pFrame,
+			PayLoadLength_t payload_offset,
+			const char*payload_data, PayLoadLength_t data_len)
+		{
+			if (ws_handler_)
+				ws_handler_(handle_, pFrame, payload_offset, payload_data, data_len, ws_handler_data_);
+			//close 或者已经关闭了 最后一个请求
+			if (false == is_server)
+			{
+				if (payload_offset + data_len >= payload_offset && (pFrame->opcode == SIM_WS_OPCODE_CLOSE ))
+				{
+					Close();
+				}
+			}
+		}
+
 		virtual void OnAccept(AsyncHandle client)
 		{
 			if (accept_handler)
@@ -109,6 +137,8 @@ namespace sim
 		void *request_handler_data_;
 		ASYNC_HTTP_RESPONSE_HANDLE response_handler_;
 		void *response_handler_data_;
+		ASYNC_WS_HANDLER ws_handler_;
+		void *ws_handler_data_;
 
 		AcceptHandler accept_handler;
 		void*accept_handler_data;
@@ -132,6 +162,10 @@ namespace sim
 		KvMap http_common_head_;
 
 		AsyncHttp& async_;
+
+		HttpUrl url_;
+
+		bool websocket_handshake_;
 	};
 	
 	class AsyncHttp:protected SimAsync
@@ -220,7 +254,15 @@ namespace sim
 				((AsyncSession*)ref->ctx_data)->response_handler_data_ = pdata;
 			}
 		}
-
+		virtual void SetWsFrameHandler(AsyncHandle handle, ASYNC_WS_HANDLER handler, void *pdata)
+		{
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (ref&&ref->ctx_data)
+			{
+				((AsyncSession*)ref->ctx_data)->ws_handler_ = handler;
+				((AsyncSession*)ref->ctx_data)->ws_handler_data_ = pdata;
+			}
+		}
 		//设置https相关参数
 		virtual int SetSSLKeyFile(AsyncHandle handle, const char *pub_key_file, const char*pri_key_file)
 		{
@@ -242,34 +284,33 @@ namespace sim
 			{
 				AsyncSession *ss = (AsyncSession*)ref->ctx_data;
 
-				HttpUrl out;
-				if (!HttpParser::ParserUrl(host, out))
+				if (!HttpParser::ParserUrl(host, ss->url_))
 					return false;
 				//解析域名
 				sim::Socket::Init();
 				Str ip = "";
-				if (0 != sim::Socket::GetHostByName(out.host.c_str(), AsyncHttp::HTTP_CLI_GetHostByNameCallBack, &ip))
+				if (0 != sim::Socket::GetHostByName(ss->url_.host.c_str(), AsyncHttp::HTTP_CLI_GetHostByNameCallBack, &ip))
 					return false;
 				//添加通用头
 				ss->http_common_head_.Append("Connection", "keep-alive");
 				ss->http_common_head_.Append("User-Agent", "Sim.HttpApi");
-				ss->http_common_head_.Append("Host", out.host);
+				ss->http_common_head_.Append("Host", ss->url_.host);
 				ss->http_common_head_.Append("Accept", "*/*");
 				ss->is_server = false;
-				if (out.scheme == "http")
+				if (ss->url_.scheme == "http")
 				{
 					ss->type_ = AS_HTTP;
 				}
-				else if (out.scheme == "ws")
+				else if (ss->url_.scheme == "ws")
 				{
 					ss->type_ = AS_WS;
 				}
-				else if (out.scheme == "https")
+				else if (ss->url_.scheme == "https")
 				{
 					EnableSSL(handle, false, true);
 					ss->type_ = AS_HTTPS;
 				}
-				else if (out.scheme == "wss")
+				else if (ss->url_.scheme == "wss")
 				{
 					EnableSSL(handle, false, true);
 					ss->type_ = AS_WSS;
@@ -279,7 +320,7 @@ namespace sim
 					//不支持
 					return false;
 				}
-				return AddTcpConnect(handle, ip.c_str(), out.port) == SOCK_SUCCESS;
+				return AddTcpConnect(handle, ip.c_str(), ss->url_.port) == SOCK_SUCCESS;
 			}
 			return false;
 		}
@@ -294,35 +335,34 @@ namespace sim
 			{
 				AsyncSession *ss = (AsyncSession*)ref->ctx_data;
 
-				HttpUrl out;
-				if (!HttpParser::ParserUrl(host, out))
+				if (!HttpParser::ParserUrl(host, ss->url_))
 					return false;
 				//解析域名
 				sim::Socket::Init();
 				Str ip = "";
-				if(out.host.size()!=0)
-					if (0 != sim::Socket::GetHostByName(out.host.c_str(), AsyncHttp::HTTP_CLI_GetHostByNameCallBack, &ip))
+				if(ss->url_.host.size()!=0)
+					if (0 != sim::Socket::GetHostByName(ss->url_.host.c_str(), AsyncHttp::HTTP_CLI_GetHostByNameCallBack, &ip))
 						return false;
 				//添加通用头
 				ss->http_common_head_.Append("Connection", "keep-alive");
 				ss->http_common_head_.Append("Server", "Sim.HttpApi");
 				ss->is_server = true;
 
-				if (out.scheme == "http")
+				if (ss->url_.scheme == "http")
 				{
 					ss->type_ = AS_HTTP;
 				}
-				else if (out.scheme == "ws")
+				else if (ss->url_.scheme == "ws")
 				{
 					ss->type_ = AS_WS;
 				}
-				else if (out.scheme == "https")
+				else if (ss->url_.scheme == "https")
 				{
 					EnableSSL(handle, true, true);
 					SetSSLKeyFile(handle, pub_key_file, pri_key_file);
 					ss->type_ = AS_HTTPS;
 				}
-				else if (out.scheme == "wss")
+				else if (ss->url_.scheme == "wss")
 				{
 					EnableSSL(handle, true, true);
 					SetSSLKeyFile(handle,pub_key_file, pri_key_file);
@@ -333,7 +373,7 @@ namespace sim
 					//不支持
 					return false;
 				}
-				return AddTcpServer(handle, ip.size()==0?NULL:ip.c_str(), out.port) == SOCK_SUCCESS;
+				return AddTcpServer(handle, ip.size()==0?NULL:ip.c_str(), ss->url_.port) == SOCK_SUCCESS;
 			}
 			return false;
 		}
@@ -344,14 +384,14 @@ namespace sim
 		}
 	public:
 		//发送数据
-		virtual bool Send(AsyncHandle handle, HttpRequestHead& Head,
+		virtual int Send(AsyncHandle handle, HttpRequestHead& Head,
 			ContentLength_t content_lenght, ContentLength_t& offset,
 			const char* buff, ContentLength_t len)
 		{
 			AsyncSession* ss = GetSession(handle);
 			if (NULL == ss)
 			{
-				return false;
+				return -1;
 			}
 			Head.Head.AppendMap(ss->http_common_head_);
 			Str data = HttpParser::PrintRequest(Head, content_lenght, offset, buff, len);
@@ -364,14 +404,15 @@ namespace sim
 			}
 			return Send(handle, data.c_str(), data.size());
 		}
-		virtual bool Send(AsyncHandle handle, HttpResponseHead& Head,
+		
+		virtual int Send(AsyncHandle handle, HttpResponseHead& Head,
 			ContentLength_t content_lenght, ContentLength_t& offset,
 			const char* buff, ContentLength_t len)
 		{
 			AsyncSession* ss = GetSession(handle);
 			if (NULL == ss)
 			{
-				return false;
+				return -1;
 			}
 			Head.Head.AppendMap(ss->http_common_head_);
 			Str data = HttpParser::PrintResponse(Head, content_lenght, offset, buff, len);
@@ -384,20 +425,165 @@ namespace sim
 			}
 			return Send(handle, data.c_str(), data.size());
 		}
+
+		virtual int  Send(AsyncHandle handle, WebSocketFrameHead& FrameHead, PayLoadLength_t &payload_offset
+			, const char*payload_data, PayLoadLength_t data_len)
+		{
+			AsyncSession* ss = GetSession(handle);
+			if (NULL == ss)
+			{
+				return -1;
+			}
+
+			Str data = WebSocketParser::PrintFrame(FrameHead, payload_offset, payload_data, data_len);
+			if (FrameHead.payload_length == payload_offset)
+			{
+				if (SIM_WS_OPCODE_CLOSE == FrameHead.opcode)
+				{
+					ss->close_flag_ = true;
+				}
+			}
+			return Send(handle, data.c_str(), data.size());
+		}
+
 		virtual int Send(AsyncHandle handle, const char *buff, unsigned int buff_len)
 		{
 			return SimAsync::Send(handle, buff,buff_len);
 		}
+
+		//http 主动回复websocket握手
+		virtual bool ResponseWebSocketHandShake(AsyncHandle handle, const Str &SecWebSocketKey)
+		{
+			AsyncSession* ss = GetSession(handle);
+			//会话存在 是服务端 而且 握手未成功
+			if (ss&&(ss->is_server)&&(ss->websocket_handshake_==false))
+			{
+				//握手信息
+				if (ResponseWebSocketUpgrade(ss->handle_, SecWebSocketKey))
+				{
+					if (UpgradeWebSocket(handle))
+					{
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+		
+		//主动升级为websocket
+		virtual bool StartWebSocketHandShake(AsyncHandle handle, const Str&path)
+		{
+			AsyncSession* ss = GetSession(handle);
+			//会话存在 是客户端 而且 握手未成功
+			if (ss && (!ss->is_server) && (ss->websocket_handshake_ == false))
+			{
+				if (ss->type_ = AS_HTTP)
+					ss->type_ = AS_WS;
+				else if (ss->type_ = AS_HTTPS)
+					ss->type_ = AS_WSS;
+				else
+					return true;
+
+				if (SendWebSocketUpgrade(handle, path))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
 	protected:
 		//发送ws升级请求
 		///Upgrade: websocket 升级为websocket
-		virtual bool SendWebSocketUpgrade(AsyncSession* ss)
+		virtual bool SendWebSocketUpgrade(AsyncHandle handle,const Str&path)
 		{
+			/*
+				GET / HTTP/1.1
+				Host: localhost:8080
+				Origin: http://127.0.0.1:3000
+				Connection: Upgrade
+				Upgrade: websocket
+				Sec-WebSocket-Version: 13
+				Sec-WebSocket-Key: w4v7O6xFTi36lq3RNcgctw==
+			*/
+			AsyncSession* ss = GetSession(handle);
+			if (ss)
+			{
+				//ss->url_
+				ss->http_common_head_.Append("Upgrade", "websocket", HM_COVER);
+				ss->http_common_head_.Append("Connection", "Upgrade", HM_COVER);
+				ss->http_common_head_.Append("Sec-WebSocket-Key", WebSocketParser::GenerateSecWebSocketKey(), HM_COVER);
+				ss->http_common_head_.Append("Sec-WebSocket-Version", "13", HM_COVER);
+				HttpRequestHead rhead;
+				rhead.Method = "GET";
+				rhead.Url = path;
+				rhead.Version = "HTTP/1.1";
+				ContentLength_t offset=0;
+				return Send(handle, rhead, 0, offset, NULL, 0)!=-1;
+			}
 			return false;
 		}
-		//协议升级为WebSocket
-		virtual bool UpgradeWebSocket(AsyncSession* ss)
+		
+		//回复web升级请求
+		virtual bool ResponseWebSocketUpgrade(AsyncHandle handle, const Str &SecWebSocketKey)
 		{
+			/*
+				HTTP/1.1 101 Switching Protocols
+				Connection:Upgrade
+				Upgrade: websocket
+				Sec-WebSocket-Accept: Oy4NRAQ13jhfONC7bP8dTKb4PTU=
+			*/
+			AsyncSession* ss = GetSession(handle);
+			if (ss)
+			{
+				HttpResponseHead rhead;
+				rhead.Status = "101";
+				rhead.Reason = "Switching Protocols";
+				rhead.Version = "HTTP/1.1";
+				ContentLength_t offset = 0;
+				rhead.Head.Append("Upgrade", "websocket", HM_COVER);
+				rhead.Head.Append("Connection", "Upgrade", HM_COVER);
+				rhead.Head.Append("Sec-WebSocket-Accept",
+					WebSocketParser::GenerateSecWebSocketAccept(SecWebSocketKey),
+					HM_COVER);
+				return Send(handle, rhead, 0, offset, NULL, 0) != -1;
+			}
+			return false;
+		}
+		
+		//协议升级为WebSocket
+		virtual bool UpgradeWebSocket(AsyncHandle handle)
+		{
+			AsyncSession* ss = GetSession(handle);
+			if (ss)
+			{
+				ss->parser_ = RefObject<BaseParser>(new WebSocketParser(AsyncHttp::Session_WEBSOCKET_HANDLER, (void*)ss));
+				if (ss->type_ == AS_HTTP)
+					ss->type_ = AS_WS;
+				else if (ss->type_ == AS_HTTPS)
+					ss->type_ = AS_WSS;
+				ss->websocket_handshake_ = true;
+				return true;
+			}
+			return false;
+		}
+
+		//检查
+		virtual bool CheckWebSocketUpgradeResponse(AsyncHandle handle, HttpResponseHead *response)
+		{
+			AsyncSession* ss = GetSession(handle);
+			if (ss&&response)
+			{
+				Str response_sec_accept = response->Head.GetCase("Sec-WebSocket-Accept", "");
+				if (response_sec_accept.size() == 0)
+				{
+					return false;
+				}
+				Str request_sec_accept = WebSocketParser::GenerateSecWebSocketAccept(ss->http_common_head_.GetCase("Sec-WebSocket-Key", ""));
+				if (request_sec_accept == response_sec_accept)
+				{
+					return true;
+				}
+			}
 			return false;
 		}
 	protected:
@@ -408,7 +594,29 @@ namespace sim
 			if (pdata)
 			{
 				AsyncSession* ss = (AsyncSession*)pdata;
-				ss->OnRequest(Head, content_lenght, offset, buff, len);
+				if (ss->type_ == AS_WS || ss->type_ == AS_WSS)
+				{
+					if (ss->websocket_handshake_ == true)
+						return;//已经握手成功了。
+
+					Str SecKey = Head->Head.GetCase("Sec-WebSocket-Key", "");
+					if (SecKey.size()!=0)
+					{
+						if (ss->async_.ResponseWebSocketHandShake(ss->handle_, SecKey))
+						{
+							ss->OnRequest(Head, content_lenght, offset, buff, len);
+							return;
+						}
+					}
+					
+					//握手失败
+					ss->Close();
+					return;
+				}
+				else
+				{
+					ss->OnRequest(Head, content_lenght, offset, buff, len);
+				}
 			}
 		}
 
@@ -419,10 +627,45 @@ namespace sim
 			if (pdata)
 			{
 				AsyncSession* ss = (AsyncSession*)pdata;
-				ss->OnResponse(Head, content_lenght, offset, buff, len);
+
+				if (ss->type_ == AS_WS || ss->type_ == AS_WSS)
+				{
+					//如果是ws，而且收到101 "Upgrade", "websocket"
+					if (Head->Status == "101"
+						&& (BaseParser::ToLower("websocket") == BaseParser::ToLower(Head->Head.GetCase("Upgrade", ""))))
+					{
+						if (ss->async_.CheckWebSocketUpgradeResponse(ss->handle_, Head))
+						{
+							//握手成功
+							if (ss->async_.UpgradeWebSocket(ss->handle_))
+							{
+								ss->OnResponse(Head, content_lenght, offset, buff, len);
+								return;
+							}
+						}
+					}
+					//握手失败
+					ss->Close();
+				}
+				else
+				{
+					ss->OnResponse(Head, content_lenght, offset, buff, len);
+				}
 			}
 		}
-
+		
+		static void Session_WEBSOCKET_HANDLER(WebSocketParser* parser,
+			WebSocketFrameHead* pFrame, PayLoadLength_t payload_offset,
+			const char*payload_data, PayLoadLength_t data_len,
+			void* pdata)
+		{
+			if (pdata)
+			{
+				AsyncSession* ss = (AsyncSession*)pdata;
+				ss->OnWsFrame(pFrame, payload_offset, payload_data, data_len);
+			}
+		}
+		
 		static void SessionCloseHandler(AsyncHandle handle, AsyncCloseReason reason, int error, void*data)
 		{
 			if (data)
@@ -457,6 +700,7 @@ namespace sim
 					client_session->CopyHandler(ss);
 					client_session->type_ = ss->type_;
 					client_session->handle_ = client;
+					client_session->is_server = true;
 					//都是http解析器
 					client_session->parser_ = RefObject<BaseParser>(new HttpRequestParser(AsyncHttp::Session_HTTP_REQUEST_HANDLER, client_session));
 					client_session->http_common_head_ = ss->http_common_head_;
@@ -475,7 +719,7 @@ namespace sim
 					RefObject<BaseParser>(new HttpResponseParser(AsyncHttp::Session_HTTP_RESPONSE_HANDLER,(void*)ss));
 				if (ss->type_ == AS_WS || ss->type_ == AS_WSS)
 				{
-					if (!ss->async_.SendWebSocketUpgrade(ss))
+					if (!ss->async_.SendWebSocketUpgrade(handle,ss->url_.path))
 					{
 						//请求失败
 						ss->Close();
@@ -493,7 +737,12 @@ namespace sim
 			{
 				AsyncSession* ss = (AsyncSession*)data;
 				if (ss->parser_)
-					ss->parser_->Parser(buff, buff_len);
+				{
+					//防止回调中释放解析器
+					RefObject<BaseParser> parser = ss->parser_;
+					if (false == ss->parser_->Parser(buff, buff_len))
+						ss->Close();
+				}
 			}
 		}
 		
@@ -520,6 +769,7 @@ namespace sim
 
 	void sim::AsyncSession::OnSendComplete()
 	{
+		//服务端发送完毕就关闭连接，客户端接收完毕才关闭
 		if (is_server&&close_flag_)
 		{
 			async_.Close(handle_);
