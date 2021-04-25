@@ -428,7 +428,26 @@ namespace sim
 			return Send(handle, data.c_str(), data.size());
 		}
 
-		virtual int  Send(AsyncHandle handle, WebSocketFrameHead& FrameHead, PayLoadLength_t &payload_offset
+		virtual int  SendWebSocketFrame(AsyncHandle handle, const char* payload_data, 
+			PayLoadLength_t data_len,
+			unsigned char opcode = SIM_WS_OPCODE_TEXT)
+		{
+			AsyncSession* ss = GetSession(handle);
+			if (NULL == ss)
+			{
+				return -1;
+			}
+			PayLoadLength_t payload_offset=0;
+			WebSocketFrameHead FrameHead;
+			FrameHead.fin = true;
+			FrameHead.opcode = opcode;
+			if (!ss->is_server)
+				FrameHead.mask = true;
+			FrameHead.payload_length = data_len;
+			return Send(handle, FrameHead, payload_offset, payload_data, data_len);
+		}
+		virtual int  Send(AsyncHandle handle, WebSocketFrameHead& FrameHead, 
+			PayLoadLength_t &payload_offset
 			, const char*payload_data, PayLoadLength_t data_len)
 		{
 			//printf("send http  websocket frame\n");
