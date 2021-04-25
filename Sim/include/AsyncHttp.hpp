@@ -665,6 +665,13 @@ namespace sim
 			if (pdata)
 			{
 				AsyncSession* ss = (AsyncSession*)pdata;
+
+				//收到未知的操作码关闭链接
+				if (pFrame->opcode > SIM_WS_OPCODE_0F)
+				{
+					ss->Close();
+					return;
+				}
 				ss->OnWsFrame(pFrame, payload_offset, payload_data, data_len);
 			}
 		}
