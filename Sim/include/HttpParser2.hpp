@@ -636,9 +636,9 @@ namespace sim
 			//报文完整了
 			if (content_lenght_ <= content_offset_ + len)
 				status_ = HTTP_COMPLETE;
-			printf("status %d content_lenght_ %llu content_offset_ %llu buff  %p len %llu\n",
+			/*printf("status %d content_lenght_ %llu content_offset_ %llu buff  %p len %llu\n",
 				status_, content_lenght_, content_offset_,
-				buff, len);
+				buff, len);*/
 			if (handler_)
 				handler_(this, &t_response_, content_lenght_, content_offset_, buff, len, pdata_);
 
