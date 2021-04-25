@@ -388,6 +388,7 @@ namespace sim
 			ContentLength_t content_lenght, ContentLength_t& offset,
 			const char* buff, ContentLength_t len)
 		{
+			//printf("send http request\n");
 			AsyncSession* ss = GetSession(handle);
 			if (NULL == ss)
 			{
@@ -409,6 +410,7 @@ namespace sim
 			ContentLength_t content_lenght, ContentLength_t& offset,
 			const char* buff, ContentLength_t len)
 		{
+			//printf("send http response\n");
 			AsyncSession* ss = GetSession(handle);
 			if (NULL == ss)
 			{
@@ -429,6 +431,7 @@ namespace sim
 		virtual int  Send(AsyncHandle handle, WebSocketFrameHead& FrameHead, PayLoadLength_t &payload_offset
 			, const char*payload_data, PayLoadLength_t data_len)
 		{
+			//printf("send http  websocket frame\n");
 			AsyncSession* ss = GetSession(handle);
 			if (NULL == ss)
 			{

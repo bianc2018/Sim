@@ -10,7 +10,15 @@ void ASYNC_HTTP_REQUEST_HANDLE(sim::AsyncHandle handle, sim::HttpRequestHead *He
 {
 	printf("handle %d request method %s url %s version %s content_lenght %llu offset %llu buff %s len %llu\n",
 		handle, Head->Method.c_str(), Head->Url.c_str(), Head->Version.c_str(), content_lenght, offset, buff, len);
-	
+
+	/*sim::Str response = "hello world";
+	sim::WebSocketFrameHead resFrame;
+	resFrame.fin = true;
+	resFrame.mask = true;
+	resFrame.opcode = SIM_WS_OPCODE_TEXT;
+	resFrame.payload_length = response.size();
+	sim::PayLoadLength_t payload_offset = 0;
+	sim::GlobalPoll<sim::AsyncHttp, 8>::Get().Send(handle, resFrame, payload_offset, response.c_str(), response.size());*/
 }
 void ASYNC_WS_HANDLER(sim::AsyncHandle handle, sim::WebSocketFrameHead* pFrame,
 	sim::PayLoadLength_t payload_offset,
@@ -23,12 +31,14 @@ void ASYNC_WS_HANDLER(sim::AsyncHandle handle, sim::WebSocketFrameHead* pFrame,
 		, pFrame->masking_key[1], pFrame->masking_key[2], pFrame->masking_key[3]
 		, pFrame->opcode,
 		pFrame->payload_length, payload_offset, payload_data, data_len);
+
+	sim::Str response ="echo :"+ sim::Str(payload_data, data_len);
 	sim::WebSocketFrameHead resFrame;
 	resFrame.fin = true;
-	resFrame.mask = true;
+	resFrame.mask = false;
 	resFrame.opcode = SIM_WS_OPCODE_TEXT;
-	resFrame.payload_length = data_len;
-	sim::GlobalPoll<sim::AsyncHttp>::Get().Send(handle, resFrame, payload_offset, payload_data, data_len);
+	resFrame.payload_length = response.size();
+	sim::GlobalPoll<sim::AsyncHttp, 8>::Get().Send(handle, resFrame, payload_offset, response.c_str(), response.size());
 }
 void print_help()
 {
@@ -43,11 +53,11 @@ int main(int argc, char* argv[])
 		print_help();
 		return -1;
 	}
-	sim::AsyncHttp &http = sim::GlobalPoll<sim::AsyncHttp>::Get();
+	sim::AsyncHttp &http = sim::GlobalPoll<sim::AsyncHttp, 8>::Get();
 	sim::AsyncHandle handle = http.CreateSession();
 	http.SetHttpRequestHandler(handle, ASYNC_HTTP_REQUEST_HANDLE, NULL);
 	http.SetWsFrameHandler(handle, ASYNC_WS_HANDLER, NULL);
 	http.Listen(handle, cmd.GetCmdLineParams("l", "ws://127.0.0.1:8080").c_str(), "cert.pem", "key.pem");
-	sim::GlobalPoll<sim::AsyncHttp>::Wait();
+	sim::GlobalPoll<sim::AsyncHttp,8>::Wait();
 	return 0;
 }
