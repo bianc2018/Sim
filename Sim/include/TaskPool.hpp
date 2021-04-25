@@ -5,13 +5,16 @@
 #define SIM_TASK_POOL_HPP_
 
 #include <time.h>
-
+#include <sys/timeb.h>
 #include "Mutex.hpp"
 #include "Queue.hpp"
 #include "Thread.hpp"
 //#include "stdio.h"
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__)
-#include <windows.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN  
+#endif
+#include <WinSock2.h>
 #define  ThreadSleep(x) \
 	while(x)\
 	{\
@@ -32,7 +35,7 @@
 namespace sim
 {
 #ifdef WIN32
-	inline int gettimeofday(struct timeval* tp, void* tzp)
+	inline int gettimeofday(struct ::timeval* tp, void* tzp)
 	{
 		time_t clock;
 		struct tm tm;
