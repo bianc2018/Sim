@@ -5,7 +5,7 @@
 #define SIM_ASYNC_HTTP_HPP_
 #include "Async.hpp"
 #define SIM_PARSER_MULTI_THREAD
-#include "HttpParser2.hpp"
+#include "HttpParser.hpp"
 #include "WebSocketParser.hpp"
 namespace sim
 {
