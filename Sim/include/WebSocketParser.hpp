@@ -20,6 +20,7 @@
 	#define OS_LINUX
 #endif  
 #include <netinet/in.h>
+#include <sys/time.h>
 #else
 #error "不支持的平台"
 #endif
@@ -154,6 +155,10 @@ namespace sim
 
 		//载荷数据，回调中返回
 		//Str payload_data;
+		WebSocketFrameHead()
+		{
+			memset(this, 0, sizeof(*this));
+		}
 	};
 
 	//回调
@@ -361,17 +366,33 @@ namespace sim
 			FrameHead.payload_length = data_len;
 			return PrintFrame(FrameHead, payload_offset, payload_data, data_len, is_GenerateMaskingKey);
 		}
-		
+		//生成随机数据
+		static bool GenerateRandArray(unsigned char *arrays,unsigned short size)
+		{
+			static unsigned int salt = 0;
+			++salt;
+			unsigned long long seed = 0;
+#ifdef _MSC_VER
+			_timeb timebuffer;
+			_ftime(&timebuffer);
+			seed = timebuffer.time * 1000 + timebuffer.millitm;
+#else
+			timeval tv;
+			::gettimeofday(&tv, 0);
+			seed= tv.tv_sec * 1000 + tv.tv_usec / 1000;
+#endif
+			::srand(seed);
+			for (int i = 0; i < size; ++i)
+			{
+				arrays[i] = (rand()%123412+ seed+ salt) % 127;
+			}
+			return true;
+		}
+
 		//unsigned char masking_key
 		static bool GenerateMaskingKey(unsigned char *masking_key)
 		{
-			//4
-			::srand(time(NULL));
-			for (int i = 0; i < 4; ++i)
-			{
-				masking_key[i] = rand() % 127;
-			}
-			return true;
+			return GenerateRandArray(masking_key,4);
 		}
 		
 		//Sec-WebSocket-Key
@@ -380,11 +401,7 @@ namespace sim
 			//随机生成
 			const int rand_data_len = 32;
 			unsigned char rand_data[rand_data_len] = { 0 };
-			::srand(time(NULL));
-			for (int i = 0; i < rand_data_len; ++i)
-			{
-				rand_data[i] = rand() % 127;
-			}
+			GenerateRandArray(rand_data, rand_data_len);
 
 			const int base64_buff_size = 128;
 			char base64_buff[base64_buff_size] = { 0 };
