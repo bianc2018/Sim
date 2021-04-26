@@ -144,6 +144,11 @@ namespace sim
 			if (this != &rhs)
 			{
 				rhs.ref_count_ptr_->add_ref();
+
+				//ÊÍ·Å
+				release();
+
+				//¸³Öµ
 				ptr_ = rhs.ptr_;
 				ref_count_ptr_ = rhs.ref_count_ptr_;
 				deleter_ = rhs.deleter_;
@@ -185,7 +190,7 @@ namespace sim
 		{
 			return ptr_;
 		}*/
-	private:
+	protected:
 		void release()
 		{
 			//ÊÍ·Å
@@ -228,23 +233,34 @@ namespace sim
 		{
 			
 		};
+		
 		RefBuff(unsigned int buff_size,char _val)
 			:RefObject<char>(new char[buff_size], &RefBuff::RefBuffDelete), buff_size_(buff_size)
 		{
 			set(_val);
 		};
+		
 		RefBuff(const char*pdata, unsigned int buff_size) 
 			:RefObject<char>(new char[buff_size], &RefBuff::RefBuffDelete), buff_size_(buff_size)
 		{
 			::memcpy(get(), pdata, buff_size);
 		}
+		
+		RefBuff(const char*pdata)
+			:RefObject<char>(new char[::strlen(pdata)], &RefBuff::RefBuffDelete), buff_size_(::strlen(pdata))
+		{
+			::memcpy(get(), pdata, buff_size_);
+		}
+
 		RefBuff() :RefObject<char>(), buff_size_(0)
 		{
 		}
+		
 		//// Ç³¿½±´
 		RefBuff(const RefBuff& orig):RefObject<char>(orig), buff_size_(orig.buff_size_)
 		{
 		}
+		
 		//// Ç³¿½±´
 		virtual RefBuff& operator=(const RefBuff& rhs)
 		{
@@ -252,6 +268,9 @@ namespace sim
 			if (this != &rhs)
 			{
 				rhs.ref_count_ptr_->add_ref();
+
+				release();
+
 				ptr_ = rhs.ptr_;
 				ref_count_ptr_ = rhs.ref_count_ptr_;
 				deleter_ = rhs.deleter_;
@@ -260,6 +279,7 @@ namespace sim
 			}
 			return *this;
 		}
+		
 		virtual RefBuff operator+(const RefBuff& rhs)
 		{
 			if (this->buff_size_ + rhs.buff_size_ <= 0)
@@ -272,6 +292,13 @@ namespace sim
 				memcpy(temp.ptr_+ this->buff_size_, rhs.ptr_, rhs.buff_size_);
 			return temp;
 		}
+		
+		//²»×ö¼ì²é
+		virtual char& operator[](unsigned int index)
+		{
+			return ptr_[index];
+		}
+
 		virtual unsigned int size()
 		{
 			return buff_size_;
