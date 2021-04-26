@@ -156,7 +156,8 @@ void ASYNC_HTTP_RESPONSE_HANDLE(sim::AsyncHandle handle, sim::HttpResponseHead *
 		if (cmd.HasParam("print"))
 		{
 			printf("\n");
-			printf("end request :%s %s \n", method.c_str(), url.c_str());
+			printf("end request :%s %s offset %llu len %llu content_lenght %llu\n", method.c_str()
+				, url.c_str(), offset, len, content_lenght);
 			printf("response:%s %s use %llu ms\n", Head->Status.c_str(), Head->Reason.c_str(), ts.Get());
 		}
 		//close

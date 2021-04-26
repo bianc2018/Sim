@@ -55,11 +55,11 @@ void print_help()
 int main(int argc, char* argv[])
 {
 #ifdef OS_WINDOWS
-	system("chcp 65001");//œ‘ æutf8
+	//system("chcp 65001");//œ‘ æutf8
 	cmd.InitCmdLineParams("l", " ws://49.234.18.41:8866")
 		.InitCmdLineParams("i", "");
 #endif
-	
+	//chcp 936 GBK
 
 	//SIM_LOG_CONSOLE(sim::LDebug);
 	cmd.Parser(argc, argv);
