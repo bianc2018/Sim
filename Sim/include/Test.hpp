@@ -46,11 +46,15 @@
 #define SIM_TEST_IS_NOT_EQUAL(expr1,expr2) SIM_TEST_COMPARE(true,false,expr1,expr2,false)
 #define SIM_TEST_IS_TRUE(expr)             SIM_TEST_COMPARE(false,true,expr,true,false)
 #define SIM_TEST_IS_FALSE(expr)            SIM_TEST_COMPARE(false,true,expr,false,false)
+#define SIM_TEST_IS_NULL(expr)             SIM_TEST_IS_TRUE(NULL==expr)
+#define SIM_TEST_IS_NOT_NULL(expr)         SIM_TEST_IS_FALSE(NULL==expr)
 //ASSERT ÖÐ¶Ï
 #define SIM_ASSERT_IS_EQUAL(expr1,expr2)     SIM_TEST_COMPARE(true,true,expr1,expr2,true)
 #define SIM_ASSERT_IS_NOT_EQUAL(expr1,expr2) SIM_TEST_COMPARE(true,false,expr1,expr2,true)
 #define SIM_ASSERT_IS_TRUE(expr)             SIM_TEST_COMPARE(false,true,expr,true,true)
 #define SIM_ASSERT_IS_FALSE(expr)            SIM_TEST_COMPARE(false,true,expr,false,true)
+#define SIM_ASSERT_IS_NULL(expr)             SIM_ASSERT_IS_TRUE(NULL==expr)
+#define SIM_ASSERT_IS_NOT_NULL(expr)         SIM_ASSERT_IS_FALSE(NULL==expr)
 
 #define SIM_TEST_CLASS(name) ___SIM_TEST_##name
 #define SIM_ADD_TEST_CLASS(class_name) ::sim::UnitTest::Instance().add(new class_name())
