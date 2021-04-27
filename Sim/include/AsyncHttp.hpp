@@ -406,6 +406,13 @@ namespace sim
 			return Send(handle, data.c_str(), data.size());
 		}
 		
+		virtual int Send(AsyncHandle handle, HttpRequestHead& Head,
+			const char* body, ContentLength_t size)
+		{
+			ContentLength_t offset = 0;
+			return Send(handle, Head, size, offset, body, size);
+		}
+
 		virtual int Send(AsyncHandle handle, HttpResponseHead& Head,
 			ContentLength_t content_lenght, ContentLength_t& offset,
 			const char* buff, ContentLength_t len)
@@ -426,6 +433,13 @@ namespace sim
 				}
 			}
 			return Send(handle, data.c_str(), data.size());
+		}
+		
+		virtual int Send(AsyncHandle handle, HttpResponseHead& Head,
+			const char* body, ContentLength_t size)
+		{
+			ContentLength_t offset = 0;
+			return Send(handle, Head, size, offset, body, size);
 		}
 
 		virtual int  SendWebSocketFrame(AsyncHandle handle, const char* payload_data, 
