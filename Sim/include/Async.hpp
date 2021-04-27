@@ -95,6 +95,12 @@ namespace sim
 	#endif
 #endif
 
+#ifndef SIM_ASYNC_MAX_RECV_BUFF_SIZE 
+#define SIM_ASYNC_MAX_RECV_BUFF_SIZE 10*1024*1024
+#endif
+#ifndef SIM_ASYNC_MIN_RECV_BUFF_SIZE 
+#define SIM_ASYNC_MIN_RECV_BUFF_SIZE 4*1024
+#endif
 namespace sim
 {
 	//事件类型
@@ -184,6 +190,9 @@ namespace sim
 
 		//上下文data
 		void*ctx_data;
+
+		unsigned int min_recv_buff_size;
+		unsigned int max_recv_buff_size;
 	public:
 		AsyncContext(SockType t)
 			: accept_handler(NULL), accept_handler_data(NULL)
@@ -192,6 +201,8 @@ namespace sim
 			, sendcomplete_handler(NULL), sendcomplete_handler_data(NULL)
 			, close_handler(NULL), close_handler_data(NULL)
 			,type(t)
+			, min_recv_buff_size(SIM_ASYNC_MIN_RECV_BUFF_SIZE)
+			,max_recv_buff_size(SIM_ASYNC_MAX_RECV_BUFF_SIZE)
 #ifdef SIM_USE_OPENSSL
 			,ssl_session(NULL)
 #endif
@@ -1123,9 +1134,11 @@ namespace sim
 									ref->OnRecvDataFrom(socket_event->buff.get(), socket_event->bytes_transfered, ip, port);
 
 									//如果是buff不足可以拓展一下
-									if (socket_event->bytes_transfered >= socket_event->buff.size())
+									if (socket_event->bytes_transfered >= socket_event->buff.size()
+										&& socket_event->buff.size()<ref->max_recv_buff_size)
 									{
-										socket_event->buff = RefBuff(socket_event->bytes_transfered*1.5 + 1);
+										unsigned int now = socket_event->bytes_transfered*1.5 + 1;
+										socket_event->buff = RefBuff(now> ref->max_recv_buff_size? ref->max_recv_buff_size :now);
 									}
 
 									if (false == RecvFrom(ref, socket_event->buff))//接收数据
@@ -1155,7 +1168,7 @@ namespace sim
 									if (socket_event->bytes_transfered >= socket_event->buff.size())
 									{
 										socket_event->buff = RefBuff(socket_event->bytes_transfered*1.5 + 1);
-										printf("buff size=%u\n", socket_event->buff.size());
+									//	printf("buff size=%u\n", socket_event->buff.size());
 									}
 									//继续发送接收数据请求
 									if (false == Recv(ref, socket_event->buff))//接收数据
@@ -1371,8 +1384,8 @@ namespace sim
 		{
 			SIM_FUNC_DEBUG();
 			//默认缓存为4K
-			const unsigned int buff_size = 4 * 1024;
-			return Recv(ref, RefBuff(buff_size));
+			//const unsigned int buff_size = SIM_ASYNC_MIN_RECV_BUFF_SIZE;
+			return Recv(ref, RefBuff(ref->min_recv_buff_size));
 		}
 		
 		virtual bool RecvFrom(RefObject<AsyncContext> ref)
@@ -1561,7 +1574,7 @@ namespace sim
 
 		EpollAsyncContext(SockType t) :AsyncContext(t),
 			accept_flag(false), connect_flag(false), eflag(EPOLLIN | EPOLLHUP | EPOLLERR | EPOLLET)
-			,recv_buff_size(4*1024)
+			,recv_buff_size(SIM_ASYNC_MIN_RECV_BUFF_SIZE)
 		{
 			ep_event.data.ptr = (void*)this;
 			ep_event.events = eflag;
@@ -1741,8 +1754,12 @@ namespace sim
 								ep_ref->OnRecvDataFrom(buff.get(), ret,ip_buff,port);
 
 							//是否调整缓存
-							if (ret >= ep_ref->recv_buff_size)
+							if (ret >= ep_ref->recv_buff_size&&ep_ref->recv_buff_size < ep_ref->max_recv_buff_size)
+							{
 								ep_ref->recv_buff_size = ep_ref->recv_buff_size*1.5 + 1;
+								if (ep_ref->recv_buff_size > ep_ref->max_recv_buff_size)
+									ep_ref->recv_buff_size = ep_ref->max_recv_buff_size;
+							}
 
 							//继续接收数据
 							ModifyEpollEvent(ref, EPOLLIN, true);
