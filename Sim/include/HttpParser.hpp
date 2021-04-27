@@ -31,6 +31,7 @@
 //Content-Length
 #define SIM_HTTP_CL				"Content-Length"
 #define SIM_HTTP_CON				"Connection"
+#define SIM_HTTP_CT				"Content-Type"
 namespace sim
 {
 	class HttpParser;
@@ -280,6 +281,63 @@ namespace sim
 		}
 
 	public:
+		// path?RequestUriParams
+		//解析请求uri
+		static bool ParserRequestUri(const Str &uri, Str &path, KvMap &out)
+		{
+			int size = uri.size();
+			int i = 0;
+			for (; i < size; ++i)
+			{
+				if (uri[i] == '?')
+					break;
+				path += uri[i];
+			}
+			if (i < size)
+			{
+				return ParserRequestUriParams(uri.c_str() + i + 1, out);
+			}
+			return true;
+		}
+		//ie=utf-8&f=8&rsv_bp=1&tn=baidu
+		//解析请求Uri 上面的参数
+		static bool ParserRequestUriParams(const Str &params, KvMap &out)
+		{
+			//
+			bool status = true;//true find '=' false find '&'
+			Str key, value;
+			int size = params.size();
+			for (int i = 0; i < size; ++i)
+			{
+				if (params[i] == '=')
+				{
+					status = false;
+				}
+				else if (params[i] == '&')
+				{
+					if (key.empty())
+						return false;//异常
+
+					status = true;
+					out.Append(key, value, HM_APPEND);
+					key = "";
+					value = "";
+				}
+				else
+				{
+					//ie=utf-8&
+					if (status)
+						key += params[i];
+					else
+						value += params[i];
+				}
+			}
+			if (!key.empty())
+			{
+				out.Append(key, value, HM_APPEND);
+			}
+			return true;
+		}
 
 		//<scheme>://<host>:<port>/<path>
 		//解析Url
@@ -382,6 +440,63 @@ namespace sim
 		static  bool IsClose(KvMap &Head)
 		{
 			return HttpParser::ToLower(Head.GetCase(SIM_HTTP_CON, "Close")) == HttpParser::ToLower("Close");
+		}
+
+		//url编码
+		static Str EncodeUrl(const Str& URL)
+		{
+			Str result = "";
+			for (unsigned int i = 0; i < URL.size(); i++)
+			{
+				char c = URL[i];
+				if (
+					('0' <= c && c <= '9') ||
+					('a' <= c && c <= 'z') ||
+					('A' <= c && c <= 'Z') ||
+					c == '/' || c == '.'
+					)
+				{
+					result += c;
+				}
+				else
+				{
+					int j = (short int)c;
+					if (j < 0)
+					{
+						j += 256;
+					}
+					int i1, i0;
+					i1 = j / 16;
+					i0 = j - i1 * 16;
+					result += '%';
+					result += DecToHexChar(i1);
+					result += DecToHexChar(i0);
+				}
+			}
+			return result;
+		}
+
+		//url解码
+		static std::string DecodeUrl(const std::string& URL)
+		{
+			std::string result = "";
+			for (unsigned int i = 0; i < URL.size(); i++)
+			{
+				char c = URL[i];
+				if (c != '%')
+				{
+					result += c;
+				}
+				else
+				{
+					char c1 = URL[++i];
+					char c0 = URL[++i];
+					int num = 0;
+					num += HexCharToDec(c1) * 16 + HexCharToDec(c0);
+					result += char(num);
+				}
+			}
+			return result;
 		}
 	protected:
 		virtual bool OnStartLine() = 0;
@@ -488,6 +603,42 @@ namespace sim
 			if (key.size() == 0)
 				return false;
 			return true;
+		}
+	protected:
+		//hex转换为字符
+		static char DecToHexChar(short int n)
+		{
+			if (0 <= n && n <= 9)
+			{
+				return char(short('0') + n);
+			}
+			else if (10 <= n && n <= 15)
+			{
+				return char(short('A') + n - 10);
+			}
+			else
+			{
+				return char(0);
+			}
+		}
+
+		//字符转换为
+		static short int HexCharToDec(char c)
+		{
+			if ('0' <= c && c <= '9')
+			{
+				return short(c - '0');
+			}
+			else if ('a' <= c && c <= 'f')
+			{
+				return (short(c - 'a') + 10);
+			}
+			else if ('A' <= c && c <= 'F') {
+				return (short(c - 'A') + 10);
+			}
+			else {
+				return -1;
+			}
 		}
 	protected:
 
