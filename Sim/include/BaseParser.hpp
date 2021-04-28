@@ -78,6 +78,40 @@ namespace sim
 		//不区分key大小写
 		Str GetCase(const Str& key, const Str &notfound);
 
+		bool Del(const Str& key)
+		{
+			if (pHead == NULL)
+				return false;
+			KvMapNode* pn = pHead;
+			KvMapNode* pre =NULL;
+			while (pn != NULL)
+			{
+				if (pn->Key == key)
+				{
+					if (pre)
+					{
+						KvMapNode* del = pn;
+						pre->next = del->next;
+						pn = del->next;
+						delete del;
+					}
+					else//head
+					{
+						KvMapNode* del = pn;
+						pHead = pHead->next;
+						pn = del->next;
+						delete del;
+					}
+				}
+				else
+				{
+					pre = pn;
+					pn = pn->next;
+				}
+			}
+			return true;
+		}
+
 		void Append(const Str& key, const Str& val, KvMapAppendMode mode = HM_ADD_IF_NO_EXIST)
 		{
 			if (pHead == NULL)
