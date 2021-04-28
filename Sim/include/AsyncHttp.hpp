@@ -527,6 +527,14 @@ namespace sim
 			}
 			return false;
 		}
+		virtual bool IsHas(AsyncHandle handle)
+		{
+			return SimAsync::IsHas(handle);
+		}
+		virtual bool IsActive(AsyncHandle handle)
+		{
+			return SimAsync::IsActive(handle);
+		}
 	protected:
 		//发送ws升级请求
 		///Upgrade: websocket 升级为websocket
