@@ -505,7 +505,8 @@ namespace sim
 				else
 				{
 					if (ref->type == TCP)
-						return ConvertToSSL(ref, SSLv23_client_method());
+						//return ConvertToSSL(ref, SSLv23_client_method());
+						return ConvertToSSL(ref, TLS_client_method());
 					else if (ref->type == UDP)
 						return ConvertToSSL(ref, DTLSv1_2_client_method());
 				}
