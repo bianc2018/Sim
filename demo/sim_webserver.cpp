@@ -28,29 +28,6 @@ sim::AsyncHttp &GetHttp()
 	return sim::GlobalPoll<sim::AsyncHttp, 8>::Get();
 }
 
-sim::Str print_bytes(double bytes)
-{
-	const int buff_size = 1024;
-	char buff[buff_size] = { 0 };
-	if (bytes < 1024)
-	{
-		snprintf(buff, buff_size, "%0.3lf bytes", bytes);
-	}
-	else if (bytes < 1024 * 1024)
-	{
-		snprintf(buff, buff_size, "%0.3lf kb", double(bytes) / 1024);
-	}
-	else if (bytes < 1024 * 1024 * 1024)
-	{
-		snprintf(buff, buff_size, "%0.3lf mb", double(bytes) / (1024 * 1024));
-	}
-	else if (bytes > 1024 * 1024 * 1024)
-	{
-		snprintf(buff, buff_size, "%0.3lf gb", double(bytes) / (1024 * 1024 * 1024));
-	}
-	return buff;
-}
-
 void init_content_type_map()
 {
 	//https://www.w3school.com.cn/media/media_mimeref.asp
