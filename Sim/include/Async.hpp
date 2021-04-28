@@ -96,7 +96,7 @@ namespace sim
 #endif
 
 #ifndef SIM_ASYNC_MAX_RECV_BUFF_SIZE 
-#define SIM_ASYNC_MAX_RECV_BUFF_SIZE 10*1024*1024
+#define SIM_ASYNC_MAX_RECV_BUFF_SIZE 1*1024*1024
 #endif
 #ifndef SIM_ASYNC_MIN_RECV_BUFF_SIZE 
 #define SIM_ASYNC_MIN_RECV_BUFF_SIZE 4*1024
@@ -165,7 +165,11 @@ namespace sim
 
 		//连接类型 tcp or udp
 		SockType type;
+		
+		//是否活跃 accept 或者 connect 或者 Listen
+		bool is_active;
 
+		AsyncCloseReason close_reason;
 		//ssl
 #ifdef SIM_USE_OPENSSL
 		//ssl会话上下文
@@ -200,9 +204,12 @@ namespace sim
 			, recvdata_handler(NULL), recvdata_handler_data(NULL)
 			, sendcomplete_handler(NULL), sendcomplete_handler_data(NULL)
 			, close_handler(NULL), close_handler_data(NULL)
+			,recvdatafrom_handler(NULL),recvdatafrom_handler_data(NULL)
 			,type(t)
 			, min_recv_buff_size(SIM_ASYNC_MIN_RECV_BUFF_SIZE)
 			,max_recv_buff_size(SIM_ASYNC_MAX_RECV_BUFF_SIZE)
+			, is_active(false)
+			, close_reason(CloseError)
 #ifdef SIM_USE_OPENSSL
 			,ssl_session(NULL)
 #endif
@@ -239,10 +246,16 @@ namespace sim
 			//释放ssl上下文
 			ReleaseSSLCtx();
 			
-			SIM_LDEBUG("close sock " << sock.GetSocket());
-
+#ifdef OS_WINDOWS
+			//回调
+			OnClose(close_reason, GetLastError());
+#else
+			OnClose(close_reason, errno);
+#endif
+			SIM_LDEBUG("handle " << sock.GetSocket() << " closed ");
 			//关闭连接
 			sock.Close();
+			
 		}
 		
 		void ReleaseSSLCtx()
@@ -563,6 +576,25 @@ namespace sim
 			//return SOCK_FAILURE;
 		}
 
+		//是否存在
+		virtual bool IsHas(AsyncHandle handle)
+		{
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (ref)
+			{
+				return true;
+			}
+			return false;
+		}
+		virtual bool IsActive(AsyncHandle handle)
+		{
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (ref)
+			{
+				return ref->is_active;
+			}
+			return false;
+		}
 	public:
 		//句柄设置
 		virtual void SetAcceptHandler(AsyncHandle handle, AcceptHandler handler, void *pdata)
@@ -668,19 +700,22 @@ namespace sim
 		
 		virtual int Close(AsyncHandle handle, AsyncCloseReason reason)
 		{
+			
 			SIM_FUNC_DEBUG();
 			RefObject<AsyncContext> ref = GetCtx(handle);
 			if (ref)
 			{
+				ref->is_active = false;
+				ref->close_reason = reason;
 				//先释放上下文
 				ReleaseCtx(handle);
-				SIM_LDEBUG("handle " << handle << " closed ");
-#ifdef OS_WINDOWS
-				//回调
-				ref->OnClose(reason, GetLastError());
-#else
-				ref->OnClose(reason, errno);
-#endif
+//				SIM_LDEBUG("handle " << handle << " closed ");
+//#ifdef OS_WINDOWS
+//				//回调
+//				ref->OnClose(reason, GetLastError());
+//#else
+//				ref->OnClose(reason, errno);
+//#endif
 				return SOCK_SUCCESS;
 			}
 			return SOCK_FAILURE;
@@ -743,6 +778,11 @@ namespace sim
 			memset(&wsa_buf, 0, sizeof(wsa_buf));
 			memset(&temp_addr, 0, sizeof(temp_addr));
 			temp_addr_len = sizeof(temp_addr);
+			//printf("new iocp event %p\n", this);
+		}
+		~IocpAsyncEvent()
+		{
+			//printf("delete iocp event %p\n", this);
 		}
 
 	};
@@ -903,6 +943,7 @@ namespace sim
 			if (acctept_num <= 0)
 				acctept_num = accept_size;
 
+			ref->is_active = true;
 			SIM_LERROR("handle " << handle << " accept_size=" << acctept_num);
 			//accept
 			for (int i = 0; i < acctept_num; ++i)
@@ -980,7 +1021,7 @@ namespace sim
 				ReleaseCtx(handle);
 				return SOCK_FAILURE;
 			}
-
+			ref->is_active = true;
 			//开始接收数据
 			return RecvFrom(ref) ? SOCK_SUCCESS : SOCK_FAILURE;
 		}
@@ -1057,6 +1098,7 @@ namespace sim
 								if (!accepted->NewSSLSession())
 								{
 									SIM_LERROR("NewSSLSession fail " << ref->sock.GetSocket() << " sock= " << accepted->sock.GetSocket());
+									//printf("delete event %p at %d\n", socket_event, __LINE__);
 									delete socket_event;
 									return SOCK_FAILURE;
 								}
@@ -1069,13 +1111,14 @@ namespace sim
 								{
 									SIM_LERROR("CreateIoCompletionPort fail iocp_handler_=" << SIM_HEX(iocp_handler)
 										<< " sock= " << accepted->sock.GetSocket() << "  WSAGetLastError()=" << WSAGetLastError());
+									//printf("delete event %p at %d\n", socket_event, __LINE__);
 									delete socket_event;
 									return SOCK_FAILURE;
 								}
 
 								//添加映射
 								AddCtx(accepted);
-
+								accepted->is_active = true;
 								//回调
 								ref->OnAccept(accepted->sock.GetSocket());
 
@@ -1084,6 +1127,7 @@ namespace sim
 								{
 									SIM_LERROR("Recv fail  sock= " << accepted->sock.GetSocket());
 									Close(accepted->sock.GetSocket(), CloseError);
+									//printf("delete event %p at %d\n", socket_event, __LINE__);
 									delete socket_event;
 									return SOCK_FAILURE;
 								}
@@ -1101,6 +1145,7 @@ namespace sim
 									return SOCK_FAILURE;
 								}
 #endif
+								ref->is_active = true;
 								//回调
 								ref->OnConnect();
 
@@ -1109,6 +1154,7 @@ namespace sim
 								{
 									SIM_LERROR("Recv fail  sock= " << ref->sock.GetSocket());
 									Close(ref->sock.GetSocket(), CloseError);
+									//printf("delete event %p at %d\n", socket_event, __LINE__);
 									delete socket_event;
 									return SOCK_FAILURE;
 								}
@@ -1145,6 +1191,7 @@ namespace sim
 									{
 										SIM_LERROR("recvfrom fail " << " sock= " << ref->sock.GetSocket());
 										Close(ref->sock.GetSocket(), CloseError);
+										//printf("delete event %p at %d\n", socket_event, __LINE__);
 										delete socket_event;
 										return SOCK_FAILURE;
 									}
@@ -1165,16 +1212,18 @@ namespace sim
 									ref->OnRecvData(socket_event->buff.get(), socket_event->bytes_transfered);
 
 									//如果是buff不足可以拓展一下
-									if (socket_event->bytes_transfered >= socket_event->buff.size())
+									if (socket_event->bytes_transfered >= socket_event->buff.size()
+										&& socket_event->buff.size() < ref->max_recv_buff_size)
 									{
-										socket_event->buff = RefBuff(socket_event->bytes_transfered*1.5 + 1);
-									//	printf("buff size=%u\n", socket_event->buff.size());
+										unsigned int now = socket_event->bytes_transfered*1.5 + 1;
+										socket_event->buff = RefBuff(now > ref->max_recv_buff_size ? ref->max_recv_buff_size : now);
 									}
 									//继续发送接收数据请求
 									if (false == Recv(ref, socket_event->buff))//接收数据
 									{
 										SIM_LERROR("Recv fail " << " sock= " << ref->sock.GetSocket());
 										Close(ref->sock.GetSocket(), CloseError);
+										//printf("delete event %p at %d\n", socket_event, __LINE__);
 										delete socket_event;
 										return SOCK_FAILURE;
 									}
@@ -1207,11 +1256,13 @@ namespace sim
 					{
 						//拿不到上下文，连接可能已经被关闭了，只是删除事件对象，不做其他操作
 						SIM_LERROR("socket " << socket << " not found ref");
+						printf("delete event %p at %d\n", socket_event, __LINE__);
 						delete socket_event;
 						return SOCK_FAILURE;
 					}
 
 					//无错误
+					//printf("delete event %p at %d\n", socket_event, __LINE__);
 					delete socket_event;
 					return SOCK_SUCCESS;
 				}
@@ -1424,10 +1475,13 @@ namespace sim
 			DWORD dwFlags = 0;
 
 			//接收数据请求
+			//printf("use event %p\n", e);
 			int res = WSARecv(ref->sock.GetSocket(), &e->wsa_buf, 1, (DWORD*)&e->bytes_transfered, &dwFlags, pol, nullptr);
+			//printf("not use event %p\n", e);
 			int err = WSAGetLastError();
 			if ((SOCKET_ERROR == res) && (WSA_IO_PENDING != WSAGetLastError())) {
 				delete e;
+				//printf("delete event %p at %d\n", e, __LINE__);
 				SIM_LERROR("WSARecv error res=" << res << " WSAGetLastError = " << err);
 				return false;
 			}
@@ -1684,6 +1738,7 @@ namespace sim
 					//监听事件
 					AddEpoll(accepted);
 					//回调
+					accepted->is_active = true;
 					ref->OnAccept(accepted->sock.GetSocket());
 					
 				}
@@ -1703,6 +1758,7 @@ namespace sim
 					ModifyEpollEvent(ref, EPOLLOUT, false);
 
 					//连接回调
+					ref->is_active = true;
 					ref->OnConnect();
 
 					//监听可读
@@ -1880,7 +1936,7 @@ namespace sim
 
 			//加到epoll中
 			AddEpoll(ref);
-
+			ref->is_active = true;
 			//添加接收事件
 			Accept(ref);
 			return SOCK_SUCCESS;
@@ -1924,6 +1980,7 @@ namespace sim
 			}
 			ref->sock.SetNonBlock(true);
 			AddEpoll(ref);
+			ref->is_active = true;
 			return SOCK_SUCCESS;
 		}
 
@@ -2102,14 +2159,16 @@ namespace sim
 			RefObject<AsyncContext> ref = GetCtx(handle);
 			if (ref)
 			{
+				ref->is_active = false;
+				ref->close_reason = reason;
 				//先移除监听
 				RemoveEpoll(ref);
 				//释放上下文
 				ReleaseCtx(handle);
-				//打印
-				SIM_LDEBUG("handle " << handle << " closed ");
-				//回调
-				ref->OnClose(reason, errno);
+				////打印
+				//SIM_LDEBUG("handle " << handle << " closed ");
+				////回调
+				//ref->OnClose(reason, errno);
 				return SOCK_SUCCESS;
 			}
 			return SOCK_FAILURE;
