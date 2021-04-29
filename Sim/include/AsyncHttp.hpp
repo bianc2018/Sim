@@ -92,7 +92,7 @@ namespace sim
 			if (response_handler_)
 				response_handler_(handle_, Head, content_lenght, offset, buff, len, response_handler_data_);
 			//close 或者已经关闭了 最后一个请求
-			if (offset+len>= content_lenght&&(HttpParser::IsClose(Head->Head)))
+			if (HttpParser::IsComplete(Head->Head, offset,len))
 			{
 				Close();
 			}
@@ -721,8 +721,11 @@ namespace sim
 		{
 			if (data)
 			{
+				//printf("handle %d %d\n",handle,__LINE__);
 				AsyncSession*ss = (AsyncSession*)data;
+				//printf("handle %d %d\n", handle, __LINE__);
 				ss->OnClose(reason, error);
+				//printf("handle %d %d\n", handle, __LINE__);
 				delete ss;
 			}
 		}
