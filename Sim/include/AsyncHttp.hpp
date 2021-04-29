@@ -308,11 +308,14 @@ namespace sim
 				else if (ss->url_.scheme == "https")
 				{
 					EnableSSL(handle, false, true);
+					//https://github.com/openssl/openssl/issues/7147
+					SetSSLHostName(handle, ss->url_.host.c_str());
 					ss->type_ = AS_HTTPS;
 				}
 				else if (ss->url_.scheme == "wss")
 				{
 					EnableSSL(handle, false, true);
+					SetSSLHostName(handle, ss->url_.host.c_str());
 					ss->type_ = AS_WSS;
 				}
 				else
