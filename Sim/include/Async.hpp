@@ -146,12 +146,12 @@ namespace sim
 	//连接会话关闭原因枚举
 	enum AsyncCloseReason
 	{
+		//异常关闭（发生了错误，平台错误码error）
+		CloseError,
 		//主动关闭 （本级调用close关闭）
 		CloseActive,
 		//会话正常接收关闭 （连接接收到eof）
 		ClosePassive,
-		//异常关闭（发生了错误，平台错误码error）
-		CloseError=-1,
 	};
 	//连接关闭回调
 	typedef void(*CloseHandler)(AsyncHandle handle, AsyncCloseReason reason, int error, void*data);
@@ -217,6 +217,15 @@ namespace sim
 			//memset(this, 0, sizeof(*this));
 		}
 
+		void CopySSLCtx(const AsyncContext* pctx)
+		{
+			if (pctx)
+			{
+#ifdef SIM_USE_OPENSSL
+				ssl_ctx = pctx->ssl_ctx;
+#endif
+			}
+		}
 		//复制句柄
 		void CopyHandler(const AsyncContext* pctx)
 		{
@@ -505,8 +514,8 @@ namespace sim
 				else
 				{
 					if (ref->type == TCP)
-						//return ConvertToSSL(ref, SSLv23_client_method());
-						return ConvertToSSL(ref, TLS_client_method());
+						return ConvertToSSL(ref, SSLv23_client_method());
+						//return ConvertToSSL(ref, TLS_client_method());
 					else if (ref->type == UDP)
 						return ConvertToSSL(ref, DTLSv1_2_client_method());
 				}
@@ -1089,13 +1098,13 @@ namespace sim
 
 								//创建新的上下文
 								RefObject<AsyncContext> accepted(new IocpAsyncContext(sim::TCP));
-								//拷贝父连接的回调
-								accepted->CopyHandler(ref.get());
+								
 								//设置连接
 								accepted->sock = socket_event->accepted;
 
 								//创建ssl 会话
 #ifdef SIM_USE_OPENSSL
+								accepted->CopySSLCtx(ref.get());
 								if (!accepted->NewSSLSession())
 								{
 									SIM_LERROR("NewSSLSession fail " << ref->sock.GetSocket() << " sock= " << accepted->sock.GetSocket());
@@ -1117,6 +1126,8 @@ namespace sim
 									return SOCK_FAILURE;
 								}
 
+								//拷贝父连接的回调
+								accepted->CopyHandler(ref.get());
 								//添加映射
 								AddCtx(accepted);
 								accepted->is_active = true;
@@ -1142,6 +1153,7 @@ namespace sim
 								if (!ref->NewSSLSession())
 								{
 									SIM_LERROR("NewSSLSession fail " << ref->sock.GetSocket());
+									Close(ref->sock.GetSocket(), CloseError);//握手失败关闭连接
 									delete socket_event;
 									return SOCK_FAILURE;
 								}
@@ -1257,7 +1269,7 @@ namespace sim
 					{
 						//拿不到上下文，连接可能已经被关闭了，只是删除事件对象，不做其他操作
 						SIM_LERROR("socket " << socket << " not found ref");
-						printf("delete event %p at %d\n", socket_event, __LINE__);
+						//printf("delete event %p at %d\n", socket_event, __LINE__);
 						delete socket_event;
 						return SOCK_FAILURE;
 					}
@@ -1721,10 +1733,10 @@ namespace sim
 					//创建子连接上下文
 					SIM_LDEBUG("accept")
 					RefObject<AsyncContext> accepted(new EpollAsyncContext(sim::TCP));
-					accepted->CopyHandler(ep_ref);//拷贝句柄
-					accepted->sock = accepted_socket;
 
+					accepted->sock = accepted_socket;
 #ifdef SIM_USE_OPENSSL
+					accepted->CopySSLCtx(ep_ref);
 					//新建SSL会话
 					if (!accepted->NewSSLSession())
 					{
@@ -1734,6 +1746,7 @@ namespace sim
 #endif
 					//设置非堵塞
 					accepted->sock.SetNonBlock(true);
+					accepted->CopyHandler(ep_ref);//拷贝句柄
 					//映射
 					AddCtx(accepted);
 					//监听事件
@@ -1752,6 +1765,7 @@ namespace sim
 					if (!ep_ref->NewSSLSession())
 					{
 						SIM_LERROR("NewSSLSession fail " << ref->sock.GetSocket());
+						Close(ref->sock.GetSocket(), CloseError);
 						continue;
 					}
 #endif
