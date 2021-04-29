@@ -149,6 +149,7 @@ LinkCtx * create_link_ctx(sim::AsyncHandle handle,LinkCtx *Main)
 		//send_error(handle, "502", "Bad Gateway");
 		return NULL;
 	}
+	//GetHttp().SetSSLKeyFile(sub, "cert.pem", "key.pem");
 	//Main->ReSetTimer(client);
 	Sub->ReSetTimer(sub);
 	return Sub;
@@ -311,7 +312,7 @@ void AcceptHandler(sim::AsyncHandle handle, sim::AsyncHandle client, void* data)
 	GetHttp().SetCloseHandler(client,CloseHandler, Main);
 	GetHttp().SetHttpRequestHandler(client, ASYNC_HTTP_REQUEST_HANDLE, Main);
 
-	LinkCtx *Sub = create_link_ctx(handle, Main);
+	LinkCtx *Sub = create_link_ctx(client, Main);
 	if (NULL == Sub)
 	{
 		//GetHttp().Close(client);
@@ -327,8 +328,9 @@ void print_help()
 
 int main(int argc, char* argv[])
 {
-#ifdef OS_WINDOWS
+#if 1
 	cmd.InitCmdLineParams("timeout", 60 * 1000);
+	cmd.InitCmdLineParams("l", "http://:8080/");
 	cmd.InitCmdLineParams("s", "https://github.com/");
 #endif
 
