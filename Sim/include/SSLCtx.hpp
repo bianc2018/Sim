@@ -209,6 +209,23 @@ namespace sim
 			}
 			return true;
 		}
+
+		//…Ë÷√hostname
+		bool SetHostName(const char* hostname)
+		{
+			/*
+				char* hostname = "www.reuters.com";
+				SSL_CTX* ctx = SSL_CTX_new(TLS_method());
+				SSL* ssl = SSL_new(ctx);
+				BIO rbio = BIO_new(BIO_s_mem());
+				BIO wbio = BIO_new(BIO_s_mem());
+				SSL_set_bio(ssl, rbio, wbio);
+				SSL_set_connect_state(ssl);
+				SSL_set_tlsext_host_name(ssl, hostname);
+			*/
+			SSL_set_connect_state(ssl_);
+			return 1 == SSL_set_tlsext_host_name(ssl_, hostname);
+		}
 	private:
 		SSL *ssl_; // SSL structure used by OpenSSL
 
@@ -279,6 +296,7 @@ namespace sim
 		{
 			return new SSLSession(fd, ssl_ctx_);
 		}
+
 		void DelSession(SSLSession*s)
 		{
 			delete s;
