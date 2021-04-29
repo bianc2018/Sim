@@ -580,7 +580,7 @@ namespace sim
 				return false;
 			}
 
-			printf("%s\n", temp_.c_str());
+			//printf("%s\n", temp_.c_str());
 			ContentLength_t chunk_size= 0;
 			for (int i = 0; i < temp_.size(); ++i)
 			{
