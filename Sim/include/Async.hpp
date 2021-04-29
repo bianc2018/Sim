@@ -346,6 +346,14 @@ namespace sim
 #ifdef SIM_USE_OPENSSL
 			if (ssl_session)
 			{
+				//进行握手，这里可能会堵塞，后续优化
+				if (false == ssl_session->HandShake())
+				{
+					//握手失败
+					SIM_LERROR("sock.GetSocket()" << sock.GetSocket()
+						<< " HandShake fail");
+					return false;
+				}
 				//已存在
 				return true;
 			}
@@ -554,6 +562,54 @@ namespace sim
 			return SOCK_FAILURE;
 #endif
 		}
+		
+		//设置ssl主机名称
+		virtual int SetSSLHostName(AsyncHandle handle, const char* hostname)
+		{
+#ifndef SIM_USE_OPENSSL
+			//不使用opensll直接保存
+			return SOCK_FAILURE;
+#else
+			SIM_FUNC_DEBUG();
+			//都不可为NULL
+			if (NULL == hostname )
+			{
+				SIM_LERROR("SetSSLHostName Fail,hostname is NULL");
+				return SOCK_FAILURE;
+			}
+			//获取连接上下文
+			RefObject<AsyncContext> ref = GetCtx(handle);
+			if (ref)
+			{
+				SIM_LDEBUG("handle " << handle << " SetSSLHostName  hostname:" << hostname);
+				//获取ssl上下文
+				if (ref->ssl_ctx)
+				{
+					if (NULL == ref->ssl_session)
+					{
+						ref->ssl_session = ref->ssl_ctx->NewSession(ref->sock.GetSocket());
+						if (NULL == ref->ssl_session)
+							return SOCK_FAILURE;
+					}
+					if (ref->ssl_session->SetHostName(hostname))//设置
+						return SOCK_SUCCESS;
+				}
+			}
+			return SOCK_FAILURE;
+#endif
+		}
+
+		/*
+		char* hostname = "www.reuters.com";
+		SSL_CTX* ctx = SSL_CTX_new(TLS_method());
+		SSL* ssl = SSL_new(ctx);
+		BIO rbio = BIO_new(BIO_s_mem());
+		BIO wbio = BIO_new(BIO_s_mem());
+		SSL_set_bio(ssl, rbio, wbio);
+		SSL_set_connect_state(ssl);
+		SSL_set_tlsext_host_name(ssl, hostname);
+		*/
+
 
 		//TCP数据发送接口
 		//handle 句柄
