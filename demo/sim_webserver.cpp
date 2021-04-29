@@ -106,6 +106,7 @@ void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int err
 		//异常关闭（发生了错误，平台错误码error）
 		CloseError=-1,
 	*/
+	printf("handle %d %d reason %d\n", handle, __LINE__, reason);
 	static sim::Str reasons[3] = {"CloseActive","ClosePassive","CloseError"};
 	printf("%d close reason %s error %d\n", handle, reasons[reason].c_str(), error);
 	if (data)
@@ -170,8 +171,9 @@ void print_help()
 
 int main(int argc, char* argv[])
 {
-#ifdef OS_WINDOWS
+#if 1
 	cmd.InitCmdLineParams("timeout", 5*60*1000);
+	cmd.InitCmdLineParams("l", "https://:8080/");
 #endif
 
 	if (!cmd.Parser(argc, argv)|| cmd.HasParam("h")|| cmd.HasParam("help"))

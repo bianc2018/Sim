@@ -15,6 +15,7 @@ bool is_print_head = true;
 sim::Str method, url, body,path="/";
 sim::timer_id t_id=0;//¶¨Ê±Æ÷id
 int timeout;
+bool is_complete = false;
 
 sim::Str print_bytes(double bytes)
 {
@@ -79,6 +80,17 @@ void init_exhead(const sim::Str&map)
 		}
 	}
 }
+
+void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int error, void* data)
+{
+	if (false == is_complete)
+	{
+		static sim::Str reasons[3] = { "CloseError","CloseActive","ClosePassive" };
+		printf("request error:socket %d close reason %s error %d\n", handle, reasons[reason].c_str(), error);
+	}
+	sim::GlobalPoll<sim::AsyncHttp>::Exit();
+}
+
 void TIMER_OUT_HANDLER(sim::timer_id timer_id, void *userdata)
 {
 	//¹Ø±Õ
@@ -151,8 +163,9 @@ void ASYNC_HTTP_RESPONSE_HANDLE(sim::AsyncHandle handle, sim::HttpResponseHead *
 	{
 		fwrite(buff,len, 1, f);
 	}
-	if (offset + len >= content_lenght)
+	if (sim::HttpParser::IsComplete(Head->Head,offset,len))
 	{
+		is_complete = true;
 		if (cmd.HasParam("print"))
 		{
 			printf("\n");
@@ -175,7 +188,7 @@ void print_help()
 int main(int argc, char* argv[])
 {
 #if 1
-	cmd.InitCmdLineParams("u", "http://mirrors.aliyun.com/centos/7/isos/x86_64/CentOS-7-x86_64-Everything-2009.iso")
+	cmd.InitCmdLineParams("u", "https://github.com")
 		.InitCmdLineParams("print", "")
 		//.InitCmdLineParams("m", "HEAD")
 		//.InitCmdLineParams("log", "")
@@ -254,6 +267,7 @@ int main(int argc, char* argv[])
 	sim::AsyncHandle handle=http.CreateSession();
 	http.SetConnectHandler(handle,ConnectHandler, NULL);
 	http.SetHttpResponseHandler(handle, ASYNC_HTTP_RESPONSE_HANDLE, NULL);
+	http.SetCloseHandler(handle, CloseHandler, NULL);
 	if (timeout >= 0)
 		t_id = sim::GlobalPoll<sim::TimerMgr>::Get().AddTimer(timeout, TIMER_OUT_HANDLER, (void*)handle);
 	if (!http.Connect(handle,url.c_str()))
@@ -265,7 +279,6 @@ int main(int argc, char* argv[])
 	}
 	sim::GlobalPoll<sim::AsyncHttp>::Wait();
 
-	
 
 	if (f)
 	{

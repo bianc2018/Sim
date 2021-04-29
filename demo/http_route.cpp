@@ -16,6 +16,17 @@ void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int err
 
 void TIMER_OUT_HANDLER(sim::timer_id timer_id, void* userdata);
 
+void ConnectHandler(sim::AsyncHandle handle, void* data);
+
+void ASYNC_HTTP_RESPONSE_HANDLE(sim::AsyncHandle handle, sim::HttpResponseHead* Head,
+	sim::ContentLength_t content_lenght, sim::ContentLength_t offset,
+	const char* buff, sim::ContentLength_t len, void* pdata);
+
+void ASYNC_HTTP_REQUEST_HANDLE(sim::AsyncHandle handle, sim::HttpRequestHead* Head,
+	sim::ContentLength_t content_lenght, sim::ContentLength_t offset,
+	const char* buff, sim::ContentLength_t len,
+	void* pdata);
+
 struct LinkCache
 {
 	sim::HttpRequestHead Head;
@@ -116,6 +127,56 @@ void send_error(sim::AsyncHandle handle, const sim::Str& status, const sim::Str&
 	return;
 }
 
+LinkCtx * create_link_ctx(sim::AsyncHandle handle,LinkCtx *Main)
+{
+	//建立连接
+	LinkCtx *Sub = new LinkCtx;
+
+	sim::AsyncHandle sub = GetHttp().CreateSession();
+
+	Main->sub = sub;
+	Sub->sub = handle;
+
+	GetHttp().SetCloseHandler(sub, CloseHandler, Sub);
+	GetHttp().SetConnectHandler(sub, ConnectHandler, Sub);
+	GetHttp().SetHttpResponseHandler(sub, ASYNC_HTTP_RESPONSE_HANDLE, Sub);
+
+	if (false == GetHttp().Connect(sub, conf.Srv.c_str()))
+	{
+		printf("%d connect bad\n", sub);
+		//链接失败
+		GetHttp().Close(sub);
+		//send_error(handle, "502", "Bad Gateway");
+		return NULL;
+	}
+	//Main->ReSetTimer(client);
+	Sub->ReSetTimer(sub);
+	return Sub;
+}
+
+//缓存报文
+bool add_cache(LinkCtx *Main,sim::HttpRequestHead* Head,
+	sim::ContentLength_t content_lenght, sim::ContentLength_t offset,
+	const char* buff, sim::ContentLength_t len)
+{
+	LinkCache cache;
+	cache.buff = sim::RefBuff(buff, len);
+	cache.content_lenght = content_lenght;
+	cache.Head = *Head;
+	cache.Head.Head.Del("Host");
+	cache.offset = offset;
+	//加到缓存里面
+	sim::AutoMutex lk(conf.cache_lock_);
+	sim::Queue<LinkCache> *p_cache_queue = NULL;
+	if (false == conf.caches_.Find(Main->sub, &p_cache_queue))
+	{
+		p_cache_queue = new sim::Queue<LinkCache>();
+		conf.caches_.Add(Main->sub, p_cache_queue);
+	}
+	p_cache_queue->PushBack(cache);
+	return true;
+}
+
 void TIMER_OUT_HANDLER(sim::timer_id timer_id, void* userdata)
 {
 	if (userdata)
@@ -130,7 +191,7 @@ void TIMER_OUT_HANDLER(sim::timer_id timer_id, void* userdata)
 //code_convert.cpp
 void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int error, void* data)
 {
-	static sim::Str reasons[3] = { "CloseActive","ClosePassive","CloseError" };
+	static sim::Str reasons[3] = {"CloseError","CloseActive","ClosePassive"};
 	printf("%d close reason %s error %d\n", handle, reasons[reason].c_str(), error);
 	if (data)
 	{
@@ -182,6 +243,7 @@ void ASYNC_HTTP_RESPONSE_HANDLE(sim::AsyncHandle handle, sim::HttpResponseHead* 
 		GetHttp().Send(link->sub, *Head, content_lenght, offset, buff, len);
 	}
 }
+
 void ASYNC_HTTP_REQUEST_HANDLE(sim::AsyncHandle handle, sim::HttpRequestHead* Head,
 	sim::ContentLength_t content_lenght, sim::ContentLength_t offset, 
 	const char* buff, sim::ContentLength_t len,
@@ -205,6 +267,19 @@ void ASYNC_HTTP_REQUEST_HANDLE(sim::AsyncHandle handle, sim::HttpRequestHead* He
 			else
 			{
 				printf("sub %d is close\n", link->sub);
+				//send_error(handle, "502", "Bad Gateway");
+				//建立连接
+				LinkCtx *Sub = create_link_ctx(handle, link);
+				if (NULL == Sub)
+				{
+					send_error(handle, "502", "Bad Gateway");
+					return ;
+				}
+				if (false == add_cache(link, Head, content_lenght, offset, buff, len))
+				{
+					send_error(handle, "502", "Bad Gateway");
+					return;
+				}
 				return;
 			}
 			//等待连接建立 或者超时
@@ -214,21 +289,11 @@ void ASYNC_HTTP_REQUEST_HANDLE(sim::AsyncHandle handle, sim::HttpRequestHead* He
 				return;
 			}
 			printf("wait sub %d\n", link->sub);
-			LinkCache cache;
-			cache.buff = sim::RefBuff(buff, len);
-			cache.content_lenght = content_lenght;
-			cache.Head = *Head;
-			cache.Head.Head.Del("Host");
-			cache.offset = offset;
-			//加到缓存里面
-			sim::AutoMutex lk(conf.cache_lock_);
-			sim::Queue<LinkCache> *p_cache_queue = NULL;
-			if (false == conf.caches_.Find(link->sub, &p_cache_queue))
+			if (false == add_cache(link, Head, content_lenght, offset, buff, len))
 			{
-				p_cache_queue = new sim::Queue<LinkCache>();
-				conf.caches_.Add(link->sub, p_cache_queue);
+				send_error(handle, "502", "Bad Gateway");
+				return;
 			}
-			p_cache_queue->PushBack(cache);
 			return;
 		}
 		Head->Head.Del("Host");
@@ -241,28 +306,18 @@ void AcceptHandler(sim::AsyncHandle handle, sim::AsyncHandle client, void* data)
 {
 	printf("%d accept %d\n", handle, client);
 	
-	LinkCtx *Main=new LinkCtx, *Sub=new LinkCtx;
-
-	sim::AsyncHandle sub =GetHttp().CreateSession();
-
-	Main->sub = sub;
-	Sub->sub = client;
+	LinkCtx *Main=new LinkCtx;
 
 	GetHttp().SetCloseHandler(client,CloseHandler, Main);
 	GetHttp().SetHttpRequestHandler(client, ASYNC_HTTP_REQUEST_HANDLE, Main);
 
-	GetHttp().SetCloseHandler(sub, CloseHandler, Sub);
-	GetHttp().SetConnectHandler(sub, ConnectHandler, Sub);
-	GetHttp().SetHttpResponseHandler(sub, ASYNC_HTTP_RESPONSE_HANDLE, Sub);
-
-	if (false == GetHttp().Connect(sub, conf.Srv.c_str()))
+	LinkCtx *Sub = create_link_ctx(handle, Main);
+	if (NULL == Sub)
 	{
-		//链接失败
-		GetHttp().Close(client);
-		GetHttp().Close(sub);
+		//GetHttp().Close(client);
+		send_error(handle, "502", "Bad Gateway");
+		return;
 	}
-	//Main->ReSetTimer(client);
-	Sub->ReSetTimer(sub);
 }
 
 void print_help()
@@ -274,7 +329,7 @@ int main(int argc, char* argv[])
 {
 #ifdef OS_WINDOWS
 	cmd.InitCmdLineParams("timeout", 60 * 1000);
-	cmd.InitCmdLineParams("s", "http://mirrors.aliyun.com");
+	cmd.InitCmdLineParams("s", "https://github.com/");
 #endif
 
 	if (!cmd.Parser(argc, argv) || cmd.HasParam("h") || cmd.HasParam("help"))
