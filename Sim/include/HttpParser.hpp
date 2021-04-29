@@ -115,6 +115,12 @@ namespace sim
 		HTTP_HEAD_CR,
 		HTTP_HEAD_LF,
 		HTTP_BODY,
+		HTTP_CHUNKED_SIZE_CR,
+		HTTP_CHUNKED_SIZE_LF,
+		//分块传输
+		HTTP_CHUNKED,
+		HTTP_CHUNKED_DATA_END,//\r\n
+		HTTP_CHUNKED_END,//\r\n\r\n
 		HTTP_COMPLETE,//完整
 	};
 
@@ -157,10 +163,14 @@ namespace sim
 					{
 						++offset;
 						if (!OnStartLine())
+						{
+							printf("OnStartLine error,parser error at %d\n", __LINE__);
 							return false;
+						}
 					}
 					else
 					{
+						printf("SIM_HTTP_LF not found, parser error at %d\n", __LINE__);
 						return false;
 					}
 				}
@@ -175,24 +185,88 @@ namespace sim
 					{
 						++offset;
 						if (!OnHead())
+						{
+							printf("OnHead error,parser error at %d\n", __LINE__);
 							return false;
+						}
 					}
 					else
 					{
+						printf("SIM_HTTP_LF not found,parser error at %d\n", __LINE__);
 						return false;
 					}
 				}
-				else if (status_ == HTTP_BODY)
+				else if (status_ == HTTP_CHUNKED_SIZE_CR)
+				{
+					if (FindCR(data, len, offset))
+						status_ = HTTP_CHUNKED_SIZE_LF;
+				}
+				else if (status_ == HTTP_CHUNKED_SIZE_LF)
+				{
+					if (data[offset] == SIM_HTTP_LF)
+					{
+						++offset;
+						if (!OnChunkSize())
+						{
+							printf("OnChunkSize error,parser error at %d\n", __LINE__);
+							return false;
+						}
+					}
+					else
+					{
+						printf("SIM_HTTP_LF not found,parser error at %d\n", __LINE__);
+						return false;
+					}
+				}
+				else if (status_ == HTTP_BODY|| status_ == HTTP_CHUNKED)
 				{
 					if (!OnBody(data, len, offset))
+					{
+						printf("OnBody error,parser error at %d\n", __LINE__);
 						return false;
+					}
 				}
 				else if (status_ == HTTP_COMPLETE)
 				{
 					status_ = HTTP_START_LINE_CR;
 				}
+				else if (status_ == HTTP_CHUNKED_DATA_END)
+				{
+					temp_ += data[offset++];
+					if (temp_.size() >= 2)
+					{
+						if (temp_ == SIM_HTTP_CRLF)
+						{
+							status_ = HTTP_CHUNKED_SIZE_CR;
+							temp_ = "";
+						}
+						else
+						{
+							printf("HTTP_CHUNKED_DATA_END error,parser error at %d\n", __LINE__);
+							return false;
+						}
+					}
+				}
+				else if (status_ == HTTP_CHUNKED_END)
+				{
+					temp_ += data[offset++];
+					if (temp_.size() >= 4)
+					{
+						if (temp_ == SIM_HTTP_CRLF SIM_HTTP_CRLF)
+						{
+							status_ = HTTP_START_LINE_CR;
+							temp_ = "";
+						}
+						else
+						{
+							printf("HTTP_CHUNKED_END error,parser error at %d\n", __LINE__);
+							return false;
+						}
+					}
+				}
 				else
 				{
+					printf("nuknow status %d error,parser error at %d\n", status_, __LINE__);
 					return false;
 				}
 				//是否每次都要回调
@@ -224,20 +298,8 @@ namespace sim
 			if (0 == offset)
 			{
 				data += PrintStartLine(Head.Method, Head.Url, Head.Version) + SIM_HTTP_CRLF;
-				if (Head.Head.Count(SIM_HTTP_CL) <= 0)
-				{
-					Head.Head.Append(SIM_HTTP_CL, NumToStr<ContentLength_t>(content_lenght,"%llu"));
-				}
-				data += PrintHead(Head.Head) + SIM_HTTP_CRLF;
 			}
-			if (offset < content_lenght&&buff&&len>0)
-			{
-				ContentLength_t need = content_lenght - offset;
-				ContentLength_t copy = need > len ? len : need;
-				data += Str(buff, copy);
-				offset += copy;
-			}
-			return data;
+			return data+PrintHttpMessage(Head, content_lenght, offset, buff, len);
 		}
 		static Str PrintResponse(HttpResponseHead &Head,
 			ContentLength_t content_lenght, ContentLength_t &offset,
@@ -248,20 +310,8 @@ namespace sim
 			if (0 == offset)
 			{
 				data += PrintStartLine(Head.Version, Head.Status, Head.Reason) + SIM_HTTP_CRLF;
-				if (Head.Head.Count(SIM_HTTP_CL) <= 0)
-				{
-					Head.Head.Append(SIM_HTTP_CL, NumToStr<ContentLength_t>(content_lenght, "%llu"));
-				}
-				data += PrintHead(Head.Head) + SIM_HTTP_CRLF;
 			}
-			if (offset < content_lenght&&buff&&len>0)
-			{
-				ContentLength_t need = content_lenght - offset;
-				ContentLength_t copy = need > len ? len : need;
-				data += Str(buff, copy);
-				offset += copy;
-			}
-			return data;
+			return data + PrintHttpMessage(Head, content_lenght, offset, buff, len);
 
 		}
 
@@ -441,7 +491,28 @@ namespace sim
 		{
 			return HttpParser::ToLower(Head.GetCase(SIM_HTTP_CON, "Close")) == HttpParser::ToLower("Close");
 		}
-
+		//检查是否为chunk
+		static  bool IsChunked(KvMap &Head)
+		{
+			return HttpParser::ToLower(Head.GetCase("Transfer-Encoding", "")) == HttpParser::ToLower("chunked");
+		}
+		//检查报文是否完整
+		static  bool IsComplete(KvMap &Head, ContentLength_t content_offset, ContentLength_t len)
+		{
+			if (IsChunked(Head))
+			{
+				if (len == 0)
+					return true;
+			}
+			else
+			{
+				ContentLength_t content_lenght = GetHeadContentLen(Head);
+				//报文完整了
+				if (content_lenght <= content_offset + len)
+					return true;
+			}
+			return false;
+		}
 		//url编码
 		static Str EncodeUrl(const Str& URL)
 		{
@@ -501,6 +572,37 @@ namespace sim
 	protected:
 		virtual bool OnStartLine() = 0;
 		virtual bool OnHead() = 0;
+		virtual bool OnChunkSize()
+		{
+			if (temp_.size() == 0)
+			{
+				printf("OnChunkSize temp_.size() == 0,parser error at %d\n", __LINE__);
+				return false;
+			}
+
+			printf("%s\n", temp_.c_str());
+			ContentLength_t chunk_size= 0;
+			for (int i = 0; i < temp_.size(); ++i)
+			{
+				short int num = HexCharToDec(temp_[i]);
+				if (num == -1)
+				{
+					printf("OnChunkSize error %c->-1,parser error at %d\n", __LINE__, temp_[i]);
+					return false;
+				}
+				chunk_size = chunk_size * 16 + num;
+			}
+			temp_ = "";
+			if (0 == chunk_size)
+			{
+				status_ = HTTP_COMPLETE;
+				OnHandler(NULL, 0);
+				return true;
+			}
+			content_lenght_ += chunk_size;
+			status_ = HTTP_CHUNKED;
+			return true;
+		}
 		virtual bool OnBody(const char*data, unsigned int len, unsigned int &offset)
 		{
 			//有效字节数
@@ -508,16 +610,16 @@ namespace sim
 			ContentLength_t need_bytes = content_lenght_ - content_offset_;
 			if (need_bytes <= 0)
 			{
-				status_ = HTTP_COMPLETE;
-				OnHandler(NULL, 0);
-				return  true;
+				return  false;
 			}
 			ContentLength_t copy_bytes = valid_bytes > need_bytes ? need_bytes : valid_bytes;//取最小
 			if (copy_bytes <= 0)
 				return true;
+
 			OnHandler(data + offset, copy_bytes);//返回
 			offset += copy_bytes;
 			content_offset_ += copy_bytes;
+			
 			return true;
 		}
 		virtual bool FindCR(const char*data, unsigned int len, unsigned int &offset)
@@ -604,6 +706,128 @@ namespace sim
 				return false;
 			return true;
 		}
+
+		template<typename HttpMsg>
+		static Str PrintHttpMessage(HttpMsg &Head,
+			ContentLength_t content_lenght, ContentLength_t &offset,
+			const char*buff, ContentLength_t len)
+		{
+			Str data = "";
+			//打印开头
+			if (0 == offset)
+			{
+				if (!IsChunked(Head.Head))//
+				{
+					if (Head.Head.Count(SIM_HTTP_CL) <= 0)
+					{
+						Head.Head.Append(SIM_HTTP_CL, NumToStr<ContentLength_t>(content_lenght, "%llu"));
+					}
+				}
+				data += PrintHead(Head.Head) + SIM_HTTP_CRLF;
+			}
+			if (!IsChunked(Head.Head))//
+			{
+				if (offset < content_lenght&&buff&&len > 0)
+				{
+					ContentLength_t need = content_lenght - offset;
+					ContentLength_t copy = need > len ? len : need;
+					data += Str(buff, copy);
+					offset += copy;
+				}
+			}
+			else
+			{
+				data += NumToStr<ContentLength_t>(len, "%X") + SIM_HTTP_CRLF;
+				if (len == 0)
+				{
+					data += SIM_HTTP_CRLF SIM_HTTP_CRLF;
+				}
+				else
+				{
+					data += Str(buff, len);
+					offset += len;
+					data += SIM_HTTP_CRLF;
+				}
+
+			}
+
+			return data;
+		}
+
+		template<typename Handler, typename HttpMsg>
+		void OnHandler(Handler &handler,void*pdata, HttpMsg &msg,const char*buff, ContentLength_t len)
+		{
+			if (IsComplete(msg.Head, content_offset_, len))
+			{
+				status_ = HTTP_COMPLETE;
+			}
+
+			/*printf("status %d content_lenght_ %llu content_offset_ %llu buff  %p len %llu\n",
+				status_, content_lenght_, content_offset_,
+				buff, len);*/
+			if (handler)
+				handler(this, &msg, content_lenght_, content_offset_, buff, len, pdata);
+
+			if (status_ == HTTP_COMPLETE)
+			{
+				if (IsChunked(msg.Head))
+					status_ = HTTP_CHUNKED_END;
+				else
+					status_ = HTTP_START_LINE_CR;
+				msg.Clear();
+				temp_ = "";
+				content_lenght_ = 0;
+				content_offset_ = 0;
+
+			}
+			else
+			{
+				if (IsChunked(msg.Head) && content_lenght_ <= content_offset_ + len)
+					status_ = HTTP_CHUNKED_DATA_END;
+			}
+		}
+
+		template<typename HttpMsg>
+		bool OnHead(HttpMsg &msg)
+		{
+			if (temp_.size() > 0)
+			{
+				Str key, value;
+				if (!ParserHead(temp_, key, value))
+				{
+					temp_ = "";
+					return false;
+				}
+				msg.Head.Append(key, value);
+				status_ = HTTP_HEAD_CR;
+				temp_ = "";
+				return true;
+			}
+			else
+			{
+				if (IsChunked(msg.Head))
+				{
+					content_lenght_ = 0;
+					content_offset_ = 0;
+					status_ = HTTP_CHUNKED_SIZE_CR;
+					return true;
+				}
+				else
+				{
+					content_lenght_ = GetHeadContentLen(msg.Head);
+					content_offset_ = 0;
+
+					if (content_lenght_ == 0)
+					{
+						status_ = HTTP_COMPLETE;
+						OnHandler(NULL, 0);
+						return true;
+					}
+					status_ = HTTP_BODY;
+					return true;
+				}
+			}
+		}
 	protected:
 		//hex转换为字符
 		static char DecToHexChar(short int n)
@@ -677,7 +901,8 @@ namespace sim
 		}
 		virtual bool OnHead()
 		{
-			if (temp_.size() > 0)
+			return HttpParser::OnHead(t_request_);
+			/*if (temp_.size() > 0)
 			{
 				Str key, value;
 				if (!ParserHead(temp_, key, value))
@@ -703,13 +928,14 @@ namespace sim
 				}
 				status_ = HTTP_BODY;
 				return true;
-			}
+			}*/
 		}
 		
 		virtual void OnHandler(const char*buff, ContentLength_t len)
 		{
+			HttpParser::OnHandler(handler_,pdata_, t_request_, buff, len);
 			//报文完整了
-			if (content_lenght_ <= content_offset_ + len)
+			/*if (content_lenght_ <= content_offset_ + len)
 				status_ = HTTP_COMPLETE;
 			
 			if (handler_)
@@ -722,7 +948,7 @@ namespace sim
 				temp_ = "";
 				content_lenght_ = 0;
 				content_offset_ = 0;
-			}
+			}*/
 		}
 	private:
 		HTTP_REQUEST_HANDLER handler_;
@@ -754,7 +980,8 @@ namespace sim
 		}
 		virtual bool OnHead()
 		{
-			if (temp_.size() > 0)
+			return HttpParser::OnHead(t_response_);
+			/*if (temp_.size() > 0)
 			{
 				Str key, value;
 				if (!ParserHead(temp_, key, value))
@@ -769,38 +996,61 @@ namespace sim
 			}
 			else
 			{
-				content_lenght_ = GetHeadContentLen(t_response_.Head);
-				content_offset_ = 0;
-
-				if (content_lenght_ == 0)
+				if (IsChunked(t_response_.Head))
 				{
-					status_ = HTTP_COMPLETE;
-					OnHandler(NULL, 0);
+					content_lenght_ = 0;
+					content_offset_ = 0;
+					status_ = HTTP_CHUNKED_SIZE_CR;
 					return true;
 				}
-				status_ = HTTP_BODY;
-				return true;
-			}
+				else
+				{
+					content_lenght_ = GetHeadContentLen(t_response_.Head);
+					content_offset_ = 0;
+
+					if (content_lenght_ == 0)
+					{
+						status_ = HTTP_COMPLETE;
+						OnHandler(NULL, 0);
+						return true;
+					}
+					status_ = HTTP_BODY;
+					return true;
+				}
+			}*/
 		}
 		virtual void OnHandler(const char*buff, ContentLength_t len)
 		{
-			//报文完整了
-			if (content_lenght_ <= content_offset_ + len)
-				status_ = HTTP_COMPLETE;
-			/*printf("status %d content_lenght_ %llu content_offset_ %llu buff  %p len %llu\n",
-				status_, content_lenght_, content_offset_,
-				buff, len);*/
-			if (handler_)
-				handler_(this, &t_response_, content_lenght_, content_offset_, buff, len, pdata_);
+			HttpParser::OnHandler(handler_,pdata_, t_response_, buff, len);
 
-			if (status_ == HTTP_COMPLETE)
-			{
-				t_response_.Clear();
-				status_ = HTTP_START_LINE_CR;
-				temp_ = "";
-				content_lenght_ = 0;
-				content_offset_ = 0;
-			}
+			//if (IsComplete(t_response_.Head, content_offset_,len))
+			//{
+			//	status_ = HTTP_COMPLETE;
+			//}
+
+			///*printf("status %d content_lenght_ %llu content_offset_ %llu buff  %p len %llu\n",
+			//	status_, content_lenght_, content_offset_,
+			//	buff, len);*/
+			//if (handler_)
+			//	handler_(this, &t_response_, content_lenght_, content_offset_, buff, len, pdata_);
+
+			//if (status_ == HTTP_COMPLETE)
+			//{
+			//	if (IsChunked(t_response_.Head))
+			//		status_ = HTTP_CHUNKED_END;
+			//	else
+			//		status_ = HTTP_START_LINE_CR;
+			//	t_response_.Clear();
+			//	temp_ = "";
+			//	content_lenght_ = 0;
+			//	content_offset_ = 0;
+			//	
+			//}
+			//else
+			//{
+			//	if (IsChunked(t_response_.Head)&& content_lenght_ <= content_offset_ + len)
+			//		status_ = HTTP_CHUNKED_DATA_END;
+			//}
 		}
 	private:
 		HTTP_RESPONSE_HANDLER handler_;
