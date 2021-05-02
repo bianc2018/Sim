@@ -766,7 +766,6 @@ namespace sim
 		
 		virtual int Close(AsyncHandle handle, AsyncCloseReason reason)
 		{
-			
 			SIM_FUNC_DEBUG();
 			RefObject<AsyncContext> ref = GetCtx(handle);
 			if (ref)
@@ -969,6 +968,7 @@ namespace sim
 				SIM_LERROR("handle " << handle << " not find");
 				return SOCK_FAILURE;
 			}
+			ref->sock.SetReusePort(true);
 
 			//绑定地址
 			int ret = ref->sock.Bind(bind_ipaddr, bind_port);
@@ -1287,14 +1287,17 @@ namespace sim
 										unsigned int now = socket_event->bytes_transfered*1.5 + 1;
 										socket_event->buff = RefBuff(now > ref->max_recv_buff_size ? ref->max_recv_buff_size : now);
 									}
-									//继续发送接收数据请求
-									if (false == Recv(ref, socket_event->buff))//接收数据
+									if (ref->is_active)
 									{
-										SIM_LERROR("Recv fail " << " sock= " << ref->sock.GetSocket());
-										Close(ref->sock.GetSocket(), CloseError);
-										//printf("delete event %p at %d\n", socket_event, __LINE__);
-										delete socket_event;
-										return SOCK_FAILURE;
+										//继续发送接收数据请求
+										if (false == Recv(ref, socket_event->buff))//接收数据
+										{
+											SIM_LERROR("Recv fail " << " sock= " << ref->sock.GetSocket());
+											Close(ref->sock.GetSocket(), CloseError);
+											//printf("delete event %p at %d\n", socket_event, __LINE__);
+											delete socket_event;
+											return SOCK_FAILURE;
+										}
 									}
 								}
 							}
