@@ -399,7 +399,8 @@ namespace sim
 			}
 			Head.Head.AppendMap(ss->http_common_head_);
 			Str data = HttpParser::PrintRequest(Head, content_lenght, offset, buff, len);
-			if (offset == content_lenght)
+			//if (offset == content_lenght)
+			if (HttpParser::IsComplete(Head.Head, offset-len, len))
 			{
 				if (HttpParser::IsClose(Head.Head))
 				{
@@ -413,7 +414,14 @@ namespace sim
 			const char* body, ContentLength_t size)
 		{
 			ContentLength_t offset = 0;
-			return Send(handle, Head, size, offset, body, size);
+			int ret=Send(handle, Head, size, offset, body, size);
+			if (ret == -1)
+				return ret;
+			if (HttpParser::IsChunked(Head.Head))
+			{
+				return Send(handle, Head, 0, offset, NULL, 0);
+			}
+			return ret;
 		}
 
 		virtual int Send(AsyncHandle handle, HttpResponseHead& Head,
@@ -428,7 +436,8 @@ namespace sim
 			}
 			Head.Head.AppendMap(ss->http_common_head_);
 			Str data = HttpParser::PrintResponse(Head, content_lenght, offset, buff, len);
-			if (offset == content_lenght)
+			//if (offset == content_lenght)
+			if (HttpParser::IsComplete(Head.Head, offset - len, len))
 			{
 				if (HttpParser::IsClose(Head.Head))
 				{
@@ -442,7 +451,14 @@ namespace sim
 			const char* body, ContentLength_t size)
 		{
 			ContentLength_t offset = 0;
-			return Send(handle, Head, size, offset, body, size);
+			int ret=Send(handle, Head, size, offset, body, size);
+			if (ret == -1)
+				return ret;
+			if (HttpParser::IsChunked(Head.Head))
+			{
+				return Send(handle, Head, 0, offset, NULL, 0);
+			}
+			return ret;
 		}
 
 		virtual int  SendWebSocketFrame(AsyncHandle handle, const char* payload_data, 
@@ -463,6 +479,7 @@ namespace sim
 			FrameHead.payload_length = data_len;
 			return Send(handle, FrameHead, payload_offset, payload_data, data_len);
 		}
+		
 		virtual int  Send(AsyncHandle handle, WebSocketFrameHead& FrameHead, 
 			PayLoadLength_t &payload_offset
 			, const char*payload_data, PayLoadLength_t data_len)
