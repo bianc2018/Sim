@@ -10,11 +10,12 @@
 #include "CodeConvert.hpp"
 //控制参数输入
 sim::CmdLineParser cmd;
-
+#define MY_THREAD_NUM 8
 struct GlobalConfig
 {
 	sim::Str Listen;
 	sim::Str Mount;
+	sim::Str index;
 	sim::Str pub_key;
 	sim::Str pri_key;
 
@@ -25,7 +26,7 @@ GlobalConfig conf;
 std::map<std::string, std::string> content_type_map;
 sim::AsyncHttp &GetHttp()
 {
-	return sim::GlobalPoll<sim::AsyncHttp, 8>::Get();
+	return sim::GlobalPoll<sim::AsyncHttp, MY_THREAD_NUM>::Get();
 }
 
 void init_content_type_map()
@@ -36,6 +37,8 @@ void init_content_type_map()
 	content_type_map[".css"] = "text/css";
 	content_type_map[".jpeg"] = "image/jpeg";
 	content_type_map[".jpg"] = "image/jpeg";
+	//image/gif：GIF格式的图片
+	content_type_map[".gif"] = "image/gif";
 }
 
 sim::Str get_content_type(const sim::Str& filename)
@@ -58,7 +61,7 @@ void send_error(sim::AsyncHandle handle, const sim::Str& status, const sim::Str&
 	return;
 }
 //发送文件
-void send_file(sim::AsyncHandle handle, const sim::Str& filename)
+void send_file(sim::AsyncHandle handle, sim::HttpResponseHead &res, const sim::Str& filename)
 {
 	FILE *pf = fopen(filename.c_str(), "rb");
 	if (NULL == pf)
@@ -69,11 +72,14 @@ void send_file(sim::AsyncHandle handle, const sim::Str& filename)
 	}
 
 	//长度
-	fseek(pf, 0, SEEK_END);
-	sim::ContentLength_t content_lenght = ftell(pf);
-	fseek(pf, 0, SEEK_SET);
-	sim::HttpResponseHead res;
+	sim::ContentLength_t content_lenght = 0;
+	/*fseek(pf, 0, SEEK_END);
+	content_lenght = ftell(pf);
+	fseek(pf, 0, SEEK_SET);*/
+	//sim::HttpResponseHead res;
+
 	res.Head.Append(SIM_HTTP_CT, get_content_type(filename));
+	res.Head.Append("Transfer-Encoding", "chunked");
 
 	sim::ContentLength_t content_offset = 0;
 	const int buff_size = 32 * 1024;
@@ -85,6 +91,10 @@ void send_file(sim::AsyncHandle handle, const sim::Str& filename)
 			break;
 		GetHttp().Send(handle, res, content_lenght, content_offset, buff, readlen);
 	}
+	//发送结束
+	if(sim::HttpParser::IsChunked(res.Head))
+		GetHttp().Send(handle, res, 0, content_offset, NULL, 0);
+
 	fclose(pf);
 }
 
@@ -106,7 +116,7 @@ void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int err
 		//异常关闭（发生了错误，平台错误码error）
 		CloseError=-1,
 	*/
-	printf("handle %d %d reason %d\n", handle, __LINE__, reason);
+	//printf("handle %d %d reason %d\n", handle, __LINE__, reason);
 	static sim::Str reasons[3] = {"CloseActive","ClosePassive","CloseError"};
 	printf("%d close reason %s error %d\n", handle, reasons[reason].c_str(), error);
 	if (data)
@@ -128,14 +138,27 @@ void ASYNC_HTTP_REQUEST_HANDLE(sim::AsyncHandle handle, sim::HttpRequestHead *He
 
 	if (Head->Method == "GET")
 	{
+		sim::HttpResponseHead res;
+		res.Head.Append(SIM_HTTP_CON, Head->Head.GetCase(SIM_HTTP_CON, "Close"));
+
 		sim::Str uri = sim::FromUtf8(sim::HttpParser::DecodeUrl(Head->Url));
 		sim::Str path;
 		sim::KvMap params;
 		sim::HttpParser::ParserRequestUri(uri,path,params);
-
-		sim::Str filename = conf.Mount + path;
-		printf("request:%s\n", filename.c_str());
-		send_file(handle, filename);
+		if ("/" == path)
+		{
+			res.Status = "302";
+			res.Reason = "Moved Temporarily";
+			res.Head.Append("Location", conf.index);
+			GetHttp().Send(handle, res, NULL, 0);
+		}
+		else
+		{
+			sim::HttpResponseHead res;
+			sim::Str filename = conf.Mount + path;
+			printf("%d request:%s\n", handle, filename.c_str());
+			send_file(handle, res, filename);
+		}
 		return;
 	}
 	else
@@ -166,14 +189,22 @@ void AcceptHandler(sim::AsyncHandle handle, sim::AsyncHandle client, void*data)
 
 void print_help()
 {
-	printf("usg:-l 监听地址 -m 挂载位置 -pub_key 公钥 -pri_key 私钥 -timeout 连接超时间隔 \n");
+	printf("usg:-l 监听地址 -m 挂载位置 -index 首页 -pub_key 公钥 -pri_key 私钥 -timeout 连接超时间隔 \n");
 }
 
 int main(int argc, char* argv[])
 {
 #if 1
 	cmd.InitCmdLineParams("timeout", 5*60*1000);
-	cmd.InitCmdLineParams("l", "https://:8080/");
+	cmd.InitCmdLineParams("l", "http://:8080/");
+	cmd.InitCmdLineParams("log", "");
+#ifdef OS_WINDOWS
+	cmd.InitCmdLineParams("m", "F:/Sim/res/WWW");
+#endif
+#ifdef OS_LINUX
+	cmd.InitCmdLineParams("m", "/code/Sim-github/res/WWW");
+#endif
+
 #endif
 
 	if (!cmd.Parser(argc, argv)|| cmd.HasParam("h")|| cmd.HasParam("help"))
@@ -184,6 +215,7 @@ int main(int argc, char* argv[])
 
 	conf.Listen = cmd.GetCmdLineParams("l", "http://:8080/");
 	conf.Mount = cmd.GetCmdLineParams("m", ".");
+	conf.index = cmd.GetCmdLineParams("index", "index.html");
 	conf.pub_key = cmd.GetCmdLineParams("pub_key", "cert.pem");
 	conf.pri_key = cmd.GetCmdLineParams("pri_key", "key.pem");
 	conf.timeout = cmd.GetCmdLineParams("timeout", -1);
@@ -193,7 +225,12 @@ int main(int argc, char* argv[])
 		print_help();
 		return -1;
 	}
-
+	if (cmd.HasParam("log"))
+	{
+		SIM_LOG_CONSOLE(sim::LError);
+		//SIM_LOG_ADD(sim::LogFileStream, sim::LDebug, ".", "test", "txt", 32);
+		//SIM_FUNC(sim::LDebug);
+	}
 	init_content_type_map();
 
 	sim::AsyncHandle serv = GetHttp().CreateSession();
@@ -203,6 +240,6 @@ int main(int argc, char* argv[])
 		printf("Listent %s fail,please check params.\n", conf.Listen.c_str());
 		return -1;
 	}
-	sim::GlobalPoll<sim::AsyncHttp, 8>::Wait();
+	sim::GlobalPoll<sim::AsyncHttp, MY_THREAD_NUM>::Wait();
 	return 0;
 }
