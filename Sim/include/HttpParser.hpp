@@ -740,7 +740,7 @@ namespace sim
 				data += NumToStr<ContentLength_t>(len, "%X") + SIM_HTTP_CRLF;
 				if (len == 0)
 				{
-					data += SIM_HTTP_CRLF SIM_HTTP_CRLF;
+					data += SIM_HTTP_CRLF ;
 				}
 				else
 				{
