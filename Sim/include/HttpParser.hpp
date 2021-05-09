@@ -4,8 +4,10 @@
 //与httpparser.hpp互斥
 #ifndef SIM_HTTP_PARSER_HPP_
 #define SIM_HTTP_PARSER_HPP_
+
 #include <stdio.h>
 #include <string>
+
 
 //多线程情况下运行
 #ifdef SIM_PARSER_MULTI_THREAD
@@ -25,6 +27,8 @@
 #define SIM_HTTP_CR				'\r'
 #define SIM_HTTP_LF				'\n'
 #define SIM_HTTP_CRLF			"\r\n"
+#define SIM_HTTP_FORM_BOUNDARY			'-'
+#define SIM_HTTP_FORM_BOUNDARYS			"--"
 #define SIM_HTTP_VERSION_0_9	"HTTP/0.9"
 #define SIM_HTTP_VERSION_1_0	"HTTP/1.0"
 #define SIM_HTTP_VERSION_1_1	"HTTP/1.1"
@@ -1058,6 +1062,496 @@ namespace sim
 
 		//缓存项
 		HttpResponseHead t_response_;
+	};
+
+	//表单解析器
+	//multipart/form-data
+	class HttpFormDataParser;
+
+	enum HttpFormDataParserStatus
+	{
+		//第一行是boundary
+		FORM_START_BOUNDARY_CR,
+		FORM_START_BOUNDARY_LF,
+
+		//就是头
+		FORM_HEAD_CR,
+		FORM_HEAD_LF,
+
+		//表单数据
+		FORM_DATA_CR,
+		FORM_DATA_LF,
+
+		FORM_BOUNDARY_CR,
+		FORM_BOUNDARY_LF,
+
+		FORM_COMPLETE,//完整
+	};
+
+	//表数据头
+	struct HttpFormDataHead
+	{
+		KvMap Head;
+		HttpFormDataHead()
+		{
+			Clear();
+		}
+		void Clear()
+		{
+			Head.Release();
+		}
+	};
+	struct HttpFormData
+	{
+		HttpFormDataHead Head;
+		Str Data;
+		HttpFormData()
+		{
+			Clear();
+		}
+		void Clear()
+		{
+			Head.Clear();
+			Data = "";
+		}
+	};
+	
+	typedef void(*HttpFormDataHeadHANDLER)(HttpFormDataParser *pp,HttpFormDataHead *pformdata, ContentLength_t offset,
+		const char*data,ContentLength_t len,bool fin, void*pdata);
+
+	typedef void(*HttpFormDataHANDLER)(HttpFormDataParser *pp,HttpFormData *pformdata,void*pdata);
+
+	//表单数据解析器
+	class HttpFormDataParser :public  HttpParser
+	{
+	public:
+		HttpFormDataParser()
+		{
+			Reset();
+		}
+		virtual bool Parser(const char*data, unsigned int len)
+		{
+			//并行情况
+#ifdef SIM_PARSER_MULTI_THREAD
+			sim::AutoMutex lk(parser_lock_);
+#endif
+			unsigned int offset = 0;
+			while (offset < len)
+			{
+				if (form_data_staus_ == FORM_START_BOUNDARY_CR)
+				{
+					if (FindCR(data, len, offset))
+						form_data_staus_ = FORM_START_BOUNDARY_LF;
+				}
+				else if (form_data_staus_ == FORM_START_BOUNDARY_LF)
+				{
+					if (data[offset] == SIM_HTTP_LF)
+					{
+						++offset;
+						if (!OnStartBoundary())
+						{
+							printf("OnBoundary error,parser error at %d\n", __LINE__);
+							return false;
+						}
+					}
+					else
+					{
+						printf("SIM_HTTP_LF not found, parser error at %d\n", __LINE__);
+						return false;
+					}
+				}
+				else if (form_data_staus_ == FORM_HEAD_CR)
+				{
+					if (FindCR(data, len, offset))
+						form_data_staus_ = FORM_HEAD_LF;
+				}
+				else if (form_data_staus_ == FORM_HEAD_LF)
+				{
+					if (data[offset] == SIM_HTTP_LF)
+					{
+						++offset;
+						if (!OnHead())
+						{
+							printf("OnHead error,parser error at %d\n", __LINE__);
+							return false;
+						}
+					}
+					else
+					{
+						printf("SIM_HTTP_LF not found,parser error at %d\n", __LINE__);
+						return false;
+					}
+				}
+				else if (form_data_staus_ == FORM_DATA_CR)
+				{
+					if (FindCR(data, len, offset))
+					{
+						form_data_staus_ = FORM_DATA_LF;
+					}
+					else
+					{
+						//先回调缓存的数据
+						OnHandler(temp_.c_str(), temp_.size(), false, false);
+						temp_ = "";
+					}
+				}
+				else if (form_data_staus_ == FORM_DATA_LF)
+				{
+					if (data[offset] == SIM_HTTP_LF)
+					{
+						++offset;
+						//FORM_BOUNDARY_CR
+						//先回调缓存的数据
+						OnHandler(temp_.c_str(), temp_.size(), false, false);
+						temp_ = "";
+						form_data_staus_ = FORM_BOUNDARY_CR;
+					}
+					else
+					{
+						
+						//这个是消息内容
+						temp_ += SIM_HTTP_CR;
+						temp_ += data[offset];
+						++offset;
+						form_data_staus_ = FORM_DATA_CR;
+					}
+				}
+				else if (form_data_staus_ == FORM_BOUNDARY_CR)
+				{
+					if (FindCR(data, len, offset))
+					{
+						form_data_staus_ = FORM_BOUNDARY_LF;
+					}
+				}
+				else if (form_data_staus_ == FORM_BOUNDARY_LF)
+				{
+					if (data[offset] == SIM_HTTP_LF)
+					{
+						if (temp_ == SIM_HTTP_FORM_BOUNDARYS + boundary_)
+						{
+							OnHandler(NULL,0, true, false);
+							++offset;
+							continue;
+						}
+						else if (temp_ == SIM_HTTP_FORM_BOUNDARYS + boundary_+ SIM_HTTP_FORM_BOUNDARYS)
+						{
+							OnHandler(NULL, 0, true, true);
+							++offset;
+							continue;
+						}
+						
+					}
+
+					//这个是消息内容
+					temp_ = SIM_HTTP_CRLF + temp_ + SIM_HTTP_CR;
+					temp_ += data[offset];
+					++offset;
+					form_data_staus_ = FORM_DATA_CR;
+
+				}
+				else
+				{
+					printf("nuknow status %d error,parser error at %d\n", form_data_staus_, __LINE__);
+					return false;
+				}
+				
+			}
+			return true;
+		}
+
+		//重置解析器状态
+		virtual void Reset()
+		{
+			OnFormDataEnd();
+			boundary_ = "";
+			form_data_staus_ = FORM_START_BOUNDARY_CR;
+		}
+
+		virtual void SetHandler(HttpFormDataHeadHANDLER handler, void *pdata)
+		{
+			handler_ = handler;
+			pdata_ = pdata;
+		}
+		virtual void SetHandler(HttpFormDataHANDLER handler, void *pdata)
+		{
+			SetHandler(HttpFormDataParser::OnHttpFormDataHeadHANDLER, pdata);
+			handler_2_ = handler;
+		}
+
+		Str GetBoundary()
+		{
+			return boundary_;
+		}
+		void SetBoundary(const Str&boundary)
+		{
+			boundary_ = boundary;
+			return;
+		}
+
+	public:
+		static bool ParserFormContentDisposition(const Str&data, Str&name, Str&filename)
+		{
+			//form-data; name="uploadFile"; filename="file.txt" 
+			unsigned int size = data.size();
+			Str k, v, temp;
+			for (unsigned int i = 0; i < size; ++i)
+			{
+				if (data[i] == ';')
+				{
+					if (temp.size() >= 0|| "form-data" != temp)
+					{
+						bool find_key = true;
+						unsigned tmp_size = temp.size();
+						for (unsigned j = 0; j < tmp_size; ++j)
+						{
+							if (temp[j] == '=')
+							{
+								find_key = false;
+								continue;
+							}
+							else if (temp[j] == '\"')
+							{
+								continue;
+							}
+							
+							if (find_key)
+								k += temp[j];
+							else
+								v += temp[j];
+						}
+						if (k == "name")
+							name = v;
+						else if (k == "filename")
+							filename = v;
+					}
+					temp = k = v = "";
+					if (i + 1 < size)
+					{
+						if (data[i + 1] == ' ')
+							++i;
+					}
+					continue;
+				}
+				temp += data[i];
+			}
+
+			if (temp.size() >= 0 || "form-data" != temp)
+			{
+				bool find_key = true;
+				unsigned tmp_size = temp.size();
+				for (unsigned j = 0; j < tmp_size; ++j)
+				{
+					if (temp[j] == '=')
+					{
+						find_key = false;
+						continue;
+					}
+					else if (temp[j] == '\"')
+					{
+						continue;
+					}
+
+					if (find_key)
+						k += temp[j];
+					else
+						v += temp[j];
+				}
+				if (k == "name")
+					name = v;
+				else if (k == "filename")
+					filename = v;
+			}
+			return true;
+		}
+		
+		static Str PrintFormContentDisposition(const Str&name, const Str&filename)
+		{
+			//form-data; name="uploadFile"; filename="file.txt" 
+			if (name.size() == 0)
+			{
+				return  "";
+			}
+			Str disposition = "form-data; name=\"" + name + "\"";
+			if (filename.size() == 0)
+			{
+				return  disposition;
+			}
+			disposition += "; filename=\""+ filename+"\"";
+			return  disposition;
+		}
+		
+		//Content-Disposition
+		static bool GetFormDataDisposition(HttpFormDataHead&head, Str& name, Str& filename)
+		{
+			Str data = head.Head.GetCase("Content-Disposition", "");
+			if (data.size() == 0)
+			{
+				return false;
+			}
+			if (ParserFormContentDisposition(data, name, filename))
+			{
+				return true;
+			}
+			return false;
+		}
+		
+		static bool SetFormDataDisposition(HttpFormDataHead&head,const Str&name, const Str&filename)
+		{
+			Str disposition = PrintFormContentDisposition(name, filename);
+			if (disposition.size() == 0)
+			{
+				return false;
+			}
+			head.Head.Append("Content-Disposition", disposition, HM_COVER);
+			return true;
+		}
+
+		static Str GetFormDataType(HttpFormDataHead&head, const Str&notfound)
+		{
+			return head.Head.GetCase(SIM_HTTP_CT, notfound);
+		}
+
+		static bool SetFormDataType(HttpFormDataHead&head, const Str&content_type)
+		{
+			head.Head.Append(SIM_HTTP_CT, content_type, HM_COVER);
+			return true;
+		}
+
+		static Str PrintFormDataHead(const Str &boundary, HttpFormDataHead&head)
+		{
+			Str data = SIM_HTTP_FORM_BOUNDARYS + boundary;
+			return data + PrintHead(head.Head) + SIM_HTTP_CRLF;
+		}
+
+		static Str PrintFormDataEnd()
+		{
+			return SIM_HTTP_CRLF;
+		}
+
+		static Str PrintFormData(const Str &boundary, HttpFormData&data)
+		{
+			Str res = PrintFormDataHead(boundary, data.Head);
+			res += data.Data;
+			res += PrintFormDataEnd();
+			return res;
+		}
+
+		static Str PrintFormDataLastChunk(const Str &boundary)
+		{
+			return SIM_HTTP_FORM_BOUNDARYS + boundary + SIM_HTTP_FORM_BOUNDARYS SIM_HTTP_CRLF;
+		}
+	protected:
+		virtual bool OnStartBoundary()
+		{
+			// -- 开头
+			if (temp_.size() < 2||temp_[0]!=SIM_HTTP_FORM_BOUNDARY || temp_[1] != SIM_HTTP_FORM_BOUNDARY)
+			{
+				printf("temp_ %s is no boundary line %d\n", temp_.c_str(),__LINE__);
+				return false;
+			}
+			if (boundary_.size() == 0)
+			{
+				boundary_ = temp_.substr(2);
+				temp_ = "";
+				form_data_staus_ = FORM_HEAD_CR;
+			}
+			else
+			{
+				//出现错误了
+				if (boundary_ != temp_.substr(2))
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+		
+		virtual bool OnHead()
+		{
+			if (temp_.size() > 0)
+			{
+				Str key, value;
+				if (!ParserHead(temp_, key, value))
+				{
+					temp_ = "";
+					return false;
+				}
+				t_formdata_.Head.Head.Append(key, value);
+				form_data_staus_ = FORM_HEAD_CR;
+				temp_ = "";
+				return true;
+			}
+			else
+			{
+				form_data_staus_ = FORM_DATA_CR;
+				return true;
+			}
+		}
+
+		virtual void OnHandler(const char*buff, ContentLength_t len, bool fin,bool is_complete)
+		{
+			if (handler_)
+			{
+				handler_(this, &t_formdata_.Head, content_offset_, buff, len, fin, pdata_);
+			}
+			if (is_complete)
+				Reset();
+			else if (fin)
+				OnFormDataEnd();
+		}
+
+		virtual bool OnStartLine()
+		{
+			return false;
+		}
+		
+		virtual void OnHandler(const char*buff, ContentLength_t len)
+		{
+			return;
+		}
+	protected:
+		//一个数据端结束
+		virtual void OnFormDataEnd()
+		{
+			t_formdata_.Clear();
+			temp_ = "";
+			form_data_staus_ = FORM_HEAD_CR;
+			content_offset_ = 0;
+		}
+	protected:
+		void DoHttpFormDataHeadHANDLER(const char*data, ContentLength_t len, bool fin)
+		{
+			if (data&&len >= 0)
+			{
+				t_formdata_.Data += Str(data, len);
+			}
+			if (fin)
+			{
+				//回调
+				if (handler_2_)
+					handler_2_(this, &t_formdata_, pdata_);
+			}
+		}
+		
+		//内部回调
+		static void OnHttpFormDataHeadHANDLER(HttpFormDataParser *pp, HttpFormDataHead *pformdata,
+			ContentLength_t offset,
+			const char*data, ContentLength_t len, bool fin, void*pdata)
+		{
+			if (pp)
+			{
+				pp->DoHttpFormDataHeadHANDLER(data, len, fin);
+			}
+		}
+	 
+	protected:
+		HttpFormData t_formdata_;
+		HttpFormDataParserStatus form_data_staus_;
+		Str boundary_;
+		HttpFormDataHeadHANDLER handler_;
+		void *pdata_;
+		HttpFormDataHANDLER handler_2_;//第二个句柄
+		
 	};
 }
 #endif

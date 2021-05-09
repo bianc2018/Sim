@@ -441,8 +441,12 @@ namespace sim
 	{
 		SOCKET temp = sock_;
 		sock_ = INVALID_SOCKET;
-
+		
 #ifdef OS_WINDOWS
+		/*struct linger so_linger;
+		so_linger.l_onoff = 1;
+		so_linger.l_linger = 0;
+		setsockopt(sock_, SOL_SOCKET, SO_LINGER,(const char*) &so_linger, sizeof so_linger);*/
 		return ::closesocket(temp);
 #endif
 
