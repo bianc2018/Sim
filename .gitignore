@@ -15,4 +15,3 @@ _deps
 /CMakeSettings.json
 /Sim/include/HttpParser.h
 /Sim/include/openssl
-/res/WWW
