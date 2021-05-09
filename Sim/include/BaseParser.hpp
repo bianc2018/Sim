@@ -5,6 +5,27 @@
 #define SIM_BASE_PARSER_HPP_
 #include <stdio.h>
 #include <string>
+#include <stdlib.h>
+#include <time.h>
+
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__)
+#ifndef OS_WINDOWS
+#define OS_WINDOWS
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN  
+#endif
+#include <WinSock2.h>
+#elif defined(linux) || defined(__linux) || defined(__linux__)
+#ifndef OS_LINUX
+#define OS_LINUX
+#endif  
+#include <netinet/in.h>
+#include <sys/time.h>
+#else
+#error "不支持的平台"
+#endif
+
 #ifndef SIM_PARSER_BASE_TYPE
 #define SIM_PARSER_BASE_TYPE 0
 #endif
@@ -321,6 +342,28 @@ namespace sim
 			return temp_buff;
 		}
 
+		//生成随机数据
+		static bool GenerateRandArray(unsigned char *arrays, unsigned short size)
+		{
+			static unsigned int salt = 0;
+			++salt;
+			unsigned long long seed = 0;
+#ifdef _MSC_VER
+			_timeb timebuffer;
+			_ftime(&timebuffer);
+			seed = timebuffer.time * 1000 + timebuffer.millitm;
+#else
+			timeval tv;
+			::gettimeofday(&tv, 0);
+			seed = tv.tv_sec * 1000 + tv.tv_usec / 1000;
+#endif
+			::srand(seed);
+			for (int i = 0; i < size; ++i)
+			{
+				arrays[i] = (rand() % 123412 + seed + salt) % 127;
+			}
+			return true;
+		}
 	private:
 		int type_;
 	};
