@@ -29,6 +29,14 @@ sim::AsyncHttp &GetHttp()
 	return sim::GlobalPoll<sim::AsyncHttp, MY_THREAD_NUM>::Get();
 }
 
+struct WebSession
+{
+	//超时
+	sim::timer_id timer;
+	//表单
+	sim::HttpFormDataParser form_parser;
+};
+
 void init_content_type_map()
 {
 	//https://www.w3school.com.cn/media/media_mimeref.asp
@@ -121,30 +129,77 @@ void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int err
 	printf("%d close reason %s error %d\n", handle, reasons[reason].c_str(), error);
 	if (data)
 	{
-		delete (sim::timer_id*)data;
+		delete (WebSession*)data;
 	}
 }
+void OnHttpFormFileUpload(sim::HttpFormDataParser *pp, sim::HttpFormDataHead *pformdata,
+	sim::ContentLength_t offset,
+	const char*data, sim::ContentLength_t len, bool fin, void*pdata)
+{
+	FILE*fp = (FILE*)pdata;
 
+	if (offset == 0)
+	{
+		sim::Str name, filename;
+		//初始化
+		pp->GetFormDataDisposition(*pformdata, name, filename);
+		if (filename.size() == 0)
+			return;
+		sim::Str filepath = conf.Mount +"/"+ sim::FromUtf8(filename);
+		printf("file upload:%s\n", filepath.c_str());
+		
+		if (fp)
+		{
+			fclose(fp);
+		}
+
+		fp = fopen(filepath.c_str(), "wb");
+		if (NULL == fp)
+		{
+			printf("file open:%s error\n", filepath.c_str());
+			return;
+		}
+		pp->SetHandler(OnHttpFormFileUpload, fp);
+	}
+
+	if (fp&&len>0&& data!=NULL)
+	{
+		fwrite(data, len, sizeof(const char), fp);
+	}
+	if (fin&&fp)
+	{
+		fclose(fp);
+		pp->SetHandler(OnHttpFormFileUpload, NULL);
+		
+	}
+}
 void ASYNC_HTTP_REQUEST_HANDLE(sim::AsyncHandle handle, sim::HttpRequestHead *Head,
 	sim::ContentLength_t content_lenght, sim::ContentLength_t offset, const char*buff, sim::ContentLength_t len,
 	void *pdata)
 {
-	sim::timer_id* ptimer = NULL;
-	if (pdata)
+	WebSession* ps = (WebSession*)pdata;
+	if (NULL == ps)
 	{
-		ptimer = (sim::timer_id*)pdata;
-		sim::GlobalPoll<sim::TimerMgr>::Get().RemoveTimer(*ptimer);
+		send_error(handle, "500", "HTTP-Internal Server Error");
+		return;
 	}
+	
+	if (conf.timeout > 0)
+	{
+		sim::GlobalPoll<sim::TimerMgr>::Get().RemoveTimer(ps->timer);
+	}
+
+	//sim::Str  data = sim::Str(buff, len);
+	sim::Str uri = sim::FromUtf8(sim::HttpParser::DecodeUrl(Head->Url));
+	sim::Str path;
+	sim::KvMap params;
+	sim::HttpParser::ParserRequestUri(uri, path, params);
+
+	sim::HttpResponseHead res;
+	res.Head.Append(SIM_HTTP_CON, Head->Head.GetCase(SIM_HTTP_CON, "Close"));
 
 	if (Head->Method == "GET")
 	{
-		sim::HttpResponseHead res;
-		res.Head.Append(SIM_HTTP_CON, Head->Head.GetCase(SIM_HTTP_CON, "Close"));
-
-		sim::Str uri = sim::FromUtf8(sim::HttpParser::DecodeUrl(Head->Url));
-		sim::Str path;
-		sim::KvMap params;
-		sim::HttpParser::ParserRequestUri(uri,path,params);
 		if ("/" == path)
 		{
 			res.Status = "302";
@@ -159,17 +214,37 @@ void ASYNC_HTTP_REQUEST_HANDLE(sim::AsyncHandle handle, sim::HttpRequestHead *He
 			printf("%d request:%s\n", handle, filename.c_str());
 			send_file(handle, res, filename);
 		}
-		return;
+		//return;
+	}
+	else if (Head->Method == "POST")
+	{
+		if ("/file_upload" == path)
+		{
+			if (!ps->form_parser.Parser(buff, len))
+			{
+				send_error(handle, "400", "Bad Request");
+			}
+			if (sim::HttpFormDataParser::IsComplete(Head->Head, offset, len))
+			{
+				res.Status = "302";
+				res.Reason = "Moved Temporarily";
+				res.Head.Append("Location", "fileupload.html");
+				GetHttp().Send(handle, res, NULL, 0);
+			}
+		}
+		else
+		{
+			send_error(handle, "403", "Forbidden");
+		}
 	}
 	else
 	{
 		send_error(handle, "400", "Bad Request");
 	}
 
-	//计时
-	if (ptimer)
+	if (conf.timeout > 0)
 	{
-		*ptimer = sim::GlobalPoll<sim::TimerMgr>::Get().AddTimer(conf.timeout, TIMER_OUT_HANDLER, (void*)handle);
+		ps->timer = sim::GlobalPoll<sim::TimerMgr>::Get().AddTimer(conf.timeout, TIMER_OUT_HANDLER, (void*)handle);
 	}
 }
 
@@ -177,14 +252,14 @@ void AcceptHandler(sim::AsyncHandle handle, sim::AsyncHandle client, void*data)
 {
 	printf("%d accept %d\n", handle, client);
 
-	sim::timer_id* ptimer = NULL;
+	WebSession* ps = new WebSession();
 	if (conf.timeout > 0)
 	{
-		ptimer = new sim::timer_id;
-		*ptimer = sim::GlobalPoll<sim::TimerMgr>::Get().AddTimer(conf.timeout, TIMER_OUT_HANDLER,(void*)client);
+		ps->timer = sim::GlobalPoll<sim::TimerMgr>::Get().AddTimer(conf.timeout, TIMER_OUT_HANDLER,(void*)client);
 	}
-	GetHttp().SetCloseHandler(client, CloseHandler, ptimer);
-	GetHttp().SetHttpRequestHandler(client, ASYNC_HTTP_REQUEST_HANDLE, ptimer);
+	ps->form_parser.SetHandler(OnHttpFormFileUpload, NULL);
+	GetHttp().SetCloseHandler(client, CloseHandler, ps);
+	GetHttp().SetHttpRequestHandler(client, ASYNC_HTTP_REQUEST_HANDLE, ps);
 }
 
 void print_help()
