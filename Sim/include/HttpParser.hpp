@@ -1493,6 +1493,7 @@ namespace sim
 			if (handler_)
 			{
 				handler_(this, &t_formdata_.Head, content_offset_, buff, len, fin, pdata_);
+				content_offset_ += len;
 			}
 			if (is_complete)
 				Reset();
