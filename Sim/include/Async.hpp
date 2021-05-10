@@ -197,6 +197,9 @@ namespace sim
 
 		unsigned int min_recv_buff_size;
 		unsigned int max_recv_buff_size;
+
+		//锁
+		Mutex sock_lock;
 	public:
 		AsyncContext(SockType t)
 			: accept_handler(NULL), accept_handler_data(NULL)
@@ -1123,6 +1126,9 @@ namespace sim
 					RefObject<AsyncContext> ref = GetCtx(socket);
 					if (ref)
 					{
+						//并发
+						AutoMutex lk(ref->sock_lock);
+
 						//设置传输字节数
 						socket_event->bytes_transfered = bytes_transfered;
 						//获取错误码
@@ -1752,6 +1758,9 @@ namespace sim
 					SIM_LERROR("not found ref " << events[i].data.fd);
 					continue;
 				}
+
+				//并发
+				AutoMutex lk(ref->sock_lock);
 
 				//事件
 				uint32_t ee = events[i].events;
