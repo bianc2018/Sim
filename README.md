@@ -5,14 +5,10 @@
 ## 功能
   目前实现的功能有： 
   
-  1. Array.hpp 
- 
+  + Array.hpp    
     动态数组容器。
-
-  + Async.hpp
-   
+  + Async.hpp                        
     异步网络IO接口，windows系统下使用IOCP实现，linux系统下面使用EPOLL实现。
-
     支持TCP Client 、Tcp Server和UDP ，以及支持SSL加密通讯。
   + AsyncHttp.hpp
   
