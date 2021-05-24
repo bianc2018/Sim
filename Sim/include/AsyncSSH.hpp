@@ -12,6 +12,9 @@
 //类型
 #include <stdint.h>
 
+#include <openssl/dsa.h>
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
@@ -187,7 +190,7 @@ namespace sim
 	{
 		Str K_S;
 		Str f;
-		Str H;
+		Str S;
 	};
 	
 	//ssh算法上下文
@@ -217,12 +220,17 @@ namespace sim
 
 		//V_C, V_S, I_C, I_S, K_S
 		Str V_C, V_S, I_C, I_S, K_S;
+		Str H, session_id;
 		/*
 			mpint e, exchange value sent by the client
 			mpint f, exchange value sent by the server
 			mpint K, the shared secret
 		*/
-		BIGNUM* e, *f, *K;
+		BIGNUM* e,*x, *f,*y, *K;
+
+		//hostkey 算法
+		RSA *rsa;
+		DSA *dsa;
 
 		SSHAlgorithmsCtx()
 			:evp_ctx_encrypt(NULL)
@@ -230,8 +238,12 @@ namespace sim
 			, mac_len(0)
 			, is_newkeys(false)
 			,e(NULL)
+			, x(NULL)
 			,f(NULL)
+			, y(NULL)
 			,K(NULL)
+			,rsa(NULL)
+			,dsa(NULL)
 		{
 
 		}
@@ -260,8 +272,11 @@ namespace sim
 			languages_server_to_client = "";
 
 			V_C=V_S=I_C=I_S=K_S="";
+			H = session_id = "";
 			ReleaseBIGNUM(&e);
+			ReleaseBIGNUM(&x);
 			ReleaseBIGNUM(&f);
+			ReleaseBIGNUM(&y);
 			ReleaseBIGNUM(&K);
 			/*if (e)
 			{
@@ -278,9 +293,22 @@ namespace sim
 				BN_clear_free(K);
 				K = NULL;
 			}*/
+
+			if (rsa)
+			{
+				RSA_free(rsa);
+				rsa = NULL;
+			}
+			if (dsa == NULL)
+			{
+				DSA_free(dsa);
+				dsa = NULL;
+			}
 		}
 		void ReleaseBIGNUM(BIGNUM** pn)
 		{
+			//EVP_PKEY
+			//EVP_PKEY
 			if (pn&&*pn)
 			{
 				BN_clear_free(*pn);
@@ -302,6 +330,13 @@ namespace sim
 	{
 		SshClient,
 		SshServer
+	};
+
+	//Public Key Algorithms ssh公钥算法
+	enum SshHostKeyType
+	{
+		SshRsa,
+		SshDsa
 	};
 	//DH_generate_parameters_ex
 
@@ -405,6 +440,144 @@ namespace sim
 				{
 					return false;
 				}
+			}
+		}
+
+		//从文件中加载私钥
+		bool LoadPriKey(SshHostKeyType type, const char*filename)
+		{
+			if (NULL == filename)
+			{
+				return false;
+			}
+			//打开
+			BIO*pIn = BIO_new_file(filename, "r");
+			if (NULL == pIn)
+			{
+				//打开失败
+				return false;
+			}
+
+			if (type == SshRsa)
+			{
+				//释放已经存在的
+				if (algo_ctx_.rsa)
+				{
+					RSA_free(algo_ctx_.rsa);
+					algo_ctx_.rsa = NULL;
+				}
+				algo_ctx_.rsa = PEM_read_bio_RSAPrivateKey(pIn, NULL, NULL, NULL);
+				BIO_free_all(pIn);
+				//RSA_print_fp(stdout, algo_ctx_.rsa, 0);
+				if (NULL == algo_ctx_.rsa)
+				{
+					return false;
+				}
+				return true;
+			}
+			else if (type == SshDsa)
+			{
+				//释放已经存在的
+				if (algo_ctx_.dsa)
+				{
+					DSA_free(algo_ctx_.dsa);
+					algo_ctx_.dsa = NULL;
+				}
+				algo_ctx_.dsa = PEM_read_bio_DSAPrivateKey(pIn, NULL, NULL, NULL);
+				BIO_free_all(pIn);
+				//DSA_print_fp(stdout, algo_ctx_.dsa, 0);
+				if (NULL == algo_ctx_.dsa)
+				{
+					return false;
+				}
+				return true;
+			}
+			else
+			{
+				BIO_free_all(pIn);
+				return false;
+			}
+		}
+		//或者生成私钥 filename !=NULL 写到对应的文件
+		bool GeneratePriKey(SshHostKeyType type, const char*filename = NULL)
+		{
+			BIO* pOut = NULL;
+			if (filename)
+			{
+				//打开
+				pOut = BIO_new_file(filename, "w");
+				if (NULL == pOut)
+				{
+					//打开失败
+					return false;
+				}
+			}
+			
+			if (type == SshRsa)
+			{
+				unsigned long  e = RSA_3;
+				//释放已经存在的
+				if (algo_ctx_.rsa)
+				{
+					RSA_free(algo_ctx_.rsa);
+					algo_ctx_.rsa = NULL;
+				}
+				algo_ctx_.rsa = RSA_generate_key(1024, e, NULL, NULL);
+				if (NULL == algo_ctx_.rsa)
+				{
+					if(pOut)
+						BIO_free_all(pOut);
+					return false;
+				}
+				if (pOut)
+				{
+					PEM_write_bio_RSAPrivateKey(pOut, algo_ctx_.rsa, NULL, NULL, 0, NULL, NULL);
+					BIO_free_all(pOut);
+				}
+				return true;
+			}
+			else if (type == SshDsa)
+			{
+				//释放已经存在的
+				if (algo_ctx_.dsa)
+				{
+					DSA_free(algo_ctx_.dsa);
+					algo_ctx_.dsa = NULL;
+				}
+				
+				algo_ctx_.dsa = DSA_new();
+				//char seed[20];
+				int ret = DSA_generate_parameters_ex(algo_ctx_.dsa, 1024  , NULL, 0, NULL, NULL, NULL);
+				if (ret != 1)
+				{
+					if (pOut)
+						BIO_free_all(pOut);
+					DSA_free(algo_ctx_.dsa);
+					return false;
+
+				}
+				/* 生成密钥 */
+				ret = DSA_generate_key(algo_ctx_.dsa);
+				if (ret != 1)
+				{
+					if (pOut)
+						BIO_free_all(pOut);
+					DSA_free(algo_ctx_.dsa);
+					return false;
+				}
+
+				if (pOut)
+				{
+					PEM_write_bio_DSAPrivateKey(pOut, algo_ctx_.dsa, NULL, NULL, 0, NULL, NULL);
+					BIO_free_all(pOut);
+				}
+				return true;
+			}
+			else
+			{
+				if (pOut)
+					BIO_free_all(pOut);
+				return false;
 			}
 		}
 	public:
@@ -653,23 +826,57 @@ namespace sim
 			//如果不存在就创建
 			if (NULL == algo_ctx_.e)
 				algo_ctx_.e = BN_new();
+			
+			if (NULL == algo_ctx_.x)
+				algo_ctx_.x = BN_new();
 
-			if (!GenerateE(algo_ctx_.e))
+			if (!GenerateEF(algo_ctx_.x,algo_ctx_.e))
 			{
 				//生成失败
-				return false;
+				return "";
 			}
 			SSHKexDHInit dh_init;
 			dh_init.e = Mpint(algo_ctx_.e);
 			if (dh_init.e.size() == 0)
-				return false;
+				return "";
 			return PrintKexDHInit(dh_init);
 		}
-		Str PrintKexDHInit(const SSHKexDHInit&dh_init);
+		Str PrintKexDHInit(const SSHKexDHInit&dh_init)
+		{
+			Str payload_data = PrintNameList(dh_init.e);
+			if (payload_data.size() == 0)
+				return "";
+			return PrintPacket(SSH_MSG_KEXDH_INIT, payload_data.c_str(), payload_data.size());
+		}
 		bool ParserKexDHInit(const char*payload_data, std::uint32_t payload_data_len, SSHKexDHInit&dh_init)
 		{
 			std::uint32_t offset = 0;
 			if (!ParserNameList(payload_data, payload_data_len, offset, dh_init.e))
+				return false;
+			return true;
+		}
+
+		//SSHKexDHReply
+		Str PrintKexDHReply(const SSHKexDHReply&dh_reply)
+		{
+			/*
+			string server public host key and certificates (K_S)
+			mpint f
+			string signature of S
+			*/
+			Str payload_data = PrintNameList(dh_reply.K_S);
+			payload_data += PrintNameList(dh_reply.f);
+			payload_data += PrintNameList(dh_reply.S);
+			return PrintPacket(SSH_MSG_KEXDH_REPLY, payload_data.c_str(), payload_data.size());
+		}
+		bool ParserKexDHReply(const char*payload_data, std::uint32_t payload_data_len, SSHKexDHReply&dh_reply)
+		{
+			std::uint32_t offset = 0;
+			if (!ParserNameList(payload_data, payload_data_len, offset, dh_reply.K_S))
+				return false;
+			if (!ParserNameList(payload_data, payload_data_len, offset, dh_reply.f))
+				return false;
+			if (!ParserNameList(payload_data, payload_data_len, offset, dh_reply.S))
 				return false;
 			return true;
 		}
@@ -771,6 +978,7 @@ namespace sim
 			}
 		}
 
+	public:
 		//版本协商
 		bool VersionExchange(const SSHVersion&ver)
 		{
@@ -807,7 +1015,56 @@ namespace sim
 		}
 
 		//密钥协商
-		
+		//服务端
+		//dh_init 接收到的dh 初始化报文
+		//dh_reply 发送的回复报文
+		bool KeyExchange(const SSHKexDHInit&dh_init, SSHKexDHReply &dh_reply);
+		//客户端
+		bool KeyExchange(const SSHKexDHReply &dh_reply)
+		{
+			if (!InitPubKey(dh_reply))
+			{
+				return false;
+			}
+
+			//K = f ^ x mod p
+			BIGNUM *p = BN_new();
+			BIGNUM *g = BN_new();
+			if (!GetKexPG(algo_ctx_.kex_algorithms, p, g))
+			{
+				algo_ctx_.ReleaseBIGNUM(&p);
+				algo_ctx_.ReleaseBIGNUM(&g);
+				return false;
+			}
+			if (NULL == algo_ctx_.K)
+				algo_ctx_.K = BN_new();
+			algo_ctx_.f = BigNum(dh_reply.f, algo_ctx_.f);
+			BN_CTX *ctx = BN_CTX_new();
+			//int BN_mod_exp(BIGNUM *r, BIGNUM *a, const BIGNUM *p,const BIGNUM *m, BN_CTX *ctx); 
+			//r = pow(a, p) % M
+			BN_mod_exp(algo_ctx_.K, algo_ctx_.f, algo_ctx_.x, p, ctx);
+			algo_ctx_.ReleaseBIGNUM(&p);
+			algo_ctx_.ReleaseBIGNUM(&g);
+			//algo_ctx_.ReleaseBIGNUM(&x);
+			BN_CTX_free(ctx);
+
+			//H = hash(V_C || V_S || I_C || I_S || K_S|| e || f || K)
+			algo_ctx_.H = MakeH();
+			if (algo_ctx_.H.size() == 0)
+				return false;
+			if (algo_ctx_.session_id.size() == 0)
+				algo_ctx_.session_id = algo_ctx_.H;
+			
+			//验证签名
+			//verify(Str &H, Str &S);
+			if (!Verify(algo_ctx_.H, dh_reply.S))
+				return false;
+			return true;
+		}
+
+		//计算密钥，返回报文
+		bool NewKeys();
+
 	private:
 		Str PrintNameList(name_list list)
 		{
@@ -838,11 +1095,34 @@ namespace sim
 		//大数转换为字符串
 		Str Mpint(BIGNUM *n)
 		{
-			int bit_num = BN_num_bytes(n);
+			if (NULL == n)
+				return "";
+
+			int bytes_num = BN_num_bytes(n);
+			unsigned char*buffer = new unsigned char[bytes_num];
+			int ret = BN_bn2bin(n, buffer);
+			if (ret <0)
+			{
+				printf("BN_bn2bin fail!ret=%d\n", ret);
+				return "";
+			}
+			Str res((char*)buffer, bytes_num);
+			delete[]buffer;
+			return res;
 		}
 
 		//子串转换为大数
-		BIGNUM * BigNum(Str m);
+		BIGNUM * BigNum(Str m, BIGNUM *n=NULL)
+		{
+			if (m.size() == 0)
+				return NULL;
+			if(NULL == n)
+				n = BN_new();
+			if (NULL == n)
+				return NULL;
+			BN_bin2bn((const unsigned char*)m.c_str(), m.size(), n);
+			return n;
+		}
 
 		/*bool ReadPacket(const char*data, unsigned int len, unsigned int &offset)
 		{
@@ -1093,7 +1373,6 @@ namespace sim
 			return true;
 		}
 		
-		
 	private:
 		//获取默认的算法
 		name_list GetLocalKexAlgorithms()
@@ -1103,7 +1382,29 @@ namespace sim
 		
 		name_list GetLocalServerHostKeyAlgorithms()
 		{
-			return "ssh-rsa,ssh-dss";
+			//#include <openssl/rsa.h>
+			/*PEM_read_RSAPrivateKey()
+				PEM_read_DSAPrivateKey*/
+			/*PEM_write_RSAPrivateKey*/
+			name_list list = "";
+			if (sp_type_ == SshServer)
+			{
+				
+				if (algo_ctx_.rsa)
+					list = "ssh-rsa";
+				if (algo_ctx_.dsa)
+				{
+					if (list.size() == 0)
+						list = "ssh-dsa";
+					else
+						list += ",ssh-dsa";
+				}
+			}
+			else
+			{
+				list = "ssh-rsa,ssh-dsa";
+			}
+			return list;
 		}
 		
 		name_list GetLocalEncryptionAlgorithmsClientToServer()
@@ -1438,11 +1739,13 @@ namespace sim
 				return -1;
 			}
 		}
-		//生成e
+		
+		//生成e或f
 		//首先客户端随机选取一个整数 x 满足(1 < x < q)，计算 e = g^x mod p 。把 e 发给服务器。
-		bool GenerateE(BIGNUM *e)
+		//服务器也随机选取一个整数 y (0 < y < q)，计算 f = g^y mod p
+		bool GenerateEF(BIGNUM *xy,BIGNUM *ef)
 		{
-			if (NULL == e)
+			if (NULL == xy||NULL == ef)
 				return false;
 
 			int group_order = GetKexGroupOrder(algo_ctx_.kex_algorithms);
@@ -1457,19 +1760,19 @@ namespace sim
 				algo_ctx_.ReleaseBIGNUM(&g);
 				return false;
 			}
-			BIGNUM *x = BN_new();
+			//BIGNUM *x = BN_new();
 			//随机选取一个整数 x 满足(1 < x < q)
-			BN_rand(x, group_order * 8 - 1, 0, -1);
+			BN_rand(xy, group_order * 8 - 1, 0, -1);
 			//e = g^x mod p
 			BN_CTX *ctx = BN_CTX_new();
 			//int BN_mod_exp(BIGNUM *r, BIGNUM *a, const BIGNUM *p,const BIGNUM *m, BN_CTX *ctx); 
 			//r = pow(a, p) % M
-			BN_mod_exp(e, g, x, p,ctx);
+			BN_mod_exp(ef, g, xy, p,ctx);
 
 			//释放资源
 			algo_ctx_.ReleaseBIGNUM(&p);
 			algo_ctx_.ReleaseBIGNUM(&g);
-			algo_ctx_.ReleaseBIGNUM(&x);
+			//algo_ctx_.ReleaseBIGNUM(&x);
 			BN_CTX_free(ctx);
 			ctx = NULL;
 			return true;
@@ -1497,6 +1800,159 @@ namespace sim
 				return false;
 			}
 			return true;
+		}
+
+		//计算H
+		//H = hash(V_C || V_S || I_C || I_S || K_S || e || f || K)
+		Str MakeH()
+		{
+			if (algo_ctx_.V_C.size() == 0
+				|| algo_ctx_.V_S.size() == 0
+				|| algo_ctx_.I_C.size() == 0
+				|| algo_ctx_.I_S.size() == 0
+				|| algo_ctx_.K_S.size() == 0
+				|| NULL == algo_ctx_.e
+				|| NULL == algo_ctx_.f
+				|| NULL == algo_ctx_.K)
+			{
+				//有数据为空
+				return "";
+			}
+			Str buff;
+			buff += PrintNameList(algo_ctx_.V_C);
+			buff += PrintNameList(algo_ctx_.V_S);
+			buff += PrintNameList(algo_ctx_.I_C);
+			buff += PrintNameList(algo_ctx_.I_S);
+			buff += PrintNameList(algo_ctx_.K_S);
+			buff += PrintNameList(Mpint(algo_ctx_.e));
+			buff += PrintNameList(Mpint(algo_ctx_.f));
+			buff += PrintNameList(Mpint(algo_ctx_.K));
+
+			//sha-1 运算
+			EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+			EVP_DigestInit(ctx, EVP_sha1());
+			EVP_DigestUpdate(ctx, buff.c_str(), buff.size());
+			unsigned char temp[EVP_MAX_MD_SIZE] = { 0 };
+			unsigned int len = EVP_MAX_MD_SIZE;
+			//操作成功返回1，否则返回0。
+			int ret = EVP_DigestFinal(ctx, temp, &len);
+			if (ret == 0)
+				return "";
+			return Str((char*)temp, len);
+		}
+
+		//初始化 服务端发过来的公钥
+		bool InitPubKey(const SSHKexDHReply &dh_reply)
+		{
+			std::uint32_t offset = 0;
+			Str ks_name;
+			if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, ks_name))
+				return false;
+			if (ks_name != algo_ctx_.server_host_key_algorithms)
+				return false;//与协商的算法不一致
+			if (offset >= dh_reply.K_S.size())
+				return false;//空
+			/*
+			The value for ’dss_signature_blob’ is encoded as a string containing
+			r, followed by s (which are 160-bit integers, without lengths or
+			padding, unsigned, and in network byte order).
+			*/
+			algo_ctx_.K_S = dh_reply.K_S;//Str(dh_reply.K_S.c_str() + offset, dh_reply.K_S.size() - offset);
+			
+			if ("ssh-rsa" == ks_name)
+			{
+				/*
+					string "ssh-rsa"
+					mpint e
+					mpint n
+				*/
+
+				Str str_e, str_n;
+				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_e))
+					return false;
+				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_n))
+					return false;
+				BIGNUM *e = BigNum(str_e);
+				BIGNUM *n = BigNum(str_n);
+				if (algo_ctx_.rsa)
+					RSA_free(algo_ctx_.rsa);
+				algo_ctx_.rsa = RSA_new();
+				RSA_set0_key(algo_ctx_.rsa, n, e,NULL);
+				RSA_set0_factors(algo_ctx_.rsa, NULL, NULL);
+				RSA_set0_crt_params(algo_ctx_.rsa, NULL, NULL, NULL);
+				RSA_check_key(algo_ctx_.rsa);
+				/*algo_ctx_.ReleaseBIGNUM(&e);
+				algo_ctx_.ReleaseBIGNUM(&n);*/
+				return true;
+			}
+			else if ("ssh-dsa" == ks_name)
+			{
+				/*
+					string "ssh-dss"
+					mpint p
+					mpint q
+					mpint g
+					mpint y
+				*/
+
+				Str str_p, str_q, str_g, str_y;
+				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_p))
+					return false;
+				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_q))
+					return false;
+				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_g))
+					return false;
+				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_y))
+					return false;
+				BIGNUM *p = BigNum(str_p);
+				BIGNUM *q = BigNum(str_q);
+				BIGNUM *g = BigNum(str_g);
+				BIGNUM *y = BigNum(str_y);
+				if (algo_ctx_.dsa)
+					DSA_free(algo_ctx_.dsa);
+				algo_ctx_.dsa = DSA_new();
+				DSA_set0_pqg(algo_ctx_.dsa, p, q, g);
+				DSA_set0_key(algo_ctx_.dsa, y,NULL);
+				/*algo_ctx_.ReleaseBIGNUM(&p);
+				algo_ctx_.ReleaseBIGNUM(&q);
+				algo_ctx_.ReleaseBIGNUM(&g);
+				algo_ctx_.ReleaseBIGNUM(&y);*/
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+
+		}
+
+		bool Verify(const Str &data, const Str &sign)
+		{
+			if ("ssh-rsa" == algo_ctx_.server_host_key_algorithms&&algo_ctx_.rsa)
+			{
+				int ret = RSA_verify(NID_sha1, (unsigned char*)data.c_str(), data.size()
+					,(unsigned char*)sign.c_str(), sign.size(), algo_ctx_.rsa);
+				if (ret != 1)
+				{
+					return false;
+				}
+				return true;
+			}
+			else if ("ssh-dsa" == algo_ctx_.server_host_key_algorithms&&algo_ctx_.dsa)
+			{
+				int ret = DSA_verify(NID_sha1, (unsigned char*)data.c_str(), data.size()
+					, (unsigned char*)sign.c_str(), sign.size(), algo_ctx_.dsa);
+				if (ret != 1)
+				{
+					return false;
+				}
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+			
 		}
 	private:
 		

@@ -13,6 +13,7 @@ void SSH_TRANS_HANDLER(sim::SshTransport*parser,
 	std::uint8_t message_code,
 	const char*payload_data, std::uint32_t payload_data_len, void*pdata)
 {
+	printf("SSH_TRANS_HANDLER message_code %d\n", message_code);
 	if (SSH_MSG_VERSION == message_code)
 	{
 		printf("version:%s\n", sim::Str(payload_data, payload_data_len).c_str());
@@ -53,6 +54,30 @@ void SSH_TRANS_HANDLER(sim::SshTransport*parser,
 			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
 			return;
 		}
+		sim::Str kex_dh_init = parser->PrintKexDHInit();
+		if (kex_dh_init.empty())
+		{
+			printf("PrintKexInit falt\n");
+			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+			return;
+		}
+		Get().Send(handle, kex_dh_init.c_str(), kex_dh_init.size());
+	}
+	else if (SSH_MSG_KEXDH_REPLY == message_code)
+	{
+		sim::SSHKexDHReply reply;
+		if (!parser->ParserKexDHReply(payload_data, payload_data_len, reply))
+		{
+			printf("ParserKexDHReply falt\n");
+			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+			return;
+		}
+		if (!parser->KeyExchange(reply))
+		{
+			printf("KeyExchange falt\n");
+			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+			return;
+		}
 	}
 	else
 	{
@@ -86,6 +111,10 @@ void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int err
 }
 int main(int argc, char*argv[])
 {
+	SSL_library_init();
+	ssh_parser.LoadPriKey(sim::SshRsa, "./ssh_rsa.pem");
+	ssh_parser.LoadPriKey(sim::SshDsa, "./ssh_dsa.pem");
+
 	sim::SimAsync &async= Get();
 	/*sim::AsyncHandle */handle = async.CreateTcpHandle();
 	/*async.ConvertToSSL(handle, true, true);
