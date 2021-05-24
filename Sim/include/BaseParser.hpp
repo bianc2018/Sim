@@ -16,6 +16,7 @@
 #define WIN32_LEAN_AND_MEAN  
 #endif
 #include <WinSock2.h>
+#include <sys/timeb.h>
 #elif defined(linux) || defined(__linux) || defined(__linux__)
 #ifndef OS_LINUX
 #define OS_LINUX
@@ -363,6 +364,20 @@ namespace sim
 				arrays[i] = (rand() % 123412 + seed + salt) % 127;
 			}
 			return true;
+		}
+
+		virtual bool FindChar(const char*data, unsigned int len, unsigned int &offset,char c,Str&temp)
+		{
+			for (; offset < len; ++offset)
+			{
+				if (data[offset] == c)
+				{
+					++offset;
+					return true;
+				}
+				temp += data[offset];
+			}
+			return false;
 		}
 	private:
 		int type_;
