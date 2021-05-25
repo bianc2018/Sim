@@ -1,3 +1,4 @@
+#define SIM_PARSER_MULTI_THREAD 1
 #include "AsyncSSH.hpp"
 #include "Async.hpp"
 #include "GlobalPoll.hpp"
@@ -112,8 +113,8 @@ void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int err
 int main(int argc, char*argv[])
 {
 	SSL_library_init();
-	ssh_parser.LoadPriKey(sim::SshRsa, "./ssh_rsa.pem");
-	ssh_parser.LoadPriKey(sim::SshDsa, "./ssh_dsa.pem");
+	/*ssh_parser.LoadPriKey(sim::SshRsa, "./ssh_rsa.pem");
+	ssh_parser.LoadPriKey(sim::SshDsa, "./ssh_dsa.pem");*/
 
 	sim::SimAsync &async= Get();
 	/*sim::AsyncHandle */handle = async.CreateTcpHandle();
@@ -128,7 +129,7 @@ int main(int argc, char*argv[])
 	if (async.AddTcpConnect(handle, "49.234.220.213", 22) != SOCK_SUCCESS)
 		return -1;
 	sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Wait();
-
+	getchar();
 	return 0;
 
 }
