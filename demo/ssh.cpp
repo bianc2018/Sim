@@ -1,5 +1,5 @@
 #define SIM_PARSER_MULTI_THREAD 1
-#include "AsyncSSH.hpp"
+#include "SSHv2.hpp"
 #include "Async.hpp"
 #include "GlobalPoll.hpp"
 #define MY_THREAD_NUM 1
@@ -10,88 +10,126 @@ sim::SimAsync& Get()
 {
 	return sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Get();
 }
-void SSH_TRANS_HANDLER(sim::SshTransport*parser,
-	std::uint8_t message_code,
-	const char*payload_data, std::uint32_t payload_data_len, void*pdata)
+void SSH_TRANS_HANDLER_SSH_MSG_VERSION(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
 {
-	printf("SSH_TRANS_HANDLER message_code %d\n", message_code);
-	if (SSH_MSG_VERSION == message_code)
+	printf("version:%s\n", sim::Str(payload_data, payload_data_len).c_str());
+	sim::SSHVersion ver;
+	if (!parser->ParserVersion(payload_data, payload_data_len, ver))
 	{
-		printf("version:%s\n", sim::Str(payload_data, payload_data_len).c_str());
-		sim::SSHVersion ver;
-		if (!parser->ParserVersion(payload_data, payload_data_len, ver))
-		{
-			printf("ParserVersion falt\n");
-			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
-			return;
-		}
-		if (!parser->VersionExchange(ver))
-		{
-			printf("VersionExchange falt\n");
-			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
-			return;
-		}
-		sim::Str kex_init = parser->PrintKexInit();
-		if (kex_init.empty())
-		{
-			printf("PrintKexInit falt\n");
-			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
-			return;
-		}
-		Get().Send(handle, kex_init.c_str(), kex_init.size());
+		printf("ParserVersion falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
 	}
-	else if (SSH_MSG_KEXINIT == message_code)
+	if (!parser->VersionExchange(ver))
 	{
-		sim::SSHKexInit kex_init;
-		if (!parser->ParserKexInit(payload_data, payload_data_len, kex_init))
-		{
-			printf("ParserKexInit falt\n");
-			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
-			return;
-		}
-		if (!parser->KexInit(kex_init))
-		{
-			printf("KexInit falt\n");
-			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
-			return;
-		}
-		sim::Str kex_dh_init = parser->PrintKexDHInit();
-		if (kex_dh_init.empty())
-		{
-			printf("PrintKexInit falt\n");
-			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
-			return;
-		}
-		Get().Send(handle, kex_dh_init.c_str(), kex_dh_init.size());
+		printf("VersionExchange falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
 	}
-	else if (SSH_MSG_KEXDH_REPLY == message_code)
+	sim::Str kex_init = parser->PrintKexInit();
+	if (kex_init.empty())
 	{
-		sim::SSHKexDHReply reply;
-		if (!parser->ParserKexDHReply(payload_data, payload_data_len, reply))
-		{
-			printf("ParserKexDHReply falt\n");
-			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
-			return;
-		}
-		if (!parser->KeyExchange(reply))
-		{
-			printf("KeyExchange falt\n");
-			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
-			return;
-		}
+		printf("PrintKexInit falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
 	}
-	else
-	{
-		printf("cannt find message_code %d\n", message_code);
-	}
+	Get().Send(handle, kex_init.c_str(), kex_init.size());
 }
+
+void SSH_TRANS_HANDLER_SSH_MSG_KEXINIT(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	printf("kex_init\n");
+	sim::SSHKexInit kex_init;
+	if (!parser->ParserKexInit(payload_data, payload_data_len, kex_init))
+	{
+		printf("ParserKexInit falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	if (!parser->KexInit(kex_init))
+	{
+		printf("KexInit falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	sim::Str kex_dh_init = parser->PrintKexDHInit();
+	if (kex_dh_init.empty())
+	{
+		printf("PrintKexInit falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	Get().Send(handle, kex_dh_init.c_str(), kex_dh_init.size());
+}
+
+void SSH_TRANS_HANDLER_SSH_MSG_KEXDH_REPLY(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	printf("kex_dh reply\n");
+	sim::SSHKexDHReply reply;
+	if (!parser->ParserKexDHReply(payload_data, payload_data_len, reply))
+	{
+		printf("ParserKexDHReply falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	if (!parser->KeyExchange(reply))
+	{
+		printf("KeyExchange falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	sim::Str newkey = parser->PrintNewKeys();
+	if (newkey.empty())
+	{
+		printf("PrintNewKeys falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	Get().Send(handle, newkey.c_str(), newkey.size());
+}
+
+void SSH_TRANS_HANDLER_SSH_MSG_NEWKEYS(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	printf("new key\n");
+	if (!parser->NewKeys())
+	{
+		printf("NewKeys falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+
+	sim::Str req = parser->PrintServiceRequest("ssh-userauth");
+	if (req.empty())
+	{
+		printf("PrintServiceRequest falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	Get().Send(handle, req.c_str(), req.size());
+}
+
+void SSH_TRANS_HANDLER_SSH_MSG_ERROR(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+
+}
+
 void AcceptHandler(sim::AsyncHandle handle, sim::AsyncHandle client, void*data)
 {
 	printf("%d accept %d\n", handle, client);
 }
 void ConnectHandler(sim::AsyncHandle handle, void*data)
 {
-	ssh_parser.SetHandler(SSH_TRANS_HANDLER, NULL);
+	ssh_parser.SetHandler(SSH_MSG_VERSION,SSH_TRANS_HANDLER_SSH_MSG_VERSION, NULL);
+	ssh_parser.SetHandler(SSH_MSG_KEXINIT, SSH_TRANS_HANDLER_SSH_MSG_KEXINIT, NULL);
+	ssh_parser.SetHandler(SSH_MSG_KEXDH_REPLY, SSH_TRANS_HANDLER_SSH_MSG_KEXDH_REPLY, NULL);
+	ssh_parser.SetHandler(SSH_MSG_NEWKEYS, SSH_TRANS_HANDLER_SSH_MSG_NEWKEYS, NULL);
+	ssh_parser.SetHandler(SSH_MSG_ERR, SSH_TRANS_HANDLER_SSH_MSG_ERROR, NULL);
+
 	sim::Str ver = ssh_parser.PrintProtocolVersion();
 	if (ver.empty())
 	{
@@ -110,6 +148,7 @@ void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int err
 {
 	SIM_LERROR("close " << handle << " error " << error << " reason " << reason);
 }
+
 int main(int argc, char*argv[])
 {
 	SSL_library_init();

@@ -1,7 +1,7 @@
 /*
 */
 #define SIM_PARSER_MULTI_THREAD 1
-#include "AsyncSSH.hpp"
+#include "SSHv2.hpp"
 #include "Async.hpp"
 #include "GlobalPoll.hpp"
 
@@ -17,11 +17,11 @@ sim::SshTransport ssh_s(sim::SshServer);
 sim::AsyncHandle c_handle=0;
 sim::AsyncHandle s_handle=0;
 
-void SendToClient(sim::Str&data)
+void SendToClient(const sim::Str&data)
 {
 	Get().Send(c_handle, data.c_str(), data.size());
 }
-void SendToServer(sim::Str&data)
+void SendToServer(const sim::Str&data)
 {
 	Get().Send(s_handle, data.c_str(), data.size());
 }
@@ -45,159 +45,347 @@ void s_RecvDataHandler(sim::AsyncHandle handle, char *buff, unsigned int buff_le
 {
 	ssh_s.Parser(buff, buff_len);
 }
-void c_SSH_TRANS_HANDLER(sim::SshTransport*parser,
-	std::uint8_t message_code,
-	const char*payload_data, std::uint32_t payload_data_len, void*pdata)
+
+//void c_SSH_TRANS_HANDLER(sim::SshTransport*parser,
+//	std::uint8_t message_code,
+//	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+//{
+//	printf("c_SSH_TRANS_HANDLER message_code %d\n", message_code);
+//	if (SSH_MSG_VERSION == message_code)
+//	{
+//		printf("c_SSH_TRANS_HANDLER version:%s\n", sim::Str(payload_data, payload_data_len).c_str());
+//		sim::SSHVersion ver;
+//		if (!parser->ParserVersion(payload_data, payload_data_len, ver))
+//		{
+//			printf("c_SSH_TRANS_HANDLER ParserVersion falt\n");
+//			return;
+//		}
+//		if (!parser->VersionExchange(ver))
+//		{
+//			printf("c_SSH_TRANS_HANDLER VersionExchange falt\n");
+//			return;
+//		}
+//
+//		sim::Str pro_ver = parser->PrintProtocolVersion();
+//		if (pro_ver.empty())
+//		{
+//			printf("c_SSH_TRANS_HANDLER PrintProtocolVersion falt\n");
+//			return;
+//		}
+//		SendToServer(pro_ver);
+//
+//		sim::Str kex_init = parser->PrintKexInit();
+//		if (kex_init.empty())
+//		{
+//			printf("c_SSH_TRANS_HANDLER PrintKexInit falt\n");
+//			return;
+//		}
+//		SendToServer(kex_init);
+//	}
+//	else if (SSH_MSG_KEXINIT == message_code)
+//	{
+//		sim::SSHKexInit kex_init;
+//		if (!parser->ParserKexInit(payload_data, payload_data_len, kex_init))
+//		{
+//			printf("c_SSH_TRANS_HANDLER ParserKexInit falt\n");
+//			return;
+//		}
+//		if (!parser->KexInit(kex_init))
+//		{
+//			printf("c_SSH_TRANS_HANDLER KexInit falt\n");
+//			return;
+//		}
+//		sim::Str kex_dh_init = parser->PrintKexDHInit();
+//		if (kex_dh_init.empty())
+//		{
+//			printf("c_SSH_TRANS_HANDLER PrintKexInit falt\n");
+//			return;
+//		}
+//		SendToServer(kex_dh_init);
+//	}
+//	else if (SSH_MSG_KEXDH_REPLY == message_code)
+//	{
+//		sim::SSHKexDHReply reply;
+//		if (!parser->ParserKexDHReply(payload_data, payload_data_len, reply))
+//		{
+//			printf("c_SSH_TRANS_HANDLER ParserKexDHReply falt\n");
+//			return;
+//		}
+//		if (!parser->KeyExchange(reply))
+//		{
+//			printf("c_SSH_TRANS_HANDLER KeyExchange falt\n");
+//			return;
+//		}
+//		printf("c_SSH_TRANS_HANDLER KeyExchange ok\n");
+//		
+//	}
+//	else if (SSH_MSG_NEWKEYS == message_code)
+//	{
+//		sim::Str newkey = parser->PrintNewKeys();
+//		if (newkey.empty())
+//		{
+//			printf("PrintNewKeys falt\n");
+//			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+//			return;
+//		}
+//		printf("new keys\n");
+//		if (!parser->NewKeys())
+//		{
+//			printf("NewKeys falt\n");
+//			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+//			return;
+//		}
+//		SendToServer(newkey);
+//	}
+//	else
+//	{
+//		printf("cannt find message_code %d\n", message_code);
+//	}
+//}
+//void s_SSH_TRANS_HANDLER(sim::SshTransport*parser,
+//	std::uint8_t message_code,
+//	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+//{
+//	printf("s_SSH_TRANS_HANDLER message_code %d\n", message_code);
+//	if (SSH_MSG_VERSION == message_code)
+//	{
+//		printf("s_SSH_TRANS_HANDLER version:%s\n", sim::Str(payload_data, payload_data_len).c_str());
+//		sim::SSHVersion ver;
+//		if (!parser->ParserVersion(payload_data, payload_data_len, ver))
+//		{
+//			printf("s_SSH_TRANS_HANDLER ParserVersion falt\n");
+//			return;
+//		}
+//		if (!parser->VersionExchange(ver))
+//		{
+//			printf("s_SSH_TRANS_HANDLER VersionExchange falt\n");
+//			return;
+//		}
+//		return;
+//	}
+//	else if (SSH_MSG_KEXINIT == message_code)
+//	{
+//		sim::SSHKexInit kex_init;
+//		if (!parser->ParserKexInit(payload_data, payload_data_len, kex_init))
+//		{
+//			printf("s_SSH_TRANS_HANDLER ParserKexInit falt\n");
+//			return;
+//		}
+//		if (!parser->KexInit(kex_init))
+//		{
+//			printf("s_SSH_TRANS_HANDLER KexInit falt\n");
+//			return;
+//		}
+//
+//		sim::Str str_kex_init = parser->PrintKexInit();
+//		if (str_kex_init.empty())
+//		{
+//			printf("s_SSH_TRANS_HANDLER PrintKexInit falt\n");
+//			return;
+//		}
+//		SendToClient(str_kex_init);
+//		return;
+//	}
+//	else if (SSH_MSG_KEXDH_INIT == message_code)
+//	{
+//		sim::SSHKexDHInit dh_init;
+//		if (!parser->ParserKexDHInit(payload_data, payload_data_len, dh_init))
+//		{
+//			printf("s_SSH_TRANS_HANDLER ParserKexDHInit falt\n");
+//			return;
+//		}
+//		sim::SSHKexDHReply dh_reply;
+//		if (!parser->KeyExchange(dh_init, dh_reply))
+//		{
+//			printf("s_SSH_TRANS_HANDLER KeyExchange falt\n");
+//			return;
+//		}
+//		sim::Str reply = parser->PrintKexDHReply(dh_reply);
+//		if (reply.empty())
+//		{
+//			printf("s_SSH_TRANS_HANDLER PrintKexDHReply falt\n");
+//			return;
+//		}
+//		SendToClient(reply);
+//
+//		sim::Str newkey = parser->PrintNewKeys();
+//		if (newkey.empty())
+//		{
+//			printf("PrintNewKeys falt\n");
+//			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+//			return;
+//		}
+//		SendToClient(newkey);
+//		return;
+//	}
+//	else if (SSH_MSG_NEWKEYS == message_code)
+//	{
+//		printf("new keys\n");
+//		if (!parser->NewKeys())
+//		{
+//			printf("NewKeys falt\n");
+//			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+//			return;
+//		}
+//
+//	}
+//	else if (SSH_MSG_SERVICE_REQUEST == message_code)
+//	{
+//		sim::Str service;
+//		if (!parser->ParserServiceRequest(payload_data, payload_data_len, service))
+//		{
+//			printf("s_SSH_TRANS_HANDLER ParserServiceRequest falt\n");
+//			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+//			return;
+//		}
+//		printf("request service %s\n", service.c_str());
+//		sim::Str accept = parser->PrintServiceAccept(service);
+//		if (accept.empty())
+//		{
+//			printf("PrintServiceAccept falt\n");
+//			sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+//			return;
+//		}
+//		SendToClient(accept);
+//	}
+//	else
+//	{
+//		printf("cannt find message_code %d\n", message_code);
+//	}
+//}
+
+void SSH_TRANS_HANDLER_SSH_MSG_VERSION(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
 {
-	printf("c_SSH_TRANS_HANDLER message_code %d\n", message_code);
-	if (SSH_MSG_VERSION == message_code)
+	printf("version:%s\n", sim::Str(payload_data, payload_data_len).c_str());
+	sim::SSHVersion ver;
+	if (!parser->ParserVersion(payload_data, payload_data_len, ver))
 	{
-		printf("c_SSH_TRANS_HANDLER version:%s\n", sim::Str(payload_data, payload_data_len).c_str());
-		sim::SSHVersion ver;
-		if (!parser->ParserVersion(payload_data, payload_data_len, ver))
-		{
-			printf("c_SSH_TRANS_HANDLER ParserVersion falt\n");
-			return;
-		}
-		if (!parser->VersionExchange(ver))
-		{
-			printf("c_SSH_TRANS_HANDLER VersionExchange falt\n");
-			return;
-		}
+		printf("ParserVersion falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	if (!parser->VersionExchange(ver))
+	{
+		printf("VersionExchange falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	sim::Str kex_init = parser->PrintKexInit();
+	if (kex_init.empty())
+	{
+		printf("PrintKexInit falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	//Get().Send(handle, kex_init.c_str(), kex_init.size());
+	SendToClient(kex_init);
+}
 
-		sim::Str pro_ver = parser->PrintProtocolVersion();
-		if (pro_ver.empty())
-		{
-			printf("c_SSH_TRANS_HANDLER PrintProtocolVersion falt\n");
-			return;
-		}
-		SendToServer(pro_ver);
-
-		sim::Str kex_init = parser->PrintKexInit();
-		if (kex_init.empty())
-		{
-			printf("c_SSH_TRANS_HANDLER PrintKexInit falt\n");
-			return;
-		}
-		SendToServer(kex_init);
-	}
-	else if (SSH_MSG_KEXINIT == message_code)
+void SSH_TRANS_HANDLER_SSH_MSG_KEXINIT(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	printf("kex_init\n");
+	sim::SSHKexInit kex_init;
+	if (!parser->ParserKexInit(payload_data, payload_data_len, kex_init))
 	{
-		sim::SSHKexInit kex_init;
-		if (!parser->ParserKexInit(payload_data, payload_data_len, kex_init))
-		{
-			printf("c_SSH_TRANS_HANDLER ParserKexInit falt\n");
-			return;
-		}
-		if (!parser->KexInit(kex_init))
-		{
-			printf("c_SSH_TRANS_HANDLER KexInit falt\n");
-			return;
-		}
-		sim::Str kex_dh_init = parser->PrintKexDHInit();
-		if (kex_dh_init.empty())
-		{
-			printf("c_SSH_TRANS_HANDLER PrintKexInit falt\n");
-			return;
-		}
-		SendToServer(kex_dh_init);
+		printf("ParserKexInit falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
 	}
-	else if (SSH_MSG_KEXDH_REPLY == message_code)
+	if (!parser->KexInit(kex_init))
 	{
-		sim::SSHKexDHReply reply;
-		if (!parser->ParserKexDHReply(payload_data, payload_data_len, reply))
-		{
-			printf("c_SSH_TRANS_HANDLER ParserKexDHReply falt\n");
-			return;
-		}
-		if (!parser->KeyExchange(reply))
-		{
-			printf("c_SSH_TRANS_HANDLER KeyExchange falt\n");
-			return;
-		}
-		printf("c_SSH_TRANS_HANDLER KeyExchange ok\n");
-	}
-	else
-	{
-		printf("cannt find message_code %d\n", message_code);
+		printf("KexInit falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
 	}
 }
-void s_SSH_TRANS_HANDLER(sim::SshTransport*parser,
-	std::uint8_t message_code,
-	const char*payload_data, std::uint32_t payload_data_len, void*pdata)
-{
-	printf("s_SSH_TRANS_HANDLER message_code %d\n", message_code);
-	if (SSH_MSG_VERSION == message_code)
-	{
-		printf("s_SSH_TRANS_HANDLER version:%s\n", sim::Str(payload_data, payload_data_len).c_str());
-		sim::SSHVersion ver;
-		if (!parser->ParserVersion(payload_data, payload_data_len, ver))
-		{
-			printf("s_SSH_TRANS_HANDLER ParserVersion falt\n");
-			return;
-		}
-		if (!parser->VersionExchange(ver))
-		{
-			printf("s_SSH_TRANS_HANDLER VersionExchange falt\n");
-			return;
-		}
-		return;
-	}
-	else if (SSH_MSG_KEXINIT == message_code)
-	{
-		sim::SSHKexInit kex_init;
-		if (!parser->ParserKexInit(payload_data, payload_data_len, kex_init))
-		{
-			printf("s_SSH_TRANS_HANDLER ParserKexInit falt\n");
-			return;
-		}
-		if (!parser->KexInit(kex_init))
-		{
-			printf("s_SSH_TRANS_HANDLER KexInit falt\n");
-			return;
-		}
 
-		sim::Str str_kex_init = parser->PrintKexInit();
-		if (str_kex_init.empty())
-		{
-			printf("s_SSH_TRANS_HANDLER PrintKexInit falt\n");
-			return;
-		}
-		SendToClient(str_kex_init);
+void SSH_TRANS_HANDLER_SSH_MSG_KEXDH_INIT(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	printf("kex_dh init\n");
+	sim::SSHKexDHInit dh_init;
+	if (!parser->ParserKexDHInit(payload_data, payload_data_len, dh_init))
+	{
+		printf("s_SSH_TRANS_HANDLER ParserKexDHInit falt\n");
 		return;
 	}
-	else if (SSH_MSG_KEXDH_INIT == message_code)
+	sim::SSHKexDHReply dh_reply;
+	if (!parser->KeyExchange(dh_init, dh_reply))
 	{
-		sim::SSHKexDHInit dh_init;
-		if (!parser->ParserKexDHInit(payload_data, payload_data_len, dh_init))
-		{
-			printf("s_SSH_TRANS_HANDLER ParserKexDHInit falt\n");
-			return;
-		}
-		sim::SSHKexDHReply dh_reply;
-		if (!parser->KeyExchange(dh_init, dh_reply))
-		{
-			printf("s_SSH_TRANS_HANDLER KeyExchange falt\n");
-			return;
-		}
-		sim::Str reply = parser->PrintKexDHReply(dh_reply);
-		if (reply.empty())
-		{
-			printf("s_SSH_TRANS_HANDLER PrintKexDHReply falt\n");
-			return;
-		}
-		SendToClient(reply);
+		printf("s_SSH_TRANS_HANDLER KeyExchange falt\n");
 		return;
 	}
-	else
+	sim::Str reply = parser->PrintKexDHReply(dh_reply);
+	if (reply.empty())
 	{
-		printf("cannt find message_code %d\n", message_code);
+		printf("s_SSH_TRANS_HANDLER PrintKexDHReply falt\n");
+		return;
+	}
+	SendToClient(reply);
+
+	sim::Str newkey = parser->PrintNewKeys();
+	if (newkey.empty())
+	{
+		printf("PrintNewKeys falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	SendToClient(newkey);
+}
+
+void SSH_TRANS_HANDLER_SSH_MSG_KEXDH_REPLY(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	printf("kex_dh reply\n");
+	sim::SSHKexDHReply reply;
+	if (!parser->ParserKexDHReply(payload_data, payload_data_len, reply))
+	{
+		printf("ParserKexDHReply falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	if (!parser->KeyExchange(reply))
+	{
+		printf("KeyExchange falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	sim::Str newkey = parser->PrintNewKeys();
+	if (newkey.empty())
+	{
+		printf("PrintNewKeys falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	//Get().Send(handle, newkey.c_str(), newkey.size());
+	SendToClient(newkey);
+}
+
+void SSH_TRANS_HANDLER_SSH_MSG_NEWKEYS(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	printf("new key\n");
+	if (!parser->NewKeys())
+	{
+		printf("NewKeys falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
 	}
 }
+
+
 int main(int argc, char*argv[])
 {
-	ssh_c.SetHandler(c_SSH_TRANS_HANDLER, NULL);
-	ssh_s.SetHandler(s_SSH_TRANS_HANDLER, NULL);
+	/*ssh_c.SetHandler(c_SSH_TRANS_HANDLER, NULL);
+	ssh_s.SetHandler(s_SSH_TRANS_HANDLER, NULL);*/
+
+	ssh_s.SetHandler(SSH_MSG_VERSION, SSH_TRANS_HANDLER_SSH_MSG_VERSION, NULL);
+	ssh_s.SetHandler(SSH_MSG_KEXINIT, SSH_TRANS_HANDLER_SSH_MSG_KEXINIT, NULL);
+	ssh_s.SetHandler(SSH_MSG_KEXDH_INIT, SSH_TRANS_HANDLER_SSH_MSG_KEXDH_INIT, NULL);
+	ssh_s.SetHandler(SSH_MSG_KEXDH_REPLY, SSH_TRANS_HANDLER_SSH_MSG_KEXDH_REPLY, NULL);
+	ssh_s.SetHandler(SSH_MSG_NEWKEYS, SSH_TRANS_HANDLER_SSH_MSG_NEWKEYS, NULL);
 
 	ssh_s.LoadPriKey(sim::SshRsa, "./ssh_rsa.pem");
 	ssh_s.LoadPriKey(sim::SshDsa, "./ssh_dsa.pem");

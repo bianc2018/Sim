@@ -6,17 +6,23 @@
 #define SIM_SSH_CTX_HPP_
 #endif //! SIM_USE_OPENSSL
 
-#ifndef SIM_SSH_CTX_HPP_
-#define SIM_SSH_CTX_HPP_
+#ifndef SIM_SSHV2_HPP_
+#define SIM_SSHV2_HPP_
 
 //类型
-#include <stdint.h>
+//#include <stdint.h>
+#include <cstring>
 
 #include <openssl/dsa.h>
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+#include <openssl/hmac.h>
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L && \
+    !defined(LIBRESSL_VERSION_NUMBER)
+# define HAVE_OPAQUE_STRUCTS 1
+#endif
 
 //基础解析器
 #include "BaseParser.hpp"
@@ -99,6 +105,17 @@
 #define SH_MSG_CHANNEL_SUCCESS				99
 #define SSH_MSG_CHANNEL_FAILURE				100
 
+//1-256
+//SSH packets have message numbers in the range 1 to 255
+//最大msg消息
+#define SSH_MSG_MAX				256
+/*
+Local extensions:
+	192 to 255 Local extensions
+255 作为错误回调
+*/
+#define SSH_MSG_ERR				SSH_MSG_MAX-1
+
 /*
 Symbolic Name											reason code
  -------------											-----------
@@ -119,13 +136,35 @@ Symbolic Name											reason code
  SSH_DISCONNECT_ILLEGAL_USER_NAME						15
 */
 
+
+//需要释放内存
+char* DumpHex(const unsigned char*hex, unsigned int hex_len)
+{
+	unsigned int buff_len = hex_len * 8;
+	char *buff = new char[buff_len];
+	memset(buff, 0, buff_len);
+	const int count = 2;
+	for (int i = 0; i < hex_len; i += count)
+		snprintf(buff + i, buff_len - i * count, "%02X", hex[i]);
+	return buff;
+}
+
 #ifndef SSH_TRANS_PACKET_MAX_SIZE
 //35000
 #define SSH_TRANS_PACKET_MAX_SIZE 35000
 #endif
+
 namespace sim
 {
 	class SshTransport;
+	
+	typedef unsigned char		uint8_t;
+	typedef unsigned short		uint16_t;
+	typedef unsigned long		uint32_t;
+	typedef unsigned long long	uint64_t;
+
+	typedef Str name_list;
+	typedef Str mpint;
 
 	//The Secure Shell (SSH) Transport Layer Protocol
 
@@ -136,9 +175,6 @@ namespace sim
 		Str softwareversion;
 		Str comments;
 	};
-
-	typedef Str name_list;
-	typedef Str mpint;
 
 	/*
 		byte SSH_MSG_KEXINIT
@@ -158,7 +194,7 @@ namespace sim
 	*/
 	struct SSHKexInit
 	{
-		std::uint8_t cookie[16];
+		uint8_t cookie[16];
 		name_list kex_algorithms;
 		name_list server_host_key_algorithms;
 		name_list encryption_algorithms_client_to_server;
@@ -170,7 +206,7 @@ namespace sim
 		name_list languages_client_to_server;
 		name_list languages_server_to_client;
 		bool first_kex_packet_follows;
-		std::uint32_t reserved;
+		uint32_t reserved;
 	};
 
 	//#define SSH_MSG_KEXDH_INIT					30
@@ -193,6 +229,115 @@ namespace sim
 		Str S;
 	};
 	
+
+	//hmac算法 基类
+	class SshHMac
+	{
+	public:
+		SshHMac(const Str& name,
+		uint8_t mac_len,
+		uint8_t key_len,
+		const Str& key,
+		const EVP_MD*md)
+			:name_(name)
+			, mac_len_(mac_len)
+			, key_len_(key_len)
+			, key_(key)
+			, md_(md)
+		{}
+		virtual uint8_t len()const
+		{
+			return mac_len_;
+		}
+		virtual uint8_t keylen()const
+		{
+			return key_len_;
+		}
+		virtual Str key()const
+		{
+			return key_;
+		}
+		virtual Str name()const
+		{
+			return name_;
+		}
+		virtual bool set_key(const Str&key)
+		{
+			if (key.size() != key_len_)
+				return false;
+			key_ = key;
+			return true;
+		}
+		//计算mac 失败返回""
+		virtual bool mac(uint32_t sequence_number, const char*in, uint32_t in_len,
+			char*out, uint32_t &out_len)=0;
+	protected:
+		Str name_;
+		uint8_t mac_len_;
+		uint8_t key_len_;
+		Str key_;
+		const EVP_MD*md_;
+
+	};
+	//return "hmac-sha1-96,hmac-sha1";
+	class SshHMacSha1:public SshHMac
+	{
+	public:
+		SshHMacSha1()
+			:SshHMac("hmac-sha1",20,20,"", EVP_sha1())
+		{}
+		virtual bool mac(uint32_t sequence_number, const char*in, uint32_t in_len,
+			char*out, uint32_t &out_len)
+		{
+			if (out_len < mac_len_)
+				return false;
+			if (NULL == md_)
+				return false;
+#ifdef HAVE_OPAQUE_STRUCTS
+			HMAC_CTX *ctx = HMAC_CTX_new();
+#else
+			HMAC_CTX *ctx = new HMAC_CTX();
+			HMAC_CTX_init(ctx);
+#endif
+			HMAC_Init(ctx, key_.c_str(), key_.size(), md_);
+			sequence_number = htonl(sequence_number);
+			HMAC_Update(ctx, (const unsigned char *)&sequence_number, 4);
+			HMAC_Update(ctx, (const unsigned char *)in, in_len);
+			HMAC_Final(ctx, (unsigned char *)out, (unsigned int*)&out_len);
+#ifdef HAVE_OPAQUE_STRUCTS
+			HMAC_CTX_free(ctx);
+#else
+			HMAC_cleanup(ctx);
+			delete ctx;
+#endif
+			return true;
+		}
+	};
+	class SshHMacSha1_96 :public SshHMacSha1
+	{
+	public:
+		SshHMacSha1_96()
+		{
+			name_ = "hmac-sha1-96";
+			mac_len_ = 96 / 8;
+		}
+		virtual bool mac(uint32_t sequence_number, const char*in, uint32_t in_len,
+			char*out, uint32_t &out_len)
+		{
+			if (out_len < mac_len_)
+				return false;
+			if (NULL == md_)
+				return false;
+			uint32_t len = 20;
+			char mac_temp[20] = { 0 };
+			if(!SshHMacSha1::mac(sequence_number,in, in_len, mac_temp, len))
+				return false;
+			out_len = mac_len_;
+			memcpy(out, mac_temp, out_len);
+			return true;
+		}
+	};
+
 	//ssh算法上下文
 	struct SSHAlgorithmsCtx
 	{
@@ -212,8 +357,8 @@ namespace sim
 		EVP_CIPHER_CTX *evp_ctx_encrypt;
 		EVP_CIPHER_CTX *evp_ctx_decrypt;
 
-		//
-		std::uint8_t mac_len;
+		//发送的时候
+		SshHMac *mac,*check_mac;
 
 		//是否已经发送或者接收报文 new key 标识算法可用。
 		bool is_newkeys;
@@ -235,7 +380,8 @@ namespace sim
 		SSHAlgorithmsCtx()
 			:evp_ctx_encrypt(NULL)
 			, evp_ctx_decrypt(NULL)
-			, mac_len(0)
+			, mac(NULL)
+			, check_mac(NULL)
 			, is_newkeys(false)
 			,e(NULL)
 			, x(NULL)
@@ -253,12 +399,24 @@ namespace sim
 			if (evp_ctx_encrypt)
 			{
 				EVP_CIPHER_CTX_cleanup(evp_ctx_encrypt);
+				EVP_CIPHER_CTX_free(evp_ctx_encrypt);
 				evp_ctx_encrypt = NULL;
 			}
 			if (evp_ctx_decrypt)
 			{
 				EVP_CIPHER_CTX_cleanup(evp_ctx_decrypt);
+				EVP_CIPHER_CTX_free(evp_ctx_decrypt);
 				evp_ctx_decrypt = NULL;
+			}
+			if (mac)
+			{
+				delete mac;
+				mac = NULL;
+			}
+			if (check_mac)
+			{
+				delete check_mac;
+				check_mac = NULL;
 			}
 			kex_algorithms = "";
 			server_host_key_algorithms = "";
@@ -323,9 +481,13 @@ namespace sim
 
 	//回调
 	typedef  void (*SSH_TRANS_HANDLER)(SshTransport*parser,
-		std::uint8_t message_code,
-		const char*payload_data,std::uint32_t payload_data_len, void*pdata);
-
+		const char*payload_data,uint32_t payload_data_len, void*pdata);
+	//句柄
+	struct SshTransportHandler
+	{
+		SSH_TRANS_HANDLER func;
+		void*pdata;
+	};
 	enum SshPointType
 	{
 		SshClient,
@@ -338,7 +500,20 @@ namespace sim
 		SshRsa,
 		SshDsa
 	};
-	//DH_generate_parameters_ex
+	
+	////io base
+	//io数据基类,需要定制这个基类
+	//class SshIOOuput
+	//{
+	//public:
+	//	SshIOOuput() {};
+	//	virtual ~SshIOOuput()=0;
+	//	//数据发送接口，失败返回 false
+	//	virtual bool Send(const char*data, uint32_t len)=0;
+	//	//关闭io
+	//	virtual bool Close() = 0;
+	//private:
+	//};
 
 	class SshTransport:protected BaseParser
 	{
@@ -354,14 +529,13 @@ namespace sim
 			:BaseParser(SIM_SSH_TRANS_PAESER_TYPE)
 			, sp_type_(sp_type)
 			, status_(SshTransportStatus_VersionLF)
-			, handler_(NULL)
-			, handler_data_(NULL)
 			, packet_lenght_(0)
 			, send_sequence_number_(0)
 			, recv_sequence_number_(0)
 		{
-
+			memset(handlers_, 0, sizeof(handlers_));
 		}
+		
 		void ReSet()
 		{
 			packet_lenght_ =0;
@@ -375,13 +549,19 @@ namespace sim
 
 			send_sequence_number_ = 0;
 			recv_sequence_number_ = 0;
-
+			//回调也初始化
+			//memset(handlers_, 0, sizeof(handlers_));
 		}
-		void SetHandler(SSH_TRANS_HANDLER handler, void*pdata)
+		
+		bool SetHandler(uint8_t msg_code,SSH_TRANS_HANDLER handler, void*pdata)
 		{
-			handler_ = handler;
-			handler_data_ = pdata;
+			if (msg_code >= SSH_MSG_MAX)
+				return false;
+			handlers_[msg_code].func = handler;
+			handlers_[msg_code].pdata = pdata;
+			return true;
 		}
+		
 		//数据输入
 		virtual bool Parser(const char*data, unsigned int len)
 		{
@@ -499,6 +679,7 @@ namespace sim
 				return false;
 			}
 		}
+		
 		//或者生成私钥 filename !=NULL 写到对应的文件
 		bool GeneratePriKey(SshHostKeyType type, const char*filename = NULL)
 		{
@@ -581,6 +762,9 @@ namespace sim
 				return false;
 			}
 		}
+
+		//启动握手流程
+		//bool StartHandShake(SshIOOuput*output);
 	public:
 		//Protocol Version Exchange
 		//SSH-protoversion-softwareversion SP comments CR LF
@@ -636,7 +820,7 @@ namespace sim
 
 			return res + "\r\n";
 		}
-		bool ParserVersion(const char*payload_data, std::uint32_t payload_data_len, SSHVersion&ver)
+		bool ParserVersion(const char*payload_data, uint32_t payload_data_len, SSHVersion&ver)
 		{
 			
 			enum ParserVerSt
@@ -648,7 +832,7 @@ namespace sim
 				ParserVerSt_end,
 			};
 			ParserVerSt st = ParserVerSt_SSH;
-			std::uint32_t offset = 0;
+			uint32_t offset = 0;
 
 			while (offset < payload_data_len)
 			{
@@ -766,9 +950,9 @@ namespace sim
 
 			return PrintPacket(SSH_MSG_KEXINIT, payload_data.c_str(), payload_data.size());
 		}
-		bool ParserKexInit(const char*payload_data, std::uint32_t payload_data_len, SSHKexInit&kex_init)
+		bool ParserKexInit(const char*payload_data, uint32_t payload_data_len, SSHKexInit&kex_init)
 		{
-			std::uint32_t offset = 0;
+			uint32_t offset = 0;
 			if (payload_data_len < 16)
 				return false;//长度不够 
 
@@ -817,7 +1001,7 @@ namespace sim
 
 			if (payload_data_len < offset + 4)
 				return false;//长度不够 
-			kex_init.reserved =*(std::uint32_t*) payload_data +offset;
+			kex_init.reserved =*(uint32_t*) payload_data +offset;
 			return true;
 		}
 
@@ -837,11 +1021,11 @@ namespace sim
 				return "";
 			}
 			SSHKexDHInit dh_init;
-			dh_init.e = Mpint(algo_ctx_.e);
+			dh_init.e = BN2Str(algo_ctx_.e);
 			if (dh_init.e.size() == 0)
 				return "";
 			
-			/*BIGNUM *e1 = BigNum(dh_init.e);
+			/*BIGNUM *e1 = Str2BN(dh_init.e);
 			int ret = BN_cmp(algo_ctx_.e, e1);
 			printf("e 0x%s\ne1 0x%s\n", BN_bn2hex(algo_ctx_.e), BN_bn2hex(e1));*/
 			return PrintKexDHInit(dh_init);
@@ -853,9 +1037,9 @@ namespace sim
 				return "";
 			return PrintPacket(SSH_MSG_KEXDH_INIT, payload_data.c_str(), payload_data.size());
 		}
-		bool ParserKexDHInit(const char*payload_data, std::uint32_t payload_data_len, SSHKexDHInit&dh_init)
+		bool ParserKexDHInit(const char*payload_data, uint32_t payload_data_len, SSHKexDHInit&dh_init)
 		{
-			std::uint32_t offset = 0;
+			uint32_t offset = 0;
 			if (!ParserNameList(payload_data, payload_data_len, offset, dh_init.e))
 				return false;
 			return true;
@@ -874,9 +1058,9 @@ namespace sim
 			payload_data += PrintNameList(dh_reply.S);
 			return PrintPacket(SSH_MSG_KEXDH_REPLY, payload_data.c_str(), payload_data.size());
 		}
-		bool ParserKexDHReply(const char*payload_data, std::uint32_t payload_data_len, SSHKexDHReply&dh_reply)
+		bool ParserKexDHReply(const char*payload_data, uint32_t payload_data_len, SSHKexDHReply&dh_reply)
 		{
-			std::uint32_t offset = 0;
+			uint32_t offset = 0;
 			if (!ParserNameList(payload_data, payload_data_len, offset, dh_reply.K_S))
 				return false;
 			if (!ParserNameList(payload_data, payload_data_len, offset, dh_reply.f))
@@ -886,19 +1070,25 @@ namespace sim
 			return true;
 		}
 
-		Str PrintPacket(std::uint8_t message_code,const char*payload_data, std::uint32_t payload_data_len)
+		Str PrintNewKeys()
+		{
+			return PrintPacket(SSH_MSG_NEWKEYS, NULL, 0);
+		}
+
+		Str PrintPacket(uint8_t message_code,const char*payload_data, uint32_t payload_data_len)
 		{
 			//包过大
-			if (payload_data_len + 1 +1 + 4+algo_ctx_.mac_len > SSH_TRANS_PACKET_MAX_SIZE)
+			if (payload_data_len + 1 +1 + 4> SSH_TRANS_PACKET_MAX_SIZE)
 				return "";
 			
 			char tmp[SSH_TRANS_PACKET_MAX_SIZE] = {0};
 
 			//playload
-			std::uint32_t raw_payload_len = payload_data_len + 1;
+			uint32_t raw_payload_len = payload_data_len + 1;
 			char *raw_payload = new char [raw_payload_len] ;
 			memcpy(raw_payload, &message_code, 1);
-			memcpy(raw_payload +1, payload_data, payload_data_len);
+			if(payload_data&&payload_data_len)
+				memcpy(raw_payload +1, payload_data, payload_data_len);
 			if (SSH_MSG_KEXINIT == message_code)
 			{
 				//缓存报文
@@ -911,7 +1101,7 @@ namespace sim
 					algo_ctx_.I_S = Str(raw_payload, raw_payload_len);
 				}
 			}
-			std::uint32_t payload_len = SSH_TRANS_PACKET_MAX_SIZE-5;
+			uint32_t payload_len = SSH_TRANS_PACKET_MAX_SIZE-5;
 			//压缩
 			if (!Compress(raw_payload, raw_payload_len, tmp + 5, payload_len))
 			{
@@ -927,16 +1117,17 @@ namespace sim
 			*/
 			/* Plain math: (4 + 1 + packet_length + padding_length) % blocksize == 0 */
 			// packagelen + padding_length+message_code+playloaddata
-			std::uint32_t total = 4+1+ payload_len;
-			std::uint8_t block_size = 8;
+			uint32_t total = 4+1+ payload_len;
+			uint8_t block_size = 8;
 			if (algo_ctx_.evp_ctx_encrypt)
 			{
-				block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_encrypt);
+				//block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_encrypt);
+				block_size = EVP_CIPHER_CTX_iv_length(algo_ctx_.evp_ctx_encrypt);
 			}
-			std::uint8_t padding_len = block_size - total % block_size;
+			uint8_t padding_len = block_size - total % block_size;
 			if (padding_len < 4)
 				padding_len += block_size;
-			if (4+1+ payload_len + padding_len + algo_ctx_.mac_len > SSH_TRANS_PACKET_MAX_SIZE)
+			if (4+1+ payload_len + padding_len > SSH_TRANS_PACKET_MAX_SIZE)
 				return "";
 			unsigned char *padding = (unsigned char *)tmp + 1 + 4 + payload_len;
 			if (!OpensslGenerateRandArray(padding, padding_len))
@@ -946,7 +1137,7 @@ namespace sim
 
 			//填充长度
 			//padding feild（1）+ payload_len + padding_len
-			std::uint32_t packet_lenght = 1 + payload_len + padding_len;
+			uint32_t packet_lenght = 1 + payload_len + padding_len;
 			packet_lenght = htonl(packet_lenght);
 			memcpy(tmp, &packet_lenght, 4);
 			memcpy(tmp +4, &padding_len, 1);
@@ -956,9 +1147,9 @@ namespace sim
 				//加密
 				//需要加密的报文长度
 				char msg[SSH_TRANS_PACKET_MAX_SIZE] = { 0 };
-				std::uint32_t msg_len = 0;
-				std::uint32_t encrypt_size = 4 + 1 + payload_len + padding_len;
-				std::uint32_t out_len = SSH_TRANS_PACKET_MAX_SIZE - msg_len;
+				uint32_t msg_len = 0;
+				uint32_t encrypt_size = 4 + 1 + payload_len + padding_len;
+				uint32_t out_len = SSH_TRANS_PACKET_MAX_SIZE - msg_len;
 				for (int i = 0; i < encrypt_size; i += block_size)//保证一次完成
 				{
 					out_len = SSH_TRANS_PACKET_MAX_SIZE - msg_len;
@@ -966,13 +1157,16 @@ namespace sim
 						return "";
 					msg_len += out_len;
 				}
-				out_len = SSH_TRANS_PACKET_MAX_SIZE - msg_len;
-				//计算mac
-				if (!Mac(send_sequence_number_, tmp, encrypt_size, msg + msg_len, out_len))
+				if (algo_ctx_.mac)
 				{
-					return "";
+					out_len = SSH_TRANS_PACKET_MAX_SIZE - msg_len;
+					//计算mac
+					if (!Mac(send_sequence_number_, tmp, encrypt_size, msg + msg_len, out_len))
+					{
+						return "";
+					}
+					msg_len += out_len;
 				}
-				msg_len += out_len;
 				++send_sequence_number_;
 				return Str(msg, msg_len);
 			}
@@ -983,6 +1177,36 @@ namespace sim
 			}
 		}
 
+		//SERVICE_REQUEST
+		Str PrintServiceRequest(const Str &service)
+		{
+			/*
+			byte SSH_MSG_SERVICE_REQUEST
+			string service name
+			*/
+			Str payload_data = PrintNameList(service);
+			return PrintPacket(SSH_MSG_SERVICE_REQUEST, payload_data.c_str(), payload_data.size());
+		}
+		Str PrintServiceAccept(const Str &service)
+		{
+			/*
+			byte SSH_MSG_SERVICE_ACCEPT
+			string service name
+			*/
+			Str payload_data = PrintNameList(service);
+			return PrintPacket(SSH_MSG_SERVICE_ACCEPT, payload_data.c_str(), payload_data.size());
+		}
+		bool ParserServiceRequest(const char*payload_data, uint32_t payload_data_len, Str &service)
+		{
+			uint32_t offset = 0;
+			if (!ParserNameList(payload_data, payload_data_len, offset, service))
+				return false;
+			return true;
+		}
+		bool ParserServiceAccept(const char*payload_data, uint32_t payload_data_len, Str &service)
+		{
+			return ParserServiceRequest(payload_data, payload_data_len, service);
+		}
 	public:
 		//版本协商
 		bool VersionExchange(const SSHVersion&ver)
@@ -1045,7 +1269,7 @@ namespace sim
 				return false;
 			}
 
-			algo_ctx_.e = BigNum(dh_init.e, algo_ctx_.e);
+			algo_ctx_.e = Str2BN(dh_init.e, algo_ctx_.e);
 			if (NULL == algo_ctx_.e)
 			{
 				return false;
@@ -1066,10 +1290,10 @@ namespace sim
 			//r = pow(a, p) % M
 			BN_mod_exp(algo_ctx_.K, algo_ctx_.e, algo_ctx_.y, p, ctx);
 			
-			printf("server p=0x%s\n", BN_bn2hex(p));
+			/*printf("server p=0x%s\n", BN_bn2hex(p));
 			printf("server e=0x%s\n", BN_bn2hex(algo_ctx_.e));
 			printf("server f=0x%s\n", BN_bn2hex(algo_ctx_.f));
-			printf("server k=0x%s\n", BN_bn2hex(algo_ctx_.K));
+			printf("server k=0x%s\n", BN_bn2hex(algo_ctx_.K));*/
 			
 			algo_ctx_.ReleaseBIGNUM(&p);
 			algo_ctx_.ReleaseBIGNUM(&g);
@@ -1094,7 +1318,7 @@ namespace sim
 			{
 				return false;
 			}
-			dh_reply.f = Mpint(algo_ctx_.f);
+			dh_reply.f = BN2Str(algo_ctx_.f);
 			
 			dh_reply.K_S = algo_ctx_.K_S;
 			return true;
@@ -1118,7 +1342,7 @@ namespace sim
 			}
 			if (NULL == algo_ctx_.K)
 				algo_ctx_.K = BN_new();
-			algo_ctx_.f = BigNum(dh_reply.f, algo_ctx_.f);
+			algo_ctx_.f = Str2BN(dh_reply.f, algo_ctx_.f);
 			BN_CTX *ctx = BN_CTX_new();
 			//int BN_mod_exp(BIGNUM *r, BIGNUM *a, const BIGNUM *p,const BIGNUM *m, BN_CTX *ctx); 
 			//r = pow(a, p) % M
@@ -1143,12 +1367,150 @@ namespace sim
 		}
 
 		//计算密钥，返回报文
-		bool NewKeys();
-
-	private:
-		Str PrintNameList(name_list list)
+		bool NewKeys()
 		{
-			std::uint32_t size = htonl(list.size());
+			//检查数据
+			if (NULL == algo_ctx_.K||0==algo_ctx_.H.size()|| 0 == algo_ctx_.session_id.size())
+				return false;
+			Str s_k = PrintNameList(BN2Str(algo_ctx_.K));
+			const EVP_CIPHER *e_c2s = GetEncryptionCipher(algo_ctx_.encryption_algorithms_client_to_server);
+			const EVP_CIPHER *e_s2c = GetEncryptionCipher(algo_ctx_.encryption_algorithms_server_to_client);
+			SshHMac*mac_c2s = NewHMac(algo_ctx_.mac_algorithms_client_to_server);
+			SshHMac*mac_s2c = NewHMac(algo_ctx_.mac_algorithms_server_to_client);
+
+			if (NULL == e_c2s || NULL == e_s2c || NULL == mac_c2s || NULL == mac_s2c)
+			{
+				if (mac_c2s)
+					delete mac_c2s;
+				if (mac_s2c)
+					delete mac_s2c;
+				return false;
+			}
+			
+			/*
+			 Initial IV client to server: HASH(K || H || "A" || session_id)
+			(Here K is encoded as mpint and "A" as byte and session_id as raw
+			data. "A" means the single character A, ASCII 65).
+			o Initial IV server to client: HASH(K || H || "B" || session_id)
+			o Encryption key client to server: HASH(K || H || "C" || session_id)
+			o Encryption key server to client: HASH(K || H || "D" || session_id)
+			o Integrity key client to server: HASH(K || H || "E" || session_id)
+			o Integrity key server to client: HASH(K || H || "F" || session_id)
+			*/
+			//计算密钥
+			Str iv_c2s = MakeKey(s_k, algo_ctx_.H, 'A', algo_ctx_.session_id, EVP_CIPHER_iv_length(e_c2s));
+			Str iv_s2c = MakeKey(s_k, algo_ctx_.H, 'B', algo_ctx_.session_id, EVP_CIPHER_iv_length(e_s2c));
+			
+			Str key_c2s = MakeKey(s_k, algo_ctx_.H, 'C', algo_ctx_.session_id, EVP_CIPHER_key_length(e_c2s));
+			Str key_s2c = MakeKey(s_k, algo_ctx_.H, 'D', algo_ctx_.session_id, EVP_CIPHER_key_length(e_s2c));
+
+			Str mac_key_c2s = MakeKey(s_k, algo_ctx_.H, 'E', algo_ctx_.session_id, mac_c2s->keylen());
+			
+			Str mac_key_s2c = MakeKey(s_k, algo_ctx_.H, 'F', algo_ctx_.session_id, mac_c2s->keylen());
+
+			/*printf("client iv A:%s\n", DumpHex((const unsigned char*)iv_c2s.c_str(), iv_c2s.size()));
+			printf("server iv B:%s\n", DumpHex((const unsigned char*)iv_s2c.c_str(), iv_s2c.size()));
+			printf("client key C:%s\n", DumpHex((const unsigned char*)key_c2s.c_str(), key_c2s.size()));
+			printf("server key D:%s\n", DumpHex((const unsigned char*)key_s2c.c_str(), key_s2c.size()));
+			printf("client mac E:%s\n", DumpHex((const unsigned char*)mac_key_c2s.c_str(), mac_key_c2s.size()));
+			printf("server mac F:%s\n", DumpHex((const unsigned char*)mac_key_s2c.c_str(), mac_key_s2c.size()));*/
+
+			if (0 == iv_c2s.size() || 0 == iv_s2c.size()
+				|| 0 == key_c2s.size() || 0 == key_s2c.size()
+				|| 0 == mac_key_c2s.size() || 0 == mac_key_s2c.size())
+			{
+				if (mac_c2s)
+					delete mac_c2s;
+				if (mac_s2c)
+					delete mac_s2c;
+				return false;
+			}
+
+			mac_c2s->set_key(mac_key_c2s);
+			mac_s2c->set_key(mac_key_s2c);
+
+			//初始化
+			if (SshClient == sp_type_)
+			{
+				//client to server 加密 反之 解密
+				//已存在的释放
+				if (algo_ctx_.evp_ctx_encrypt)
+				{
+					EVP_CIPHER_CTX_free(algo_ctx_.evp_ctx_encrypt);
+					algo_ctx_.evp_ctx_encrypt = NULL;
+				}
+				algo_ctx_.evp_ctx_encrypt = EVP_CIPHER_CTX_new();
+				EVP_CIPHER_CTX_cleanup(algo_ctx_.evp_ctx_encrypt);
+				EVP_CipherInit(algo_ctx_.evp_ctx_encrypt, e_c2s,
+					(const unsigned char*)key_c2s.c_str(), (const unsigned char*)iv_c2s.c_str(), 1);
+
+				if (algo_ctx_.evp_ctx_decrypt)
+				{
+					EVP_CIPHER_CTX_free(algo_ctx_.evp_ctx_decrypt);
+					algo_ctx_.evp_ctx_decrypt = NULL;
+				}
+				algo_ctx_.evp_ctx_decrypt = EVP_CIPHER_CTX_new();
+				EVP_CIPHER_CTX_cleanup(algo_ctx_.evp_ctx_decrypt);
+				EVP_CipherInit(algo_ctx_.evp_ctx_decrypt, e_s2c,
+					(const unsigned char*)key_s2c.c_str(), (const unsigned char*)iv_s2c.c_str(), 0);
+
+				if (algo_ctx_.mac)
+					delete algo_ctx_.mac;
+				algo_ctx_.mac = mac_c2s;
+
+				if (algo_ctx_.check_mac)
+					delete algo_ctx_.check_mac;
+				algo_ctx_.check_mac = mac_s2c;
+				return true;
+
+			}
+			else if (SshServer == sp_type_)
+			{
+				// server to server 加密 反之 解密
+				//已存在的释放
+				if (algo_ctx_.evp_ctx_encrypt)
+				{
+					EVP_CIPHER_CTX_free(algo_ctx_.evp_ctx_encrypt);
+					algo_ctx_.evp_ctx_encrypt = NULL;
+				}
+				algo_ctx_.evp_ctx_encrypt = EVP_CIPHER_CTX_new();
+				EVP_CIPHER_CTX_cleanup(algo_ctx_.evp_ctx_encrypt);
+				EVP_CipherInit(algo_ctx_.evp_ctx_encrypt, e_s2c,
+					(const unsigned char*)key_s2c.c_str(), (const unsigned char*)iv_s2c.c_str(), 1);
+
+				if (algo_ctx_.evp_ctx_decrypt)
+				{
+					EVP_CIPHER_CTX_free(algo_ctx_.evp_ctx_decrypt);
+					algo_ctx_.evp_ctx_decrypt = NULL;
+				}
+				algo_ctx_.evp_ctx_decrypt = EVP_CIPHER_CTX_new();
+				EVP_CIPHER_CTX_cleanup(algo_ctx_.evp_ctx_decrypt);
+				EVP_CipherInit(algo_ctx_.evp_ctx_decrypt, e_c2s,
+					(const unsigned char*)key_c2s.c_str(), (const unsigned char*)iv_c2s.c_str(), 0);
+
+				if (algo_ctx_.mac)
+					delete algo_ctx_.mac;
+				algo_ctx_.mac = mac_s2c;
+
+				if (algo_ctx_.check_mac)
+					delete algo_ctx_.check_mac;
+				algo_ctx_.check_mac = mac_c2s;
+				return true;
+			}
+			else
+			{
+				if (mac_c2s)
+					delete mac_c2s;
+				if (mac_s2c)
+					delete mac_s2c;
+				return false;
+			}
+		}
+
+	public:
+		Str PrintNameList(const name_list& list)
+		{
+			uint32_t size = htonl(list.size());
 
 			Str res = Str((const char*)&size, 4);
 			if (list.size() != 0)
@@ -1156,14 +1518,14 @@ namespace sim
 			return res;
 		}
 		
-		bool ParserNameList(const char*payload, std::uint32_t payload_len, std::uint32_t &offset, name_list&list)
+		bool ParserNameList(const char*payload, uint32_t payload_len, uint32_t &offset, name_list&list)
 		{
 			//剩余的字节数
-			std::uint32_t has_bytes = payload_len - offset;
+			uint32_t has_bytes = payload_len - offset;
 			//必须有四字节长度
 			if (has_bytes < 4)
 				return false;
-			std::uint32_t list_len = ntohl(*(unsigned long*)(payload + offset));
+			uint32_t list_len = ntohl(*(unsigned long*)(payload + offset));
 			//长度不足
 			if (has_bytes < list_len+4)
 				return false;
@@ -1173,7 +1535,7 @@ namespace sim
 		}
 
 		//大数转换为字符串
-		Str Mpint(const BIGNUM *n)
+		Str BN2Str(const BIGNUM *n)
 		{
 			if (NULL == n)
 				return "";
@@ -1209,7 +1571,7 @@ namespace sim
 		}
 
 		//子串转换为大数
-		BIGNUM * BigNum(Str m, BIGNUM *n=NULL)
+		BIGNUM * Str2BN(Str m, BIGNUM *n=NULL)
 		{
 			if (m.size() == 0)
 				return NULL;
@@ -1220,6 +1582,8 @@ namespace sim
 			BN_bin2bn((const unsigned char*)m.c_str(), m.size(), n);
 			return n;
 		}
+
+	protected:
 
 		/*bool ReadPacket(const char*data, unsigned int len, unsigned int &offset)
 		{
@@ -1236,12 +1600,12 @@ namespace sim
 			}
 			else
 			{
-				std::uint8_t block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);
+				uint8_t block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);
 				return false;
 			}
 		}*/
 
-		bool SplitPacket(const char*data, unsigned int len, unsigned int &offset)
+		bool SplitPacket(const char*data, unsigned int len, uint32_t &offset)
 		{
 			while (offset < len)
 			{
@@ -1254,7 +1618,7 @@ namespace sim
 					{
 						if (t_msg_.size() >= 4)
 						{
-							packet_lenght_ = ntohl(*((std::uint32_t*)(t_msg_.c_str())));
+							packet_lenght_ = ntohl(*((uint32_t*)(t_msg_.c_str())));
 							break;
 						}
 						t_msg_ += data[offset++];
@@ -1262,7 +1626,7 @@ namespace sim
 				}
 				else
 				{
-					std::uint32_t need_bytes = (packet_lenght_ + 4) - t_msg_.size();
+					uint32_t need_bytes = (packet_lenght_ + 4) - t_msg_.size();
 					if (need_bytes == 0)
 					{
 						/*bool ret = OnMessage();
@@ -1273,8 +1637,8 @@ namespace sim
 					}
 					else
 					{
-						std::uint32_t has_bytes = len - offset;
-						std::uint32_t copy_bytes = need_bytes>has_bytes? has_bytes: need_bytes;
+						uint32_t has_bytes = len - offset;
+						uint32_t copy_bytes = need_bytes>has_bytes? has_bytes: need_bytes;
 						t_msg_ += Str(data + offset, copy_bytes);
 						offset += copy_bytes;
 						need_bytes = (packet_lenght_ + 4) - t_msg_.size();
@@ -1291,7 +1655,7 @@ namespace sim
 			}
 			if (status_ == SshTransportStatus_Mac)
 			{
-				if (algo_ctx_.mac_len == 0)
+				if (algo_ctx_.check_mac == NULL)
 				{
 					bool ret = OnMessage();
 					if (false == ret)
@@ -1307,26 +1671,28 @@ namespace sim
 
 		bool ReadPacket()
 		{
-			std::uint32_t offset = 0;
+			uint32_t offset = 0;
 			while (offset < temp_.size())
 			{
 				if (status_ == SshTransportStatus_Packet)
 				{
 					if (algo_ctx_.evp_ctx_decrypt)
 					{
-						std::uint8_t block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);
-						const std::uint32_t decrypt_buff_size = 1024;
+						//uint8_t block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);
+						//EVP_CIPHER_CTX_iv_length
+						uint8_t block_size = EVP_CIPHER_CTX_iv_length(algo_ctx_.evp_ctx_decrypt);
+						const uint32_t decrypt_buff_size = 1024;
 						char decrypt_buff[decrypt_buff_size] = { 0 };
 						for (; offset < temp_.size(); offset += block_size)
 						{
-							std::uint32_t out_len = decrypt_buff_size;
+							uint32_t out_len = decrypt_buff_size;
 							if (!Decrypt(temp_.c_str() + offset, block_size, decrypt_buff, out_len))
 							{
 								return false;
 							}
 							if (out_len > 0)
 							{
-								std::uint32_t s_offset = 0;
+								uint32_t s_offset = 0;
 								bool ret = SplitPacket(decrypt_buff, out_len, s_offset);
 								if (false == ret)
 								{
@@ -1338,6 +1704,7 @@ namespace sim
 								}
 								if (status_ == SshTransportStatus_Mac)
 								{
+									offset += block_size;
 									break;
 								}
 							}
@@ -1354,15 +1721,16 @@ namespace sim
 				}
 				else if (status_ == SshTransportStatus_Mac)
 				{
-					if (algo_ctx_.mac_len)
+					if (algo_ctx_.check_mac)
 					{
-						if (t_msg_.size() >= packet_lenght_ + 4 + algo_ctx_.mac_len)
+						t_msg_ += temp_[offset++];
+						if (t_msg_.size() >= packet_lenght_ + 4 + algo_ctx_.check_mac->len())
 						{
 							bool ret = OnMessage();
 							if (false == ret)
 								return ret;
 						}
-						t_msg_ += temp_[offset++];
+						
 					}
 					else
 					{
@@ -1383,8 +1751,8 @@ namespace sim
 			return true;
 		}
 
-		void OnHandler(std::uint8_t message_code,
-			const char*payload_data, std::uint32_t payload_data_len)
+		void OnHandler(uint8_t message_code,
+			const char*payload_data, uint32_t payload_data_len)
 		{
 			if (SSH_MSG_VERSION == message_code)
 			{
@@ -1418,11 +1786,19 @@ namespace sim
 					algo_ctx_.I_C = (char)message_code + Str(payload_data, payload_data_len);
 				}
 			}
-			++recv_sequence_number_;
-			if (handler_)
+			if (SSH_MSG_VERSION != message_code)
+				++recv_sequence_number_;
+
+			if (message_code >= SSH_MSG_MAX)
+			{
+				return;
+			}
+			if (handlers_[message_code].func)
+				handlers_[message_code].func(this, payload_data, payload_data_len, handlers_[message_code].pdata);
+			/*if (handler_)
 			{
 				handler_(this, message_code, payload_data, payload_data_len, handler_data_);
-			}
+			}*/
 		}
 
 		bool OnMessage()
@@ -1435,16 +1811,17 @@ namespace sim
 				byte[m] mac (Message Authentication Code - MAC); m = mac_length
 			*/
 			//检查
-			std::uint8_t padding_length = *((std::uint8_t*)t_msg_.c_str()+4);//四个字节
+			uint8_t padding_length = *((uint8_t*)t_msg_.c_str()+4);//四个字节
 			//载荷大小
-			std::uint32_t payload_length = packet_lenght_ - padding_length - 1;
+			uint32_t payload_length = packet_lenght_ - padding_length - 1;
 			const char *payload = t_msg_.c_str() + 4 + 1;
 
 			//校验
-			if (algo_ctx_.mac_len)
+			if (algo_ctx_.check_mac)
 			{
+				//the length fields, ’payload’ and ’random padding’
 				const char *mac = t_msg_.c_str() + packet_lenght_ + 4;
-				if (!CheckMac(recv_sequence_number_, t_msg_.c_str(), packet_lenght_ + 4))
+				if (!CheckMac(recv_sequence_number_, t_msg_.c_str(), packet_lenght_ + 4,mac, t_msg_.size()- packet_lenght_ - 4))
 				{
 					return false;
 				}
@@ -1452,13 +1829,13 @@ namespace sim
 
 			//解压缩之后的缓存
 			char payload_uncompress[SSH_TRANS_PACKET_MAX_SIZE] = { 0 };
-			std::uint32_t payload_uncompress_length = SSH_TRANS_PACKET_MAX_SIZE;
+			uint32_t payload_uncompress_length = SSH_TRANS_PACKET_MAX_SIZE;
 			if (!UnCompress(payload, payload_length, payload_uncompress, payload_uncompress_length))
 			{
 				//解压失败
 				return false;
 			}
-			std::uint8_t message_code = *(std::uint8_t*)(payload_uncompress);
+			uint8_t message_code = *(uint8_t*)(payload_uncompress);
 
 			//回调 payload_data
 			OnHandler(message_code, payload_uncompress+1, payload_uncompress_length-1);
@@ -1682,23 +2059,66 @@ namespace sim
 			return "";
 		}
 
+		//根据名称获取加密方法
+		const EVP_CIPHER      *GetEncryptionCipher(const Str &name)
+		{
+			//return EVP_get_cipherbyname(name.c_str());
+			//"aes128-cbc,3des-cbc,aes256-ctr,aes128-ctr,aes192-ctr";
+			if ("aes128-cbc" == name)
+				return EVP_aes_128_cbc();
+			else if ("3des-cbc" == name)
+				return EVP_des_ede3_cbc();
+			else if ("aes256-ctr" == name)
+				return EVP_aes_256_ctr();
+			else if ("aes128-ctr" == name)
+				return EVP_aes_128_ctr();
+			else if ("aes192-ctr" == name)
+				return EVP_aes_192_ctr();
+			return NULL;
+		}
+
+		//根据算法名称创建 hmac
+		SshHMac * NewHMac(const Str &name)
+		{
+			//"hmac-sha1-96,hmac-sha1"
+			if ("hmac-sha1")
+				return new SshHMacSha1();
+			if ("hmac-sha1-96")
+				return new SshHMacSha1_96();
+			return NULL;
+		}
+
 		Str Sha1(const Str&data)
 		{
 			//sha-1 运算
+#ifdef HAVE_OPAQUE_STRUCTS
 			EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+#else
+			EVP_MD_CTX *ctx = EVP_MD_CTX_create();
+			EVP_MD_CTX_init(ctx);
+#endif
+			
 			EVP_DigestInit(ctx, EVP_sha1());
 			EVP_DigestUpdate(ctx, data.c_str(), data.size());
 			unsigned char temp[EVP_MAX_MD_SIZE] = { 0 };
 			unsigned int len = EVP_MAX_MD_SIZE;
 			//操作成功返回1，否则返回0。
 			int ret = EVP_DigestFinal(ctx, temp, &len);
+
+#ifdef HAVE_OPAQUE_STRUCTS
+			EVP_MD_CTX_free(ctx);
+			
+#else
+			EVP_MD_CTX_cleanup(ctx);
+			EVP_MD_CTX_destroy(ctx);
+#endif
 			if (ret == 0)
 				return "";
 			return Str((char*)temp, len);
 		}
 
 		//压缩 out_len 输入也是输出 输入最大缓存 输出结果缓存
-		bool Compress(const char*in, std::uint32_t in_len, char*out, std::uint32_t &out_len)
+		bool Compress(const char*in, uint32_t in_len, char*out, uint32_t &out_len)
 		{
 			//不压缩
 			bool bc = false;
@@ -1717,7 +2137,7 @@ namespace sim
 			}
 		}
 
-		bool UnCompress(const char*in, std::uint32_t in_len, char*out, std::uint32_t &out_len)
+		bool UnCompress(const char*in, uint32_t in_len, char*out, uint32_t &out_len)
 		{
 			//不压缩
 			bool bc = false;
@@ -1736,21 +2156,69 @@ namespace sim
 			}
 		}
 
-		bool CheckMac(std::uint32_t sequence_number, const char*in, std::uint32_t in_len)
+		bool CheckMac(uint32_t sequence_number, const char*in, uint32_t in_len,const char*mac, uint32_t mac_len)
 		{
-			return false;
+			if(NULL == algo_ctx_.check_mac)
+				return false;
+			if (mac_len != algo_ctx_.check_mac->len())
+				return false;
+			uint32_t check_mac_len= algo_ctx_.check_mac->len();
+			char *check_mac = new char[check_mac_len];
+			if (!algo_ctx_.check_mac->mac(sequence_number, in, in_len, check_mac, check_mac_len))
+			{
+				delete []check_mac;
+				return false;
+			}
+			if (check_mac_len != mac_len || memcmp(mac, check_mac, mac_len) != 0)
+			{
+				delete[]check_mac;
+				return false;
+			}
+			delete[]check_mac;
+			return true;
 		}
-		bool Mac(std::uint32_t sequence_number,const char*in, std::uint32_t in_len, char*out, std::uint32_t &out_len)
+		bool Mac(uint32_t sequence_number,const char*in, uint32_t in_len, char*out, uint32_t &out_len)
 		{
-			return false;
+			if (NULL == algo_ctx_.mac)
+				return false;
+			if (!algo_ctx_.mac->mac(sequence_number, in, in_len, out, out_len))
+			{
+				return false;
+			}
+			/*fprintf(stderr, "mac :");
+			for (int i = 0; i < out_len; i++) {
+				fprintf(stderr, "%02X ", (unsigned char)(out)[i]);
+			}
+			fprintf(stderr, "\n");*/
+			return true;
 		}
-		bool Encrypt(const char*in, std::uint32_t in_len, char*out, std::uint32_t &out_len)
+		bool Encrypt(const char*in, uint32_t in_len, char*out, uint32_t &out_len)
 		{
-			return false;
+			if (NULL == algo_ctx_.evp_ctx_encrypt)
+			{
+				return false;
+			}
+			if (out_len < EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_encrypt))
+				return false;
+
+			int outl = 0;
+			EVP_CipherUpdate(algo_ctx_.evp_ctx_encrypt, (unsigned char*)out, &outl, (const unsigned char*)in, in_len);
+			out_len = outl;
+			return true;
 		}
-		bool Decrypt(const char*in, std::uint32_t in_len, char*out, std::uint32_t &out_len)
+		bool Decrypt(const char*in, uint32_t in_len, char*out, uint32_t &out_len)
 		{
-			return false;
+			if (NULL == algo_ctx_.evp_ctx_decrypt)
+			{
+				return false;
+			}
+			if (out_len < EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt))
+				return false;
+
+			int outl = 0;
+			EVP_CipherUpdate(algo_ctx_.evp_ctx_decrypt, (unsigned char*)out, &outl, (const unsigned char*)in, in_len);
+			out_len = outl;
+			return true;
 		}
 
 		//根据协商算法获取pg
@@ -1938,20 +2406,20 @@ namespace sim
 			buff += PrintNameList(algo_ctx_.I_S);
 			buff += PrintNameList(algo_ctx_.K_S);
 			
-			Str value_e = Mpint(algo_ctx_.e);
+			Str value_e = BN2Str(algo_ctx_.e);
 			//printf("e %02x %u\n", value_e.c_str(), value_e.size());
 			buff += PrintNameList(value_e);
 
-			Str value_f = Mpint(algo_ctx_.f);
+			Str value_f = BN2Str(algo_ctx_.f);
 			//printf("f %02x %u\n", value_f.c_str(), value_f.size());
 			buff += PrintNameList(value_f);
 
-			Str value_k = Mpint(algo_ctx_.K);
+			Str value_k = BN2Str(algo_ctx_.K);
 			//printf("k %02x %u\n", value_k.c_str(), value_k.size());
 			buff += PrintNameList(value_k);
 
-			/*buff += PrintNameList(Mpint(algo_ctx_.f));
-			buff += PrintNameList(Mpint(algo_ctx_.K));*/
+			/*buff += PrintNameList(BN2Str(algo_ctx_.f));
+			buff += PrintNameList(BN2Str(algo_ctx_.K));*/
 			//printf("k %x %u\n", exchange_state->k_value, exchange_state->k_value_len);
 			return Sha1(buff);
 		}
@@ -1969,9 +2437,15 @@ namespace sim
 					mpint e
 					mpint n
 				*/
+#ifdef HAVE_OPAQUE_STRUCTS
 				host_key = PrintNameList(algo_ctx_.server_host_key_algorithms);
-				host_key += PrintNameList(Mpint(RSA_get0_e(algo_ctx_.rsa)));
-				host_key += PrintNameList(Mpint(RSA_get0_n(algo_ctx_.rsa)));
+				host_key += PrintNameList(BN2Str(RSA_get0_e(algo_ctx_.rsa)));
+				host_key += PrintNameList(BN2Str(RSA_get0_n(algo_ctx_.rsa)));
+#else
+				host_key = PrintNameList(algo_ctx_.server_host_key_algorithms);
+				host_key += PrintNameList(BN2Str((algo_ctx_.rsa)->e));
+				host_key += PrintNameList(BN2Str((algo_ctx_.rsa)->n));
+#endif
 			}
 			else if ("ssh-dsa" == algo_ctx_.server_host_key_algorithms&&algo_ctx_.dsa)
 			{
@@ -1982,19 +2456,51 @@ namespace sim
 					mpint g
 					mpint y
 				*/
+#ifdef HAVE_OPAQUE_STRUCTS
 				host_key = PrintNameList(algo_ctx_.server_host_key_algorithms);
-				host_key += PrintNameList(Mpint(DSA_get0_p(algo_ctx_.dsa)));
-				host_key += PrintNameList(Mpint(DSA_get0_q(algo_ctx_.dsa)));
-				host_key += PrintNameList(Mpint(DSA_get0_g(algo_ctx_.dsa)));
-				host_key += PrintNameList(Mpint(DSA_get0_pub_key(algo_ctx_.dsa)));
+				host_key += PrintNameList(BN2Str(DSA_get0_p(algo_ctx_.dsa)));
+				host_key += PrintNameList(BN2Str(DSA_get0_q(algo_ctx_.dsa)));
+				host_key += PrintNameList(BN2Str(DSA_get0_g(algo_ctx_.dsa)));
+				host_key += PrintNameList(BN2Str(DSA_get0_pub_key(algo_ctx_.dsa)));
+#else
+				host_key = PrintNameList(algo_ctx_.server_host_key_algorithms);
+				host_key += PrintNameList(BN2Str((algo_ctx_.dsa)->p));
+				host_key += PrintNameList(BN2Str((algo_ctx_.dsa)->q));
+				host_key += PrintNameList(BN2Str((algo_ctx_.dsa)->g));
+				host_key += PrintNameList(BN2Str((algo_ctx_.dsa)->pub_key));
+#endif
 			}
 			return host_key;
+		}
+
+		/*
+		创建密钥
+		K1 = HASH(K || H || X || session_id) (X is e.g., "A")
+		K2 = HASH(K || H || K1)
+		K3 = HASH(K || H || K1 || K2)
+		...
+		key = K1 || K2 || K3 || ...
+		Here K is encoded as mpint and "A" as byte and session_id as raw
+		data. "A" means the single character A, ASCII 65
+		*/
+		Str MakeKey(mpint K,Str H,char X,Str session_id,uint32_t len)
+		{
+			//K1 = HASH(K || H || X || session_id) (X is e.g., "A")
+			Str  data = K + H + X + session_id;
+			Str Key = Sha1(data);
+			while (Key.size() < len)
+			{
+				//K2 = HASH(K || H || K1)
+				data = K + H + Key;
+				Key += Sha1(data);
+			}
+			return Key.substr(0, len);
 		}
 
 		//初始化 服务端发过来的公钥
 		bool InitPubKey(const SSHKexDHReply &dh_reply)
 		{
-			std::uint32_t offset = 0;
+			uint32_t offset = 0;
 			Str ks_name;
 			if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, ks_name))
 				return false;
@@ -2022,15 +2528,27 @@ namespace sim
 					return false;
 				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_n))
 					return false;
-				BIGNUM *e = BigNum(str_e);
-				BIGNUM *n = BigNum(str_n);
+				BIGNUM *e = Str2BN(str_e);
+				BIGNUM *n = Str2BN(str_n);
 				if (algo_ctx_.rsa)
 					RSA_free(algo_ctx_.rsa);
 				algo_ctx_.rsa = RSA_new();
+#ifdef HAVE_OPAQUE_STRUCTS
 				RSA_set0_key(algo_ctx_.rsa, n, e,NULL);
 				RSA_set0_factors(algo_ctx_.rsa, NULL, NULL);
 				RSA_set0_crt_params(algo_ctx_.rsa, NULL, NULL, NULL);
-				RSA_check_key(algo_ctx_.rsa);
+#else
+				(algo_ctx_.rsa)->e = e;
+				(algo_ctx_.rsa)->n = n;
+				(algo_ctx_.rsa)->d = NULL;
+
+				(algo_ctx_.rsa)->p = NULL;
+				(algo_ctx_.rsa)->q = NULL;
+
+				(algo_ctx_.rsa)->dmp1 = NULL;
+				(algo_ctx_.rsa)->dmq1 = NULL;
+				(algo_ctx_.rsa)->iqmp = NULL;
+#endif
 				/*algo_ctx_.ReleaseBIGNUM(&e);
 				algo_ctx_.ReleaseBIGNUM(&n);*/
 				return true;
@@ -2054,15 +2572,23 @@ namespace sim
 					return false;
 				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_y))
 					return false;
-				BIGNUM *p = BigNum(str_p);
-				BIGNUM *q = BigNum(str_q);
-				BIGNUM *g = BigNum(str_g);
-				BIGNUM *y = BigNum(str_y);
+				BIGNUM *p = Str2BN(str_p);
+				BIGNUM *q = Str2BN(str_q);
+				BIGNUM *g = Str2BN(str_g);
+				BIGNUM *y = Str2BN(str_y);
 				if (algo_ctx_.dsa)
 					DSA_free(algo_ctx_.dsa);
 				algo_ctx_.dsa = DSA_new();
+#ifdef HAVE_OPAQUE_STRUCTS
 				DSA_set0_pqg(algo_ctx_.dsa, p, q, g);
 				DSA_set0_key(algo_ctx_.dsa, y,NULL);
+#else
+				(algo_ctx_.dsa)->p = p;
+				(algo_ctx_.dsa)->g = g;
+				(algo_ctx_.dsa)->q = q;
+				(algo_ctx_.dsa)->pub_key = y;
+				(algo_ctx_.dsa)->priv_key = NULL;
+#endif
 				/*algo_ctx_.ReleaseBIGNUM(&p);
 				algo_ctx_.ReleaseBIGNUM(&q);
 				algo_ctx_.ReleaseBIGNUM(&g);
@@ -2092,7 +2618,7 @@ namespace sim
 		bool VerifyDHReply(const Str &data, const SSHKexDHReply &dh_reply)
 		{
 			//算法名长度+算法名+签名数据长度+签名值。
-			std::uint32_t offset = 0;
+			uint32_t offset = 0;
 			Str ks_name, sign;
 			if (!ParserNameList(dh_reply.S.c_str(), dh_reply.S.size(), offset, ks_name))
 				return false;
@@ -2191,7 +2717,7 @@ namespace sim
 #ifdef SIM_PARSER_MULTI_THREAD
 		sim::Mutex parser_lock_;
 #endif
-		std::uint32_t packet_lenght_;
+		uint32_t packet_lenght_;
 		
 		SshTransportStatus status_;
 
@@ -2201,10 +2727,11 @@ namespace sim
 
 		SSHAlgorithmsCtx algo_ctx_;
 
-		SSH_TRANS_HANDLER handler_;
-		void*handler_data_;
+		SshTransportHandler handlers_[SSH_MSG_MAX];
+		/*SSH_TRANS_HANDLER handler_;
+		void*handler_data_;*/
 
-		std::uint32_t send_sequence_number_, recv_sequence_number_;
+		uint32_t send_sequence_number_, recv_sequence_number_;
 
 		SshPointType sp_type_;
 	};
