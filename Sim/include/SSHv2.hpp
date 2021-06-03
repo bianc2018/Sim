@@ -136,6 +136,16 @@ Symbolic Name											reason code
  SSH_DISCONNECT_ILLEGAL_USER_NAME						15
 */
 
+//	The following ’method name’ values are defined.
+//		"publickey" REQUIRED
+//		"password" OPTIONAL
+//		"hostbased" OPTIONAL
+//		"none" NOT RECOMMENDED
+
+#define SSH_AUTH_PUB_KEY	"publickey"
+#define SSH_AUTH_PASSWORD	"password"
+#define SSH_AUTH_HOST_BASED "hostbased"
+#define SSH_AUTH_NONE		"none"
 
 //需要释放内存
 char* DumpHex(const unsigned char*hex, unsigned int hex_len)
@@ -2735,12 +2745,87 @@ namespace sim
 
 		SshPointType sp_type_;
 	};
+	
+	/*
+	*	Authentication Requests
+	* 
+		byte SSH_MSG_USERAUTH_REQUEST
+		string user name in ISO-10646 UTF-8 encoding [RFC3629]
+		string service name in US-ASCII
+		string method name in US-ASCII
+		.... method specific fields
+	*/
+	struct SshAuthRequest
+	{
+		Str user_name;
+		Str service_name;
+		Str method;
+	};
+
+	/*
+	*  
+		Responses to Authentication Requests
+		If the server rejects the authentication request, it MUST respond
+		with the following:
+			byte SSH_MSG_USERAUTH_FAILURE
+			name-list authentications that can continue
+			boolean partial success
+	*/
+	/*struct SshAuthResponse
+	{
+		Str authentications;
+	};*/
 
 	//The Secure Shell (SSH) Authentication Protocol
 	class SshAuthentication :public SshTransport
 	{
 	public:
+		SshAuthentication(SshPointType sp_type)
+			:SshTransport(sp_type)
+		{
 
+		}
+		Str PrintAuthRequset(const SshAuthRequest& req)
+		{
+			return "";
+		}
+		bool ParserAuthRequset(const char* payload_data, uint32_t payload_data_len, SshAuthRequest& req)
+		{
+			return false;
+		}
+		/*
+		* name-list authentications that can continue
+boolean partial success FAILURE
+		*/
+		bool ParserAuthResponseFailure(const char* payload_data, uint32_t payload_data_len, Str& authentications, bool& partial);
+		Str PrintAuthResponseFailure(const Str& authentications, bool partial);
+		Str PrintAuthResponseSuccess();
+
+		/*
+		*	Banner Message
+			In some jurisdictions, sending a warning message before
+			authentication may be relevant for getting legal protection. Many
+			UNIX machines, for example, normally display text from /etc/issue,
+			use TCP wrappers, or similar software to display a banner before
+			issuing a login prompt.
+			The SSH server may send an SSH_MSG_USERAUTH_BANNER message at any
+			time after this authentication protocol starts and before
+			authentication is successful. This message contains text to be
+			displayed to the client user before authentication is attempted. The
+			format is as follows:
+				byte SSH_MSG_USERAUTH_BANNER
+				string message in ISO-10646 UTF-8 encoding [RFC3629]
+				string language tag [RFC3066]
+			By default, the client SHOULD display the ’message’ on the screen.
+			However, since the ’message’ is likely to be sent for every login
+			attempt, and since some client software will need to open a separate
+			window for this warning, the client software may allow the user to
+			explicitly disable the display of banners from the server. The
+			’message’ may consist of multiple lines, with line breaks indicated
+			by CRLF pairs.
+		*/
+		bool ParserBannerMessage(const char* payload_data, uint32_t payload_data_len, Str& message, Str& language_tag);
+		Str PrintAuthResponseFailure(const Str& message, const Str& language_tag);
 	private:
 
 	};
