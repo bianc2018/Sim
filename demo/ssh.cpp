@@ -4,7 +4,7 @@
 #include "GlobalPoll.hpp"
 #define MY_THREAD_NUM 1
 #include <string>
-sim::SshTransport ssh_parser(sim::SshClient);
+sim::SshAuthentication ssh_parser(sim::SshClient);
 sim::AsyncHandle handle = 0;
 sim::SimAsync& Get()
 {
@@ -112,6 +112,53 @@ void SSH_TRANS_HANDLER_SSH_MSG_NEWKEYS(sim::SshTransport*parser,
 	Get().Send(handle, req.c_str(), req.size());
 }
 
+//SSH_MSG_SERVICE_ACCEPT
+void SSH_TRANS_HANDLER_SSH_MSG_SERVICE_ACCEPT(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	sim::Str service;
+	parser->ParserServiceAccept(payload_data, payload_data_len, service);
+	printf("accept %s\n", service.c_str());
+
+	sim::SshAuthentication*auth = (sim::SshAuthentication*)parser;
+	sim::SshAuthRequest auth_req;
+	//ssh-connection
+	auth_req.user_name = "root";
+	auth_req.service_name = "ssh-connection";
+	auth_req.method = SSH_AUTH_PASSWORD;
+	auth_req.method_fields.password.flag = false;
+	auth_req.method_fields.password.password = "q1051576073@";
+	sim::Str req = auth->PrintAuthRequset(auth_req);
+	if (req.empty())
+	{
+		printf("PrintServiceRequest falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	Get().Send(handle, req.c_str(), req.size());
+}
+
+/*
+#define SSH_MSG_USERAUTH_FAILURE			51
+#define SSH_MSG_USERAUTH_SUCCESS			52
+#define SSH_MSG_USERAUTH_BANNER				53
+*/
+void SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_FAILURE(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	printf("SSH_MSG_USERAUTH_FAILURE \n");
+}
+void SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_SUCCESS(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	printf("SSH_MSG_USERAUTH_SUCCESS \n");
+}
+void SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_BANNER(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	printf("SSH_MSG_USERAUTH_BANNER \n");
+}
+
 void SSH_TRANS_HANDLER_SSH_MSG_ERROR(sim::SshTransport*parser,
 	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
 {
@@ -128,6 +175,10 @@ void ConnectHandler(sim::AsyncHandle handle, void*data)
 	ssh_parser.SetHandler(SSH_MSG_KEXINIT, SSH_TRANS_HANDLER_SSH_MSG_KEXINIT, NULL);
 	ssh_parser.SetHandler(SSH_MSG_KEXDH_REPLY, SSH_TRANS_HANDLER_SSH_MSG_KEXDH_REPLY, NULL);
 	ssh_parser.SetHandler(SSH_MSG_NEWKEYS, SSH_TRANS_HANDLER_SSH_MSG_NEWKEYS, NULL);
+	ssh_parser.SetHandler(SSH_MSG_SERVICE_ACCEPT, SSH_TRANS_HANDLER_SSH_MSG_SERVICE_ACCEPT, NULL);
+	ssh_parser.SetHandler(SSH_MSG_USERAUTH_FAILURE, SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_FAILURE, NULL);
+	ssh_parser.SetHandler(SSH_MSG_USERAUTH_SUCCESS, SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_SUCCESS, NULL);
+	ssh_parser.SetHandler(SSH_MSG_USERAUTH_BANNER, SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_BANNER, NULL);
 	ssh_parser.SetHandler(SSH_MSG_ERR, SSH_TRANS_HANDLER_SSH_MSG_ERROR, NULL);
 
 	sim::Str ver = ssh_parser.PrintProtocolVersion();

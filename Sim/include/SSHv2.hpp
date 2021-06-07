@@ -941,16 +941,16 @@ namespace sim
 			name-list languages_client_to_server
 			name-list languages_server_to_client
 			*/
-			payload_data += PrintNameList(kex_init.kex_algorithms);
-			payload_data += PrintNameList(kex_init.server_host_key_algorithms);
-			payload_data += PrintNameList(kex_init.encryption_algorithms_client_to_server);
-			payload_data += PrintNameList(kex_init.encryption_algorithms_server_to_client);
-			payload_data += PrintNameList(kex_init.mac_algorithms_client_to_server);
-			payload_data += PrintNameList(kex_init.mac_algorithms_server_to_client);
-			payload_data += PrintNameList(kex_init.compression_algorithms_client_to_server);
-			payload_data += PrintNameList(kex_init.compression_algorithms_server_to_client);
-			payload_data += PrintNameList(kex_init.languages_client_to_server);
-			payload_data += PrintNameList(kex_init.languages_server_to_client);
+			payload_data += PrintString(kex_init.kex_algorithms);
+			payload_data += PrintString(kex_init.server_host_key_algorithms);
+			payload_data += PrintString(kex_init.encryption_algorithms_client_to_server);
+			payload_data += PrintString(kex_init.encryption_algorithms_server_to_client);
+			payload_data += PrintString(kex_init.mac_algorithms_client_to_server);
+			payload_data += PrintString(kex_init.mac_algorithms_server_to_client);
+			payload_data += PrintString(kex_init.compression_algorithms_client_to_server);
+			payload_data += PrintString(kex_init.compression_algorithms_server_to_client);
+			payload_data += PrintString(kex_init.languages_client_to_server);
+			payload_data += PrintString(kex_init.languages_server_to_client);
 			/*
 			boolean first_kex_packet_follows
 			uint32 0 (reserved for future extension)
@@ -981,25 +981,25 @@ namespace sim
 			name-list languages_client_to_server
 			name-list languages_server_to_client
 			*/
-			if (!ParserNameList(payload_data, payload_data_len, offset, kex_init.kex_algorithms))
+			if (!ParserString(payload_data, payload_data_len, offset, kex_init.kex_algorithms))
 				return false;
-			if (!ParserNameList(payload_data, payload_data_len, offset, kex_init.server_host_key_algorithms))
+			if (!ParserString(payload_data, payload_data_len, offset, kex_init.server_host_key_algorithms))
 				return false;
-			if (!ParserNameList(payload_data, payload_data_len, offset, kex_init.encryption_algorithms_client_to_server))
+			if (!ParserString(payload_data, payload_data_len, offset, kex_init.encryption_algorithms_client_to_server))
 				return false;
-			if (!ParserNameList(payload_data, payload_data_len, offset, kex_init.encryption_algorithms_server_to_client))
+			if (!ParserString(payload_data, payload_data_len, offset, kex_init.encryption_algorithms_server_to_client))
 				return false;
-			if (!ParserNameList(payload_data, payload_data_len, offset, kex_init.mac_algorithms_client_to_server))
+			if (!ParserString(payload_data, payload_data_len, offset, kex_init.mac_algorithms_client_to_server))
 				return false;
-			if (!ParserNameList(payload_data, payload_data_len, offset, kex_init.mac_algorithms_server_to_client))
+			if (!ParserString(payload_data, payload_data_len, offset, kex_init.mac_algorithms_server_to_client))
 				return false;
-			if (!ParserNameList(payload_data, payload_data_len, offset, kex_init.compression_algorithms_client_to_server))
+			if (!ParserString(payload_data, payload_data_len, offset, kex_init.compression_algorithms_client_to_server))
 				return false;
-			if (!ParserNameList(payload_data, payload_data_len, offset, kex_init.compression_algorithms_server_to_client))
+			if (!ParserString(payload_data, payload_data_len, offset, kex_init.compression_algorithms_server_to_client))
 				return false;
-			if (!ParserNameList(payload_data, payload_data_len, offset, kex_init.languages_client_to_server))
+			if (!ParserString(payload_data, payload_data_len, offset, kex_init.languages_client_to_server))
 				return false;
-			if (!ParserNameList(payload_data, payload_data_len, offset, kex_init.languages_server_to_client))
+			if (!ParserString(payload_data, payload_data_len, offset, kex_init.languages_server_to_client))
 				return false;
 			/*
 			boolean first_kex_packet_follows
@@ -1042,7 +1042,7 @@ namespace sim
 		}
 		Str PrintKexDHInit(const SSHKexDHInit&dh_init)
 		{
-			Str payload_data = PrintNameList(dh_init.e);
+			Str payload_data = PrintString(dh_init.e);
 			if (payload_data.size() == 0)
 				return "";
 			return PrintPacket(SSH_MSG_KEXDH_INIT, payload_data.c_str(), payload_data.size());
@@ -1050,7 +1050,7 @@ namespace sim
 		bool ParserKexDHInit(const char*payload_data, uint32_t payload_data_len, SSHKexDHInit&dh_init)
 		{
 			uint32_t offset = 0;
-			if (!ParserNameList(payload_data, payload_data_len, offset, dh_init.e))
+			if (!ParserString(payload_data, payload_data_len, offset, dh_init.e))
 				return false;
 			return true;
 		}
@@ -1063,19 +1063,19 @@ namespace sim
 			mpint f
 			string signature of S
 			*/
-			Str payload_data = PrintNameList(dh_reply.K_S);
-			payload_data += PrintNameList(dh_reply.f);
-			payload_data += PrintNameList(dh_reply.S);
+			Str payload_data = PrintString(dh_reply.K_S);
+			payload_data += PrintString(dh_reply.f);
+			payload_data += PrintString(dh_reply.S);
 			return PrintPacket(SSH_MSG_KEXDH_REPLY, payload_data.c_str(), payload_data.size());
 		}
 		bool ParserKexDHReply(const char*payload_data, uint32_t payload_data_len, SSHKexDHReply&dh_reply)
 		{
 			uint32_t offset = 0;
-			if (!ParserNameList(payload_data, payload_data_len, offset, dh_reply.K_S))
+			if (!ParserString(payload_data, payload_data_len, offset, dh_reply.K_S))
 				return false;
-			if (!ParserNameList(payload_data, payload_data_len, offset, dh_reply.f))
+			if (!ParserString(payload_data, payload_data_len, offset, dh_reply.f))
 				return false;
-			if (!ParserNameList(payload_data, payload_data_len, offset, dh_reply.S))
+			if (!ParserString(payload_data, payload_data_len, offset, dh_reply.S))
 				return false;
 			return true;
 		}
@@ -1194,7 +1194,7 @@ namespace sim
 			byte SSH_MSG_SERVICE_REQUEST
 			string service name
 			*/
-			Str payload_data = PrintNameList(service);
+			Str payload_data = PrintString(service);
 			return PrintPacket(SSH_MSG_SERVICE_REQUEST, payload_data.c_str(), payload_data.size());
 		}
 		Str PrintServiceAccept(const Str &service)
@@ -1203,13 +1203,13 @@ namespace sim
 			byte SSH_MSG_SERVICE_ACCEPT
 			string service name
 			*/
-			Str payload_data = PrintNameList(service);
+			Str payload_data = PrintString(service);
 			return PrintPacket(SSH_MSG_SERVICE_ACCEPT, payload_data.c_str(), payload_data.size());
 		}
 		bool ParserServiceRequest(const char*payload_data, uint32_t payload_data_len, Str &service)
 		{
 			uint32_t offset = 0;
-			if (!ParserNameList(payload_data, payload_data_len, offset, service))
+			if (!ParserString(payload_data, payload_data_len, offset, service))
 				return false;
 			return true;
 		}
@@ -1382,7 +1382,7 @@ namespace sim
 			//检查数据
 			if (NULL == algo_ctx_.K||0==algo_ctx_.H.size()|| 0 == algo_ctx_.session_id.size())
 				return false;
-			Str s_k = PrintNameList(BN2Str(algo_ctx_.K));
+			Str s_k = PrintString(BN2Str(algo_ctx_.K));
 			const EVP_CIPHER *e_c2s = GetEncryptionCipher(algo_ctx_.encryption_algorithms_client_to_server);
 			const EVP_CIPHER *e_s2c = GetEncryptionCipher(algo_ctx_.encryption_algorithms_server_to_client);
 			SshHMac*mac_c2s = NewHMac(algo_ctx_.mac_algorithms_client_to_server);
@@ -1518,7 +1518,7 @@ namespace sim
 		}
 
 	public:
-		Str PrintNameList(const name_list& list)
+		Str PrintString(const name_list& list)
 		{
 			uint32_t size = htonl(list.size());
 
@@ -1528,7 +1528,7 @@ namespace sim
 			return res;
 		}
 		
-		bool ParserNameList(const char*payload, uint32_t payload_len, uint32_t &offset, name_list&list)
+		bool ParserString(const char*payload, uint32_t payload_len, uint32_t &offset, name_list&list)
 		{
 			//剩余的字节数
 			uint32_t has_bytes = payload_len - offset;
@@ -1764,6 +1764,8 @@ namespace sim
 		void OnHandler(uint8_t message_code,
 			const char*payload_data, uint32_t payload_data_len)
 		{
+			printf("OnHandler message_code %d\n", message_code);
+
 			if (SSH_MSG_VERSION == message_code)
 			{
 				//去除\r\n末尾
@@ -1853,7 +1855,7 @@ namespace sim
 			//clear清理状态
 			t_msg_ = "";
 			packet_lenght_ = 0;
-			
+			status_ = SshTransportStatus_Packet;
 			return true;
 		}
 		
@@ -2410,26 +2412,26 @@ namespace sim
 				return "";
 			}
 			Str buff;
-			buff += PrintNameList(algo_ctx_.V_C);
-			buff += PrintNameList(algo_ctx_.V_S);
-			buff += PrintNameList(algo_ctx_.I_C);
-			buff += PrintNameList(algo_ctx_.I_S);
-			buff += PrintNameList(algo_ctx_.K_S);
+			buff += PrintString(algo_ctx_.V_C);
+			buff += PrintString(algo_ctx_.V_S);
+			buff += PrintString(algo_ctx_.I_C);
+			buff += PrintString(algo_ctx_.I_S);
+			buff += PrintString(algo_ctx_.K_S);
 			
 			Str value_e = BN2Str(algo_ctx_.e);
 			//printf("e %02x %u\n", value_e.c_str(), value_e.size());
-			buff += PrintNameList(value_e);
+			buff += PrintString(value_e);
 
 			Str value_f = BN2Str(algo_ctx_.f);
 			//printf("f %02x %u\n", value_f.c_str(), value_f.size());
-			buff += PrintNameList(value_f);
+			buff += PrintString(value_f);
 
 			Str value_k = BN2Str(algo_ctx_.K);
 			//printf("k %02x %u\n", value_k.c_str(), value_k.size());
-			buff += PrintNameList(value_k);
+			buff += PrintString(value_k);
 
-			/*buff += PrintNameList(BN2Str(algo_ctx_.f));
-			buff += PrintNameList(BN2Str(algo_ctx_.K));*/
+			/*buff += PrintString(BN2Str(algo_ctx_.f));
+			buff += PrintString(BN2Str(algo_ctx_.K));*/
 			//printf("k %x %u\n", exchange_state->k_value, exchange_state->k_value_len);
 			return Sha1(buff);
 		}
@@ -2448,13 +2450,13 @@ namespace sim
 					mpint n
 				*/
 #ifdef HAVE_OPAQUE_STRUCTS
-				host_key = PrintNameList(algo_ctx_.server_host_key_algorithms);
-				host_key += PrintNameList(BN2Str(RSA_get0_e(algo_ctx_.rsa)));
-				host_key += PrintNameList(BN2Str(RSA_get0_n(algo_ctx_.rsa)));
+				host_key = PrintString(algo_ctx_.server_host_key_algorithms);
+				host_key += PrintString(BN2Str(RSA_get0_e(algo_ctx_.rsa)));
+				host_key += PrintString(BN2Str(RSA_get0_n(algo_ctx_.rsa)));
 #else
-				host_key = PrintNameList(algo_ctx_.server_host_key_algorithms);
-				host_key += PrintNameList(BN2Str((algo_ctx_.rsa)->e));
-				host_key += PrintNameList(BN2Str((algo_ctx_.rsa)->n));
+				host_key = PrintString(algo_ctx_.server_host_key_algorithms);
+				host_key += PrintString(BN2Str((algo_ctx_.rsa)->e));
+				host_key += PrintString(BN2Str((algo_ctx_.rsa)->n));
 #endif
 			}
 			else if ("ssh-dsa" == algo_ctx_.server_host_key_algorithms&&algo_ctx_.dsa)
@@ -2467,17 +2469,17 @@ namespace sim
 					mpint y
 				*/
 #ifdef HAVE_OPAQUE_STRUCTS
-				host_key = PrintNameList(algo_ctx_.server_host_key_algorithms);
-				host_key += PrintNameList(BN2Str(DSA_get0_p(algo_ctx_.dsa)));
-				host_key += PrintNameList(BN2Str(DSA_get0_q(algo_ctx_.dsa)));
-				host_key += PrintNameList(BN2Str(DSA_get0_g(algo_ctx_.dsa)));
-				host_key += PrintNameList(BN2Str(DSA_get0_pub_key(algo_ctx_.dsa)));
+				host_key = PrintString(algo_ctx_.server_host_key_algorithms);
+				host_key += PrintString(BN2Str(DSA_get0_p(algo_ctx_.dsa)));
+				host_key += PrintString(BN2Str(DSA_get0_q(algo_ctx_.dsa)));
+				host_key += PrintString(BN2Str(DSA_get0_g(algo_ctx_.dsa)));
+				host_key += PrintString(BN2Str(DSA_get0_pub_key(algo_ctx_.dsa)));
 #else
-				host_key = PrintNameList(algo_ctx_.server_host_key_algorithms);
-				host_key += PrintNameList(BN2Str((algo_ctx_.dsa)->p));
-				host_key += PrintNameList(BN2Str((algo_ctx_.dsa)->q));
-				host_key += PrintNameList(BN2Str((algo_ctx_.dsa)->g));
-				host_key += PrintNameList(BN2Str((algo_ctx_.dsa)->pub_key));
+				host_key = PrintString(algo_ctx_.server_host_key_algorithms);
+				host_key += PrintString(BN2Str((algo_ctx_.dsa)->p));
+				host_key += PrintString(BN2Str((algo_ctx_.dsa)->q));
+				host_key += PrintString(BN2Str((algo_ctx_.dsa)->g));
+				host_key += PrintString(BN2Str((algo_ctx_.dsa)->pub_key));
 #endif
 			}
 			return host_key;
@@ -2512,7 +2514,7 @@ namespace sim
 		{
 			uint32_t offset = 0;
 			Str ks_name;
-			if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, ks_name))
+			if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, ks_name))
 				return false;
 			if (ks_name != algo_ctx_.server_host_key_algorithms)
 				return false;//与协商的算法不一致
@@ -2534,9 +2536,9 @@ namespace sim
 				*/
 
 				Str str_e, str_n;
-				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_e))
+				if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_e))
 					return false;
-				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_n))
+				if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_n))
 					return false;
 				BIGNUM *e = Str2BN(str_e);
 				BIGNUM *n = Str2BN(str_n);
@@ -2574,13 +2576,13 @@ namespace sim
 				*/
 
 				Str str_p, str_q, str_g, str_y;
-				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_p))
+				if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_p))
 					return false;
-				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_q))
+				if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_q))
 					return false;
-				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_g))
+				if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_g))
 					return false;
-				if (!ParserNameList(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_y))
+				if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_y))
 					return false;
 				BIGNUM *p = Str2BN(str_p);
 				BIGNUM *q = Str2BN(str_q);
@@ -2615,13 +2617,13 @@ namespace sim
 		bool SignDHReply(const Str &data, SSHKexDHReply &dh_reply)
 		{
 			//算法名长度+算法名+签名数据长度+签名值。
-			dh_reply.S = PrintNameList(algo_ctx_.server_host_key_algorithms);
+			dh_reply.S = PrintString(algo_ctx_.server_host_key_algorithms);
 			Str sign;
 			if (!Sign(data, sign))
 			{
 				return false;
 			}
-			dh_reply.S+= PrintNameList(sign);
+			dh_reply.S+= PrintString(sign);
 			return true;
 		}
 
@@ -2630,9 +2632,9 @@ namespace sim
 			//算法名长度+算法名+签名数据长度+签名值。
 			uint32_t offset = 0;
 			Str ks_name, sign;
-			if (!ParserNameList(dh_reply.S.c_str(), dh_reply.S.size(), offset, ks_name))
+			if (!ParserString(dh_reply.S.c_str(), dh_reply.S.size(), offset, ks_name))
 				return false;
-			if (!ParserNameList(dh_reply.S.c_str(), dh_reply.S.size(), offset, sign))
+			if (!ParserString(dh_reply.S.c_str(), dh_reply.S.size(), offset, sign))
 				return false;
 
 			if (ks_name != algo_ctx_.server_host_key_algorithms)
@@ -2755,11 +2757,112 @@ namespace sim
 		string method name in US-ASCII
 		.... method specific fields
 	*/
+	struct SshAuthMethodPassWord
+	{
+		/*
+		A boolean value is stored as a single byte. The value 0
+		represents FALSE, and the value 1 represents TRUE. All non-zero
+		values MUST be interpreted as TRUE; however, applications MUST NOT
+		store values other than 0 and 1.
+		*/
+		bool flag;
+
+		/*
+		string "password" --method
+		boolean FALSE
+		string plaintext password in ISO-10646 UTF-8 encoding [RFC3629]
+		*/
+		Str password;// plaintext password or new password(IF flag==true)
+		/*
+		string plaintext old password in ISO-10646 UTF-8 encoding
+		[RFC3629]
+		*/
+		Str old_password;// old password(IF flag==true)
+	};
+	struct SshAuthMethodPublicKey
+	{
+		/*
+		A boolean value is stored as a single byte. The value 0
+		represents FALSE, and the value 1 represents TRUE. All non-zero
+		values MUST be interpreted as TRUE; however, applications MUST NOT
+		store values other than 0 and 1.
+		*/
+		bool flag;
+
+		/*
+		string "publickey" -- method
+		boolean FALSE
+		string public key algorithm name
+		string public key blob
+		*/
+		Str key_algorithm_name;
+		Str key_blob;
+		//flag==TRUE
+		/*
+		The value of ’signature’ is a signature by the corresponding private
+		key over the following data, in the following order:
+		string session identifier
+		byte SSH_MSG_USERAUTH_REQUEST
+		string user name
+		string service name
+		string "publickey"
+		boolean TRUE
+		string public key algorithm name
+		string public key to be used for authentication
+		*/
+		Str signature;
+	};
+	struct SshAuthMethodHostBased
+	{
+		/*
+		string "hostbased" --method
+		string public key algorithm for host key
+		string public host key and certificates for client host
+		string client host name expressed as the FQDN in US-ASCII
+		string user name on the client host in ISO-10646 UTF-8 encoding
+		[RFC3629]
+		string signature
+		*/
+		Str key_algorithm;
+		Str key;
+		Str host_name;
+		Str usr_on_cli;
+		/*
+		The value of ’signature’ is a signature with the private host key of
+		the following data, in this order:
+		string session identifier
+		byte SSH_MSG_USERAUTH_REQUEST
+		string user name
+		string service name
+		string "hostbased"
+		string public key algorithm for host key
+		string public host key and certificates for client host
+		string client host name expressed as the FQDN in US-ASCII
+		string user name on the client host in ISO-10646 UTF-8 encoding
+		[RFC3629]
+		The server MUST verify that the host key actually belongs to the
+		client host named in the message, that the given user on that host is
+		allowed to log in, and that the ’signature’ value is a valid
+		signature on the appropriate value by the given host key. The server
+		MAY ignore the client ’user name’, if it wants to authenticate only
+		the client host.
+		*/
+		Str signature;
+	};
 	struct SshAuthRequest
 	{
 		Str user_name;
 		Str service_name;
 		Str method;
+
+		struct MethodSpecifcFields
+		{
+			SshAuthMethodPassWord password;
+			SshAuthMethodPublicKey publickey;
+			SshAuthMethodHostBased hostbased;
+		};
+		MethodSpecifcFields method_fields;
+
 	};
 
 	/*
@@ -2785,17 +2888,148 @@ namespace sim
 		{
 
 		}
+
 		Str PrintAuthRequset(const SshAuthRequest& req)
 		{
-			return "";
+			if (req.service_name.size() == 0 ||
+				req.user_name.size() == 0 ||
+				req.method.size() == 0)
+				return "";
+
+			Str payload_data =PrintString(req.user_name);
+			payload_data += PrintString(req.service_name);
+			payload_data += PrintString(req.method);
+			if (SSH_AUTH_PASSWORD == req.method)
+			{
+				if (req.method_fields.password.flag)
+				{
+					payload_data += char(0x1);//TRUE
+					payload_data += PrintString(req.method_fields.password.old_password);
+					payload_data += PrintString(req.method_fields.password.password);
+				}
+				else
+				{
+					payload_data += char(0x0);//FALSE
+					payload_data += PrintString(req.method_fields.password.password);
+				}
+				
+			}
+			else if (SSH_AUTH_PUB_KEY == req.method)
+			{
+				if (req.method_fields.publickey.flag)
+				{
+					payload_data += char(0x1);//TRUE
+					payload_data += PrintString(req.method_fields.publickey.key_algorithm_name);
+					payload_data += PrintString(req.method_fields.publickey.key_blob);
+					payload_data += PrintString(req.method_fields.publickey.signature);
+				}
+				else
+				{
+					payload_data += char(0x0);//FALSE
+					payload_data += PrintString(req.method_fields.publickey.key_algorithm_name);
+					payload_data += PrintString(req.method_fields.publickey.key_blob);
+				}
+			}
+			else if (SSH_AUTH_HOST_BASED == req.method)
+			{
+				payload_data += PrintString(req.method_fields.hostbased.key_algorithm);
+				payload_data += PrintString(req.method_fields.hostbased.key);
+				payload_data += PrintString(req.method_fields.hostbased.host_name);
+				payload_data += PrintString(req.method_fields.hostbased.usr_on_cli);
+				payload_data += PrintString(req.method_fields.hostbased.signature);
+			}
+			else
+			{
+				return "";
+			}
+			return PrintPacket(SSH_MSG_USERAUTH_REQUEST, payload_data.c_str(), payload_data.size());
 		}
+
 		bool ParserAuthRequset(const char* payload_data, uint32_t payload_data_len, SshAuthRequest& req)
 		{
-			return false;
+			if (NULL == payload_data || 0 == payload_data_len)
+				return false;
+
+			uint32_t offset = 0;
+			
+			if (!ParserString(payload_data, payload_data_len, offset, req.user_name))
+				return false;
+			if (!ParserString(payload_data, payload_data_len, offset, req.service_name))
+				return false;
+			if (!ParserString(payload_data, payload_data_len, offset, req.method))
+				return false;
+			if (offset >= payload_data_len)
+				return false;
+			if (SSH_AUTH_PASSWORD == req.method)
+			{
+				if (payload_data[offset++] != 0)
+					req.method_fields.password.flag = true;
+				else 
+					req.method_fields.password.flag = false;
+
+				if (req.method_fields.password.flag)
+				{
+					if (!ParserString(payload_data, payload_data_len, offset, req.method_fields.password.old_password))
+						return false;
+					if (!ParserString(payload_data, payload_data_len, offset, req.method_fields.password.password))
+						return false;
+				}
+				else
+				{
+					if (!ParserString(payload_data, payload_data_len, offset, req.method_fields.password.password))
+						return false;
+				}
+
+			}
+			else if (SSH_AUTH_PUB_KEY == req.method)
+			{
+				if (payload_data[offset++] != 0)
+					req.method_fields.publickey.flag = true;
+				else
+					req.method_fields.publickey.flag = false;
+
+				if (req.method_fields.publickey.flag)
+				{
+					if (!ParserString(payload_data, payload_data_len, offset, req.method_fields.publickey.key_algorithm_name))
+						return false;
+					if (!ParserString(payload_data, payload_data_len, offset, req.method_fields.publickey.key_blob))
+						return false;
+					if (!ParserString(payload_data, payload_data_len, offset, req.method_fields.publickey.signature))
+						return false;
+				}
+				else
+				{
+					if (!ParserString(payload_data, payload_data_len, offset, req.method_fields.publickey.key_algorithm_name))
+						return false;
+					if (!ParserString(payload_data, payload_data_len, offset, req.method_fields.publickey.key_blob))
+						return false;
+				}
+			}
+			else if (SSH_AUTH_HOST_BASED == req.method)
+			{
+				if (!ParserString(payload_data, payload_data_len, offset, req.method_fields.hostbased.key_algorithm))
+					return false;
+				if (!ParserString(payload_data, payload_data_len, offset, req.method_fields.hostbased.key))
+					return false;
+
+				if (!ParserString(payload_data, payload_data_len, offset, req.method_fields.hostbased.host_name))
+					return false;
+				if (!ParserString(payload_data, payload_data_len, offset, req.method_fields.hostbased.usr_on_cli))
+					return false;
+				if (!ParserString(payload_data, payload_data_len, offset, req.method_fields.hostbased.signature))
+					return false;
+			}
+			else
+			{
+				return false;
+			}
+			return true;
 		}
+		
 		/*
-		* name-list authentications that can continue
-boolean partial success FAILURE
+		* 
+			name-list authentications that can continue
+			boolean partial success FAILURE
 		*/
 		bool ParserAuthResponseFailure(const char* payload_data, uint32_t payload_data_len, Str& authentications, bool& partial);
 		Str PrintAuthResponseFailure(const Str& authentications, bool partial);
@@ -2826,6 +3060,7 @@ boolean partial success FAILURE
 		*/
 		bool ParserBannerMessage(const char* payload_data, uint32_t payload_data_len, Str& message, Str& language_tag);
 		Str PrintAuthResponseFailure(const Str& message, const Str& language_tag);
+
 	private:
 
 	};
