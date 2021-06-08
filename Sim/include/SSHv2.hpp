@@ -505,7 +505,7 @@ namespace sim
 	};
 
 	//Public Key Algorithms ssh公钥算法
-	enum SshHostKeyType
+	enum SshPublicKeyType
 	{
 		SshRsa,
 		SshDsa
@@ -635,7 +635,7 @@ namespace sim
 		}
 
 		//从文件中加载私钥
-		bool LoadPriKey(SshHostKeyType type, const char*filename)
+		bool LoadPriKey(SshPublicKeyType type, const char*filename)
 		{
 			if (NULL == filename)
 			{
@@ -691,42 +691,19 @@ namespace sim
 		}
 		
 		//或者生成私钥 filename !=NULL 写到对应的文件
-		bool GeneratePriKey(SshHostKeyType type, const char*filename = NULL)
+		bool GeneratePriKey(SshPublicKeyType type, const char*filename = NULL)
 		{
-			BIO* pOut = NULL;
-			if (filename)
-			{
-				//打开
-				pOut = BIO_new_file(filename, "w");
-				if (NULL == pOut)
-				{
-					//打开失败
-					return false;
-				}
-			}
-			
 			if (type == SshRsa)
 			{
-				unsigned long  e = RSA_3;
 				//释放已经存在的
 				if (algo_ctx_.rsa)
 				{
 					RSA_free(algo_ctx_.rsa);
 					algo_ctx_.rsa = NULL;
 				}
-				algo_ctx_.rsa = RSA_generate_key(1024, e, NULL, NULL);
-				if (NULL == algo_ctx_.rsa)
-				{
-					if(pOut)
-						BIO_free_all(pOut);
-					return false;
-				}
-				if (pOut)
-				{
-					PEM_write_bio_RSAPrivateKey(pOut, algo_ctx_.rsa, NULL, NULL, 0, NULL, NULL);
-					BIO_free_all(pOut);
-				}
-				return true;
+				algo_ctx_.rsa = GenerateRsaKey(1024);
+
+				return WriteKey(algo_ctx_.rsa, filename,NULL);
 			}
 			else if (type == SshDsa)
 			{
@@ -737,38 +714,12 @@ namespace sim
 					algo_ctx_.dsa = NULL;
 				}
 				
-				algo_ctx_.dsa = DSA_new();
-				//char seed[20];
-				int ret = DSA_generate_parameters_ex(algo_ctx_.dsa, 1024  , NULL, 0, NULL, NULL, NULL);
-				if (ret != 1)
-				{
-					if (pOut)
-						BIO_free_all(pOut);
-					DSA_free(algo_ctx_.dsa);
-					return false;
+				algo_ctx_.dsa = GenerateDsaKey(1024);
 
-				}
-				/* 生成密钥 */
-				ret = DSA_generate_key(algo_ctx_.dsa);
-				if (ret != 1)
-				{
-					if (pOut)
-						BIO_free_all(pOut);
-					DSA_free(algo_ctx_.dsa);
-					return false;
-				}
-
-				if (pOut)
-				{
-					PEM_write_bio_DSAPrivateKey(pOut, algo_ctx_.dsa, NULL, NULL, 0, NULL, NULL);
-					BIO_free_all(pOut);
-				}
-				return true;
+				return WriteKey(algo_ctx_.dsa, filename, NULL);
 			}
 			else
 			{
-				if (pOut)
-					BIO_free_all(pOut);
 				return false;
 			}
 		}
@@ -1518,7 +1469,7 @@ namespace sim
 		}
 
 	public:
-		Str PrintString(const name_list& list)
+		static Str PrintString(const name_list& list)
 		{
 			uint32_t size = htonl(list.size());
 
@@ -1528,7 +1479,7 @@ namespace sim
 			return res;
 		}
 		
-		bool ParserString(const char*payload, uint32_t payload_len, uint32_t &offset, name_list&list)
+		static bool ParserString(const char*payload, uint32_t payload_len, uint32_t &offset, name_list&list)
 		{
 			//剩余的字节数
 			uint32_t has_bytes = payload_len - offset;
@@ -1545,7 +1496,7 @@ namespace sim
 		}
 
 		//大数转换为字符串
-		Str BN2Str(const BIGNUM *n)
+		static Str BN2Str(const BIGNUM *n)
 		{
 			if (NULL == n)
 				return "";
@@ -1581,7 +1532,7 @@ namespace sim
 		}
 
 		//子串转换为大数
-		BIGNUM * Str2BN(Str m, BIGNUM *n=NULL)
+		static BIGNUM * Str2BN(Str m, BIGNUM *n=NULL)
 		{
 			if (m.size() == 0)
 				return NULL;
@@ -1593,6 +1544,125 @@ namespace sim
 			return n;
 		}
 
+		//生成公钥文件 filename !=NULL 写到对应的文件
+		static RSA* GenerateRsaKey(int bits=1024)
+		{
+			unsigned long  e = RSA_3;
+			RSA* rsa = NULL;
+			
+			rsa = RSA_generate_key(bits, e, NULL, NULL);
+			if (NULL == rsa)
+			{
+				return rsa;
+			}
+			return rsa;
+		}
+		static DSA* GenerateDsaKey(int bits = 1024)
+		{
+			DSA* dsa = DSA_new();
+			int ret = DSA_generate_parameters_ex(dsa, bits, NULL, 0, NULL, NULL, NULL);
+			if (ret != 1)
+			{
+				DSA_free(dsa);
+				return NULL;
+
+			}
+			/* 生成密钥 */
+			ret = DSA_generate_key(dsa);
+			if (ret != 1)
+			{
+				DSA_free(dsa);
+				return NULL;
+			}
+			return dsa;
+		}
+		//写入公钥文件
+		static bool WriteKey(RSA *rsa, const char* pri_filename = NULL,
+			const char* pub_filename = NULL)
+		{
+			if (NULL == rsa)
+				return false;
+
+			bool flag = false;
+			BIO* pPri = NULL;
+			if (pri_filename)
+			{
+				//打开
+				pPri = BIO_new_file(pri_filename, "w");
+				if (NULL == pPri)
+				{
+					//打开失败
+					return false;
+				}
+			}
+			BIO* pPub = NULL;
+			if (pub_filename)
+			{
+				//打开
+				pPub = BIO_new_file(pub_filename, "w");
+				if (NULL == pPub)
+				{
+					//打开失败
+					return false;
+				}
+			}
+			
+			if (pPri)
+			{
+				PEM_write_bio_RSAPrivateKey(pPri, rsa, NULL, NULL, 0, NULL, NULL);
+				BIO_free_all(pPri);
+			}
+			if (pPub)
+			{
+				PEM_write_bio_RSAPublicKey(pPub, rsa);
+				BIO_free_all(pPub);
+			}
+
+			return true;
+		}
+
+		static bool WriteKey(DSA*dsa, const char* pri_filename = NULL,
+			const char* pub_filename = NULL)
+		{
+			if (NULL == dsa)
+				return false;
+
+			bool flag = false;
+			BIO* pPri = NULL;
+			if (pri_filename)
+			{
+				//打开
+				pPri = BIO_new_file(pri_filename, "w");
+				if (NULL == pPri)
+				{
+					//打开失败
+					return false;
+				}
+			}
+			BIO* pPub = NULL;
+			if (pub_filename)
+			{
+				//打开
+				pPub = BIO_new_file(pub_filename, "w");
+				if (NULL == pPub)
+				{
+					//打开失败
+					return false;
+				}
+			}
+
+			if (pPri)
+			{
+				PEM_write_bio_DSAPrivateKey(pPri, dsa, NULL, NULL, 0, NULL, NULL);
+				BIO_free_all(pPri);
+			}
+			if (pPub)
+			{
+				PEM_write_bio_DSA_PUBKEY(pPub, dsa);
+				BIO_free_all(pPub);
+			}
+			return true;
+		}
 	protected:
 
 		/*bool ReadPacket(const char*data, unsigned int len, unsigned int &offset)
@@ -2436,53 +2506,69 @@ namespace sim
 			return Sha1(buff);
 		}
 
+		static Str MakeSshRsaPubKey(RSA* rsa)
+		{
+			if (NULL == rsa)
+				return "";
+			/*
+			The "ssh-rsa" key format has the following specific encoding:
+			string "ssh-rsa"
+			mpint e
+			mpint n
+			*/
+			const Str name = "ssh-rsa";
+			Str key;
+#ifdef HAVE_OPAQUE_STRUCTS
+			key = PrintString(name);
+			key += PrintString(BN2Str(RSA_get0_e(rsa)));
+			key += PrintString(BN2Str(RSA_get0_n(rsa)));
+#else
+			key = PrintString(name);
+			key += PrintString(BN2Str((rsa)->e));
+			key += PrintString(BN2Str((rsa)->n));
+#endif
+			return key;
+		}
+		static Str MakeSshDsaPubKey(DSA* dsa)
+		{
+			if (NULL == dsa)
+				return "";
+			/*
+				string "ssh-dss"
+				mpint p
+				mpint q
+				mpint g
+				mpint y
+			*/
+			const Str name = "ssh-dss";
+			Str key;
+#ifdef HAVE_OPAQUE_STRUCTS
+			key = PrintString(name);
+			key += PrintString(BN2Str(DSA_get0_p(dsa)));
+			key += PrintString(BN2Str(DSA_get0_q(dsa)));
+			key += PrintString(BN2Str(DSA_get0_g(dsa)));
+			key += PrintString(BN2Str(DSA_get0_pub_key(dsa)));
+#else
+			key = PrintString(name);
+			key += PrintString(BN2Str((dsa)->p));
+			key += PrintString(BN2Str((dsa)->q));
+			key += PrintString(BN2Str((dsa)->g));
+			key += PrintString(BN2Str((dsa)->pub_key));
+#endif
+			return key;
+		}
 		//
 		Str MakeHostKey()
 		{
-			Str host_key;
-
-			if ("ssh-rsa" == algo_ctx_.server_host_key_algorithms&&algo_ctx_.rsa)
+			if ("ssh-rsa" == algo_ctx_.server_host_key_algorithms && algo_ctx_.rsa)
 			{
-				/*
-					The "ssh-rsa" key format has the following specific encoding:
-					string "ssh-rsa"
-					mpint e
-					mpint n
-				*/
-#ifdef HAVE_OPAQUE_STRUCTS
-				host_key = PrintString(algo_ctx_.server_host_key_algorithms);
-				host_key += PrintString(BN2Str(RSA_get0_e(algo_ctx_.rsa)));
-				host_key += PrintString(BN2Str(RSA_get0_n(algo_ctx_.rsa)));
-#else
-				host_key = PrintString(algo_ctx_.server_host_key_algorithms);
-				host_key += PrintString(BN2Str((algo_ctx_.rsa)->e));
-				host_key += PrintString(BN2Str((algo_ctx_.rsa)->n));
-#endif
+				return MakeSshRsaPubKey(algo_ctx_.rsa);
 			}
-			else if ("ssh-dsa" == algo_ctx_.server_host_key_algorithms&&algo_ctx_.dsa)
+			else if ("ssh-dsa" == algo_ctx_.server_host_key_algorithms && algo_ctx_.dsa)
 			{
-				/*
-					string "ssh-dss"
-					mpint p
-					mpint q
-					mpint g
-					mpint y
-				*/
-#ifdef HAVE_OPAQUE_STRUCTS
-				host_key = PrintString(algo_ctx_.server_host_key_algorithms);
-				host_key += PrintString(BN2Str(DSA_get0_p(algo_ctx_.dsa)));
-				host_key += PrintString(BN2Str(DSA_get0_q(algo_ctx_.dsa)));
-				host_key += PrintString(BN2Str(DSA_get0_g(algo_ctx_.dsa)));
-				host_key += PrintString(BN2Str(DSA_get0_pub_key(algo_ctx_.dsa)));
-#else
-				host_key = PrintString(algo_ctx_.server_host_key_algorithms);
-				host_key += PrintString(BN2Str((algo_ctx_.dsa)->p));
-				host_key += PrintString(BN2Str((algo_ctx_.dsa)->q));
-				host_key += PrintString(BN2Str((algo_ctx_.dsa)->g));
-				host_key += PrintString(BN2Str((algo_ctx_.dsa)->pub_key));
-#endif
+				return MakeSshDsaPubKey(algo_ctx_.dsa);
 			}
-			return host_key;
+			return "";;
 		}
 
 		/*
@@ -3061,8 +3147,50 @@ namespace sim
 		bool ParserBannerMessage(const char* payload_data, uint32_t payload_data_len, Str& message, Str& language_tag);
 		Str PrintAuthResponseFailure(const Str& message, const Str& language_tag);
 
-	private:
+		/*
+		* byte SSH_MSG_USERAUTH_PASSWD_CHANGEREQ
+		string prompt in ISO-10646 UTF-8 encoding [RFC3629]
+		string language tag [RFC3066]
+		*/
+		bool ParserPassWDChangeReq(const char* payload_data, uint32_t payload_data_len, Str& prompt, Str& language_tag);
+		Str PrintPassWDChangeReq(const Str& prompt, const Str& language_tag);
 
+		Str AuthPassWord(const Str& user_name,const Str& password,const Str &service_name="ssh-connection")
+		{
+			sim::SshAuthRequest auth_req;
+			//ssh-connection
+			auth_req.user_name = user_name;
+			auth_req.service_name = service_name;
+			auth_req.method = SSH_AUTH_PASSWORD;
+			auth_req.method_fields.password.flag = false;
+			auth_req.method_fields.password.password = password;
+			return PrintAuthRequset(auth_req);
+		}
+		Str AuthPassWordChangeReq(const Str& user_name, const Str& old_password,
+			const Str& new_password, const Str& service_name = "ssh-connection")
+		{
+			sim::SshAuthRequest auth_req;
+			//ssh-connection
+			auth_req.user_name = user_name;
+			auth_req.service_name = service_name;
+			auth_req.method = SSH_AUTH_PASSWORD;
+			auth_req.method_fields.password.flag = true;
+			auth_req.method_fields.password.password = new_password;
+			auth_req.method_fields.password.old_password = old_password;
+			return PrintAuthRequset(auth_req);
+		}
+
+		Str AuthPublicKey(const Str& user_name, const Str& key_file,
+			const Str& service_name = "ssh-connection")
+		{
+
+		}
+
+	private:
+		void* LoadKey(SshPublicKeyType& type)
+		{
+
+		}
 	};
 
 	//The Secure Shell (SSH) Connection Protocol
