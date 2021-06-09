@@ -203,9 +203,9 @@ void CloseHandler(sim::AsyncHandle handle, sim::AsyncCloseReason reason, int err
 int main(int argc, char*argv[])
 {
 	SSL_library_init();
-	ssh_parser.GeneratePriKey(sim::SshDsa, "dsa.pri");
-	/*ssh_parser.LoadPriKey(sim::SshRsa, "./ssh_rsa.pem");
-	ssh_parser.LoadPriKey(sim::SshDsa, "./ssh_dsa.pem");*/
+	ssh_parser.GeneratePriKey(sim::Dsa, "dsa.pri");
+	/*ssh_parser.LoadPriKey(sim::Rsa, "./ssh_rsa.pem");
+	ssh_parser.LoadPriKey(sim::Dsa, "./ssh_dsa.pem");*/
 
 	sim::SimAsync &async= Get();
 	/*sim::AsyncHandle */handle = async.CreateTcpHandle();

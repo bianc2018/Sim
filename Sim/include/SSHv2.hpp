@@ -90,6 +90,14 @@
 #define SSH_MSG_USERAUTH_SUCCESS			52
 #define SSH_MSG_USERAUTH_BANNER				53
 
+/* "public key" method */
+#define SSH_MSG_USERAUTH_PK_OK                      60
+/* "password" method */
+#define SSH_MSG_USERAUTH_PASSWD_CHANGEREQ           60
+/* "keyboard-interactive" method */
+#define SSH_MSG_USERAUTH_INFO_REQUEST               60
+#define SSH_MSG_USERAUTH_INFO_RESPONSE              61
+
 #define SSH_MSG_GLOBAL_REQUEST				80
 #define SSH_MSG_REQUEST_SUCCESS				81
 #define SSH_MSG_REQUEST_FAILURE				82
@@ -507,8 +515,8 @@ namespace sim
 	//Public Key Algorithms ssh公钥算法
 	enum SshPublicKeyType
 	{
-		SshRsa,
-		SshDsa
+		Rsa,
+		Dsa
 	};
 	
 	////io base
@@ -637,19 +645,7 @@ namespace sim
 		//从文件中加载私钥
 		bool LoadPriKey(SshPublicKeyType type, const char*filename)
 		{
-			if (NULL == filename)
-			{
-				return false;
-			}
-			//打开
-			BIO*pIn = BIO_new_file(filename, "r");
-			if (NULL == pIn)
-			{
-				//打开失败
-				return false;
-			}
-
-			if (type == SshRsa)
+			if (type == Rsa)
 			{
 				//释放已经存在的
 				if (algo_ctx_.rsa)
@@ -657,8 +653,7 @@ namespace sim
 					RSA_free(algo_ctx_.rsa);
 					algo_ctx_.rsa = NULL;
 				}
-				algo_ctx_.rsa = PEM_read_bio_RSAPrivateKey(pIn, NULL, NULL, NULL);
-				BIO_free_all(pIn);
+				algo_ctx_.rsa = ReadRsaPriKey(filename);
 				//RSA_print_fp(stdout, algo_ctx_.rsa, 0);
 				if (NULL == algo_ctx_.rsa)
 				{
@@ -666,7 +661,7 @@ namespace sim
 				}
 				return true;
 			}
-			else if (type == SshDsa)
+			else if (type == Dsa)
 			{
 				//释放已经存在的
 				if (algo_ctx_.dsa)
@@ -674,9 +669,7 @@ namespace sim
 					DSA_free(algo_ctx_.dsa);
 					algo_ctx_.dsa = NULL;
 				}
-				algo_ctx_.dsa = PEM_read_bio_DSAPrivateKey(pIn, NULL, NULL, NULL);
-				BIO_free_all(pIn);
-				//DSA_print_fp(stdout, algo_ctx_.dsa, 0);
+				algo_ctx_.dsa = ReadDsaPriKey(filename);
 				if (NULL == algo_ctx_.dsa)
 				{
 					return false;
@@ -685,7 +678,6 @@ namespace sim
 			}
 			else
 			{
-				BIO_free_all(pIn);
 				return false;
 			}
 		}
@@ -693,7 +685,7 @@ namespace sim
 		//或者生成私钥 filename !=NULL 写到对应的文件
 		bool GeneratePriKey(SshPublicKeyType type, const char*filename = NULL)
 		{
-			if (type == SshRsa)
+			if (type == Rsa)
 			{
 				//释放已经存在的
 				if (algo_ctx_.rsa)
@@ -705,7 +697,7 @@ namespace sim
 
 				return WriteKey(algo_ctx_.rsa, filename,NULL);
 			}
-			else if (type == SshDsa)
+			else if (type == Dsa)
 			{
 				//释放已经存在的
 				if (algo_ctx_.dsa)
@@ -1544,7 +1536,75 @@ namespace sim
 			return n;
 		}
 
-		//生成公钥文件 filename !=NULL 写到对应的文件
+		//读取私钥文件
+		static RSA* ReadRsaPriKey(const char* filename)
+		{
+			if (NULL == filename)
+			{
+				return NULL;
+			}
+			//打开
+			BIO*pIn = BIO_new_file(filename, "r");
+			if (NULL == pIn)
+			{
+				//打开失败
+				return NULL;
+			}
+			RSA* rsa = PEM_read_bio_RSAPrivateKey(pIn, NULL, NULL, NULL);
+			BIO_free_all(pIn);
+			return rsa;
+		}
+		static RSA* ReadRsaPubKey(const char* filename)
+		{
+			if (NULL == filename)
+			{
+				return NULL;
+			}
+			//打开
+			BIO*pIn = BIO_new_file(filename, "r");
+			if (NULL == pIn)
+			{
+				//打开失败
+				return NULL;
+			}
+			RSA* rsa = PEM_read_bio_RSAPublicKey(pIn, NULL, NULL, NULL);
+			BIO_free_all(pIn);
+			return rsa;
+		}
+		static DSA* ReadDsaPriKey(const char* filename)
+		{
+			if (NULL == filename)
+			{
+				return NULL;
+			}
+			//打开
+			BIO*pIn = BIO_new_file(filename, "r");
+			if (NULL == pIn)
+			{
+				//打开失败
+				return NULL;
+			}
+			DSA* rsa = PEM_read_bio_DSAPrivateKey(pIn, NULL, NULL, NULL);
+			BIO_free_all(pIn);
+			return rsa;
+		}
+		static DSA* ReadDsaPubKey(const char* filename)
+		{
+			if (NULL == filename)
+			{
+				return NULL;
+			}
+			//打开
+			BIO*pIn = BIO_new_file(filename, "r");
+			if (NULL == pIn)
+			{
+				//打开失败
+				return NULL;
+			}
+			DSA* rsa = PEM_read_bio_DSA_PUBKEY(pIn, NULL, NULL, NULL);
+			BIO_free_all(pIn);
+			return rsa;
+		}
 		static RSA* GenerateRsaKey(int bits=1024)
 		{
 			unsigned long  e = RSA_3;
@@ -1663,6 +1723,16 @@ namespace sim
 			}
 			return true;
 		}
+
+		//写ssh-风格的公钥
+		static bool ReadSshPubKeyFile(const char* filename, Str&type,Str&pubkey);
+		static bool WriteSshPubKeyFile(const char* filename, const Str&type, const Str&pubkey);
+
+		static bool WriteSshRsaPubKey(RSA*dsa, const char* filename);
+		static RSA* ReadSshRsaPubKey(const char* filename );
+		static bool WriteSshDsaPubKey(DSA*dsa, const char* filename );
+		static DSA* ReadSshDsaPubKey(const char* filename );
+		static void* ReadSshPubKey(const char* filename, SshPublicKeyType &type);
 	protected:
 
 		/*bool ReadPacket(const char*data, unsigned int len, unsigned int &offset)
@@ -1929,7 +1999,7 @@ namespace sim
 			return true;
 		}
 		
-	private:
+	protected:
 		//获取默认的算法
 		name_list GetLocalKexAlgorithms()
 		{
@@ -2170,7 +2240,7 @@ namespace sim
 			return NULL;
 		}
 
-		Str Sha1(const Str&data)
+		static Str Sha1(const Str&data)
 		{
 			//sha-1 运算
 #ifdef HAVE_OPAQUE_STRUCTS
@@ -2595,13 +2665,119 @@ namespace sim
 			return Key.substr(0, len);
 		}
 
-		//初始化 服务端发过来的公钥
-		bool InitPubKey(const SSHKexDHReply &dh_reply)
+		static Str GetSshPubKeyType(const Str &pubkey)
 		{
 			uint32_t offset = 0;
 			Str ks_name;
-			if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, ks_name))
-				return false;
+			if (!ParserString(pubkey.c_str(), pubkey.size(), offset, ks_name))
+				return "";
+			return ks_name;
+		}
+		//通过SSH-格式的公钥初始化
+		static RSA* InitRsaPubKeyFromSshPubKey(const Str &pubkey)
+		{
+			/*
+					string "ssh-rsa"
+					mpint e
+					mpint n
+			*/
+			uint32_t offset = 0;
+			Str ks_name;
+			if (!ParserString(pubkey.c_str(), pubkey.size(), offset, ks_name))
+				return NULL;
+			if (ks_name != "ssh-rsa")
+				return NULL;
+			Str str_e, str_n;
+			if (!ParserString(pubkey.c_str(), pubkey.size(), offset, str_e))
+				return NULL;
+			if (!ParserString(pubkey.c_str(), pubkey.size(), offset, str_n))
+				return NULL;
+			BIGNUM *e = Str2BN(str_e);
+			BIGNUM *n = Str2BN(str_n);
+			
+			RSA*rsa = RSA_new();
+#ifdef HAVE_OPAQUE_STRUCTS
+			RSA_set0_key(rsa, n, e, NULL);
+			RSA_set0_factors(rsa, NULL, NULL);
+			RSA_set0_crt_params(rsa, NULL, NULL, NULL);
+#else
+			(rsa)->e = e;
+			(rsa)->n = n;
+			(rsa)->d = NULL;
+
+			(rsa)->p = NULL;
+			(rsa)->q = NULL;
+
+			(rsa)->dmp1 = NULL;
+			(rsa)->dmq1 = NULL;
+			(rsa)->iqmp = NULL;
+#endif
+			return rsa;
+		}
+		static DSA* InitDsaPubKeyFromSshPubKey(const Str &pubkey)
+		{
+			/*
+					string "ssh-dss"
+					mpint p
+					mpint q
+					mpint g
+					mpint y
+				*/
+			uint32_t offset = 0;
+			Str ks_name;
+			if (!ParserString(pubkey.c_str(), pubkey.size(), offset, ks_name))
+				return NULL;
+			if (ks_name != "ssh-dsa")
+				return NULL;
+
+			Str str_p, str_q, str_g, str_y;
+			if (!ParserString(pubkey.c_str(), pubkey.size(), offset, str_p))
+				return NULL;
+			if (!ParserString(pubkey.c_str(), pubkey.size(), offset, str_q))
+				return NULL;
+			if (!ParserString(pubkey.c_str(), pubkey.size(), offset, str_g))
+				return NULL;
+			if (!ParserString(pubkey.c_str(), pubkey.size(), offset, str_y))
+				return NULL;
+			BIGNUM *p = Str2BN(str_p);
+			BIGNUM *q = Str2BN(str_q);
+			BIGNUM *g = Str2BN(str_g);
+			BIGNUM *y = Str2BN(str_y);
+			DSA*dsa = DSA_new();
+#ifdef HAVE_OPAQUE_STRUCTS
+			DSA_set0_pqg(dsa, p, q, g);
+			DSA_set0_key(dsa, y, NULL);
+#else
+			(dsa)->p = p;
+			(dsa)->g = g;
+			(dsa)->q = q;
+			(dsa)->pub_key = y;
+			(dsa)->priv_key = NULL;
+#endif
+			return dsa;
+		}
+		static void* InitPubKeyFromSshPubKey(const Str &pubkey, SshPublicKeyType &type)
+		{
+			Str ks_name = GetSshPubKeyType(pubkey);
+			if ("ssh-rsa" == ks_name)
+			{
+				type = Rsa;
+				return InitRsaPubKeyFromSshPubKey(pubkey);
+			}
+			else if ("ssh-dsa" == ks_name)
+			{
+				type = Dsa;
+				return InitDsaPubKeyFromSshPubKey(pubkey);
+			}
+			else
+			{
+				return NULL;
+			}
+		}
+		//初始化 服务端发过来的公钥
+		bool InitPubKey(const SSHKexDHReply &dh_reply)
+		{
+			Str ks_name = GetSshPubKeyType(dh_reply.K_S);
 			if (ks_name != algo_ctx_.server_host_key_algorithms)
 				return false;//与协商的算法不一致
 			//if (offset >= dh_reply.K_S.size())
@@ -2615,83 +2791,17 @@ namespace sim
 			
 			if ("ssh-rsa" == ks_name)
 			{
-				/*
-					string "ssh-rsa"
-					mpint e
-					mpint n
-				*/
-
-				Str str_e, str_n;
-				if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_e))
-					return false;
-				if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_n))
-					return false;
-				BIGNUM *e = Str2BN(str_e);
-				BIGNUM *n = Str2BN(str_n);
 				if (algo_ctx_.rsa)
 					RSA_free(algo_ctx_.rsa);
-				algo_ctx_.rsa = RSA_new();
-#ifdef HAVE_OPAQUE_STRUCTS
-				RSA_set0_key(algo_ctx_.rsa, n, e,NULL);
-				RSA_set0_factors(algo_ctx_.rsa, NULL, NULL);
-				RSA_set0_crt_params(algo_ctx_.rsa, NULL, NULL, NULL);
-#else
-				(algo_ctx_.rsa)->e = e;
-				(algo_ctx_.rsa)->n = n;
-				(algo_ctx_.rsa)->d = NULL;
-
-				(algo_ctx_.rsa)->p = NULL;
-				(algo_ctx_.rsa)->q = NULL;
-
-				(algo_ctx_.rsa)->dmp1 = NULL;
-				(algo_ctx_.rsa)->dmq1 = NULL;
-				(algo_ctx_.rsa)->iqmp = NULL;
-#endif
-				/*algo_ctx_.ReleaseBIGNUM(&e);
-				algo_ctx_.ReleaseBIGNUM(&n);*/
-				return true;
+				algo_ctx_.rsa = InitRsaPubKeyFromSshPubKey(dh_reply.K_S);
+				return algo_ctx_.rsa!=NULL;
 			}
 			else if ("ssh-dsa" == ks_name)
 			{
-				/*
-					string "ssh-dss"
-					mpint p
-					mpint q
-					mpint g
-					mpint y
-				*/
-
-				Str str_p, str_q, str_g, str_y;
-				if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_p))
-					return false;
-				if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_q))
-					return false;
-				if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_g))
-					return false;
-				if (!ParserString(dh_reply.K_S.c_str(), dh_reply.K_S.size(), offset, str_y))
-					return false;
-				BIGNUM *p = Str2BN(str_p);
-				BIGNUM *q = Str2BN(str_q);
-				BIGNUM *g = Str2BN(str_g);
-				BIGNUM *y = Str2BN(str_y);
 				if (algo_ctx_.dsa)
 					DSA_free(algo_ctx_.dsa);
-				algo_ctx_.dsa = DSA_new();
-#ifdef HAVE_OPAQUE_STRUCTS
-				DSA_set0_pqg(algo_ctx_.dsa, p, q, g);
-				DSA_set0_key(algo_ctx_.dsa, y,NULL);
-#else
-				(algo_ctx_.dsa)->p = p;
-				(algo_ctx_.dsa)->g = g;
-				(algo_ctx_.dsa)->q = q;
-				(algo_ctx_.dsa)->pub_key = y;
-				(algo_ctx_.dsa)->priv_key = NULL;
-#endif
-				/*algo_ctx_.ReleaseBIGNUM(&p);
-				algo_ctx_.ReleaseBIGNUM(&q);
-				algo_ctx_.ReleaseBIGNUM(&g);
-				algo_ctx_.ReleaseBIGNUM(&y);*/
-				return true;
+				algo_ctx_.dsa = InitDsaPubKeyFromSshPubKey(dh_reply.K_S);
+				return algo_ctx_.dsa != NULL;
 			}
 			else
 			{
@@ -2730,34 +2840,47 @@ namespace sim
 
 			return Verify(data, sign);
 		}
+		
+		static bool Verify(RSA*rsa, const Str &data, const Str &sign)
+		{
+			if (NULL == rsa)
+				return false;
 
+			//hash
+			Str hash = Sha1(data);
+
+			int ret = RSA_verify(NID_sha1, (unsigned char*)hash.c_str(), hash.size()
+				, (unsigned char*)sign.c_str(), sign.size(), rsa);
+			if (ret != 1)
+			{
+				return false;
+			}
+			return true;
+		}
+		static bool Verify(DSA*dsa, const Str &data, const Str &sign)
+		{
+			if (NULL == dsa)
+				return false;
+			//hash
+			Str hash = Sha1(data);
+
+			int ret = DSA_verify(NID_sha1, (unsigned char*)hash.c_str(), hash.size()
+				, (unsigned char*)sign.c_str(), sign.size(), dsa);
+			if (ret != 1)
+			{
+				return false;
+			}
+			return true;
+		}
 		bool Verify(const Str &data, const Str &sign)
 		{
 			if ("ssh-rsa" == algo_ctx_.server_host_key_algorithms&&algo_ctx_.rsa)
 			{
-				//hash
-				Str hash = Sha1(data);
-
-				int ret = RSA_verify(NID_sha1, (unsigned char*)hash.c_str(), hash.size()
-					,(unsigned char*)sign.c_str(), sign.size(), algo_ctx_.rsa);
-				if (ret != 1)
-				{
-					return false;
-				}
-				return true;
+				return Verify(algo_ctx_.rsa,data, sign);
 			}
 			else if ("ssh-dsa" == algo_ctx_.server_host_key_algorithms&&algo_ctx_.dsa)
 			{
-				//hash
-				Str hash = Sha1(data);
-
-				int ret = DSA_verify(NID_sha1, (unsigned char*)hash.c_str(), hash.size()
-					, (unsigned char*)sign.c_str(), sign.size(), algo_ctx_.dsa);
-				if (ret != 1)
-				{
-					return false;
-				}
-				return true;
+				return Verify(algo_ctx_.dsa, data, sign);
 			}
 			else
 			{
@@ -2766,43 +2889,57 @@ namespace sim
 			
 		}
 
+		static bool Sign(RSA*rsa, const Str &data, Str &sign)
+		{
+			if (NULL == rsa)
+				return false;
+
+			//hash
+			Str hash = Sha1(data);
+			unsigned int siglen = RSA_size(rsa) * 2 + 1;
+			unsigned char *sigret = new unsigned char[siglen];
+
+			int ret = RSA_sign(NID_sha1, (unsigned char*)hash.c_str(), hash.size()
+				, sigret, &siglen, rsa);
+			if (ret != 1)
+			{
+				delete[]sigret;
+				return false;
+			}
+			sign = Str((char*)sigret, siglen);
+			delete[]sigret;
+			return true;
+		}
+		static bool Sign(DSA*dsa, const Str &data, Str &sign)
+		{
+			if (NULL == dsa)
+				return false;
+
+			//hash
+			Str hash = Sha1(data);
+			unsigned int siglen = DSA_size(dsa) * 2 + 1;
+			unsigned char *sigret = new unsigned char[siglen];
+
+			int ret = DSA_sign(NID_sha1, (unsigned char*)hash.c_str(), hash.size()
+				, sigret, &siglen, dsa);
+			if (ret != 1)
+			{
+				delete[]sigret;
+				return false;
+			}
+			sign = Str((char*)sigret, siglen);
+			delete[]sigret;
+			return true;
+		}
 		bool Sign(const Str &data, Str &sign)
 		{
 			if ("ssh-rsa" == algo_ctx_.server_host_key_algorithms&&algo_ctx_.rsa)
 			{
-				//hash
-				Str hash = Sha1(data);
-				unsigned int siglen = RSA_size(algo_ctx_.rsa) * 2+1;
-				unsigned char *sigret = new unsigned char[siglen];
-				
-				int ret = RSA_sign(NID_sha1, (unsigned char*)hash.c_str(), hash.size()
-					, sigret, &siglen, algo_ctx_.rsa);
-				if (ret != 1)
-				{
-					delete[]sigret;
-					return false;
-				}
-				sign = Str((char*)sigret, siglen);
-				delete[]sigret;
-				return true;
+				return Sign(algo_ctx_.rsa, data, sign);
 			}
 			else if ("ssh-dsa" == algo_ctx_.server_host_key_algorithms&&algo_ctx_.dsa)
 			{
-				//hash
-				Str hash = Sha1(data);
-				unsigned int siglen = DSA_size(algo_ctx_.dsa) * 2 + 1;
-				unsigned char *sigret = new unsigned char[siglen];
-
-				int ret = DSA_sign(NID_sha1, (unsigned char*)hash.c_str(), hash.size()
-					, sigret, &siglen, algo_ctx_.dsa);
-				if (ret != 1)
-				{
-					delete[]sigret;
-					return false;
-				}
-				sign = Str((char*)sigret, siglen);
-				delete[]sigret;
-				return true;
+				return Sign(algo_ctx_.dsa, data, sign);
 			}
 			else
 			{
@@ -2810,7 +2947,7 @@ namespace sim
 			}
 
 		}
-	private:
+	protected:
 		
 #ifdef SIM_PARSER_MULTI_THREAD
 		sim::Mutex parser_lock_;
@@ -3117,9 +3254,47 @@ namespace sim
 			name-list authentications that can continue
 			boolean partial success FAILURE
 		*/
-		bool ParserAuthResponseFailure(const char* payload_data, uint32_t payload_data_len, Str& authentications, bool& partial);
-		Str PrintAuthResponseFailure(const Str& authentications, bool partial);
-		Str PrintAuthResponseSuccess();
+		bool ParserAuthResponseFailure(const char* payload_data, uint32_t payload_data_len, 
+			Str& authentications, bool& partial)
+		{
+			/*
+			byte SSH_MSG_USERAUTH_FAILURE
+			name-list authentications that can continue
+			boolean partial success
+			*/
+			if (NULL == payload_data || 0 == payload_data_len)
+				return false;
+
+			uint32_t offset = 0;
+
+			if (!ParserString(payload_data, payload_data_len, offset, authentications))
+				return false;
+			
+			if (offset >= payload_data_len)
+				return false;
+			if (payload_data[offset] == 0)
+				partial = false;
+			else
+				partial = true;
+			return true;
+		}
+		Str PrintAuthResponseFailure(const Str& authentications, bool partial)
+		{
+			/*if (authentications.size()==0)
+				return "";*/
+
+			Str payload_data = PrintString(authentications);
+			if(partial)
+				payload_data += char(0x1);//TRUE
+			else
+				payload_data += char(0x0);//FALSE
+
+			return PrintPacket(SSH_MSG_USERAUTH_FAILURE, payload_data.c_str(), payload_data.size());
+		}
+		Str PrintAuthResponseSuccess()
+		{
+			return PrintPacket(SSH_MSG_USERAUTH_SUCCESS, NULL,0);
+		}
 
 		/*
 		*	Banner Message
@@ -3144,16 +3319,94 @@ namespace sim
 			’message’ may consist of multiple lines, with line breaks indicated
 			by CRLF pairs.
 		*/
-		bool ParserBannerMessage(const char* payload_data, uint32_t payload_data_len, Str& message, Str& language_tag);
-		Str PrintAuthResponseFailure(const Str& message, const Str& language_tag);
+		bool ParserBannerMessage(const char* payload_data, uint32_t payload_data_len, Str& message, Str& language_tag)
+		{
+			/*
+			byte SSH_MSG_USERAUTH_BANNER
+			string message in ISO-10646 UTF-8 encoding [RFC3629]
+			string language tag [RFC3066]
+			*/
+			if (NULL == payload_data || 0 == payload_data_len)
+				return false;
+
+			uint32_t offset = 0;
+
+			if (!ParserString(payload_data, payload_data_len, offset, message))
+				return false;
+
+			if (!ParserString(payload_data, payload_data_len, offset, language_tag))
+				return false;
+
+			return true;
+		}
+		Str PrintBannerMessage(const Str& message, const Str& language_tag)
+		{
+			Str payload_data = PrintString(message);
+			payload_data += PrintString(language_tag);
+			
+			return PrintPacket(SSH_MSG_USERAUTH_BANNER, payload_data.c_str(), payload_data.size());
+		}
 
 		/*
 		* byte SSH_MSG_USERAUTH_PASSWD_CHANGEREQ
 		string prompt in ISO-10646 UTF-8 encoding [RFC3629]
 		string language tag [RFC3066]
 		*/
-		bool ParserPassWDChangeReq(const char* payload_data, uint32_t payload_data_len, Str& prompt, Str& language_tag);
-		Str PrintPassWDChangeReq(const Str& prompt, const Str& language_tag);
+		bool ParserPassWDChangeReq(const char* payload_data, uint32_t payload_data_len, Str& prompt, Str& language_tag)
+		{
+			/*
+			byte SSH_MSG_USERAUTH_PASSWD_CHANGEREQ
+			string prompt in ISO-10646 UTF-8 encoding [RFC3629]
+			string language tag [RFC3066]
+			*/
+			if (NULL == payload_data || 0 == payload_data_len)
+				return false;
+
+			uint32_t offset = 0;
+
+			if (!ParserString(payload_data, payload_data_len, offset, prompt))
+				return false;
+
+			if (!ParserString(payload_data, payload_data_len, offset, language_tag))
+				return false;
+
+			return true;
+		}
+		Str PrintPassWDChangeReq(const Str& prompt, const Str& language_tag)
+		{
+			Str payload_data = PrintString(prompt);
+			payload_data += PrintString(language_tag);
+
+			return PrintPacket(SSH_MSG_USERAUTH_PASSWD_CHANGEREQ, payload_data.c_str(), payload_data.size());
+		}
+
+		bool ParserPkOK(const char* payload_data, uint32_t payload_data_len, Str& key_name, Str& key)
+		{
+			/*
+			byte SSH_MSG_USERAUTH_PK_OK
+			string public key algorithm name from the request
+			string public key blob from the request
+			*/
+			if (NULL == payload_data || 0 == payload_data_len)
+				return false;
+
+			uint32_t offset = 0;
+
+			if (!ParserString(payload_data, payload_data_len, offset, key_name))
+				return false;
+
+			if (!ParserString(payload_data, payload_data_len, offset, key))
+				return false;
+
+			return true;
+		}
+		Str PrintPkOK(const Str& key_name, const Str& key)
+		{
+			Str payload_data = PrintString(key_name);
+			payload_data += PrintString(key);
+
+			return PrintPacket(SSH_MSG_USERAUTH_PK_OK, payload_data.c_str(), payload_data.size());
+		}
 
 		Str AuthPassWord(const Str& user_name,const Str& password,const Str &service_name="ssh-connection")
 		{
@@ -3180,17 +3433,140 @@ namespace sim
 			return PrintAuthRequset(auth_req);
 		}
 
-		Str AuthPublicKey(const Str& user_name, const Str& key_file,
+		Str AuthPublicKey(const Str& user_name, SshPublicKeyType type, const Str& key_file,bool sign,
 			const Str& service_name = "ssh-connection")
 		{
-
+			sim::SshAuthRequest auth_req;
+			//ssh-connection
+			auth_req.user_name = user_name;
+			auth_req.service_name = service_name;
+			auth_req.method = SSH_AUTH_PUB_KEY;
+			if (type == Rsa)
+			{
+				RSA*rsa = SshTransport::ReadRsaPriKey(key_file.c_str());
+				if (NULL == rsa)
+					return "";
+				auth_req.method_fields.publickey.key_algorithm_name = "ssh-rsa";
+				auth_req.method_fields.publickey.key_blob = SshTransport::MakeSshRsaPubKey(rsa);
+				if (sign)
+				{
+					if (false == SignAuthRequest(auth_req, rsa))
+					{
+						RSA_free(rsa);
+						return "";
+					}
+				}
+			}
+			else if (type == Dsa) 
+			{
+				DSA*dsa = SshTransport::ReadDsaPriKey(key_file.c_str());
+				if (NULL == dsa)
+					return "";
+				auth_req.method_fields.publickey.key_algorithm_name = "ssh-dsa";
+				auth_req.method_fields.publickey.key_blob = SshTransport::MakeSshDsaPubKey(dsa);
+				if (sign)
+				{
+					if (false == SignAuthRequest(auth_req, dsa))
+					{
+						DSA_free(dsa);
+						return "";
+					}
+				}
+			}
+			else
+			{
+				return "";
+			}
+			return PrintAuthRequset(auth_req);
 		}
-
-	private:
-		void* LoadKey(SshPublicKeyType& type)
+		
+		//验证请求
+		bool VerifyAuthRequest(const SshAuthRequest& req)
 		{
+			/*
+			The value of ’signature’ is a signature by the corresponding private
+			key over the following data, in the following order:
+			string session identifier
+			byte SSH_MSG_USERAUTH_REQUEST
+			string user name
+			string service name
+			string "publickey"
+			boolean TRUE
+			string public key algorithm name
+			string public key to be used for authentication
+			*/
+			if (req.method != SSH_AUTH_PUB_KEY)
+				return false;
+			if (req.method_fields.publickey.flag != true)
+				return false;
 
+			//data
+			Str data = GetSignatureData(req);
+			SshPublicKeyType pub_type;
+			bool ret = false;
+			void*ctx = SshTransport::InitPubKeyFromSshPubKey(req.method_fields.publickey.key_blob, pub_type);
+			if (ctx)
+			{
+				if (Rsa == pub_type)
+				{
+					RSA*rsa = (RSA*)ctx;
+					ret = SshTransport::Verify(rsa, data, req.method_fields.publickey.signature);
+					RSA_free(rsa);
+				}
+				if (Dsa == pub_type)
+				{
+					DSA*dsa = (DSA*)ctx;
+					ret = SshTransport::Verify(dsa, data, req.method_fields.publickey.signature);
+					DSA_free(dsa);
+				}
+				else
+				{
+					return ret;
+				}
+			}
+			else
+			{
+				return ret;
+			}
 		}
+	private:
+		Str GetSignatureData(const SshAuthRequest& req)
+		{
+			/*
+			The value of ’signature’ is a signature by the corresponding private
+			key over the following data, in the following order:
+			string session identifier
+			byte SSH_MSG_USERAUTH_REQUEST
+			string user name
+			string service name
+			string "publickey"
+			boolean TRUE
+			string public key algorithm name
+			string public key to be used for authentication
+			*/
+			Str data = PrintString(algo_ctx_.session_id);
+			data += char(SSH_MSG_USERAUTH_REQUEST);
+			data += PrintString(req.user_name);
+			data += PrintString(req.service_name);
+			data += PrintString(req.method);
+			data += char(1);
+			data += PrintString(req.method_fields.publickey.key_algorithm_name);
+			data += PrintString(req.method_fields.publickey.key_blob);
+			return data;
+		}
+		template<typename SignCTX>
+		bool SignAuthRequest(SshAuthRequest& req, SignCTX*ctx)
+		{
+			if (req.method != SSH_AUTH_PUB_KEY)
+				return false;
+			
+			req.method_fields.publickey.flag = true;
+			//data
+			Str data = GetSignatureData(req);
+			return SshTransport::Sign(ctx, data, req.method_fields.publickey.signature);
+		}
+
+		
 	};
 
 	//The Secure Shell (SSH) Connection Protocol

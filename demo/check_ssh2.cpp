@@ -387,8 +387,8 @@ int main(int argc, char*argv[])
 	ssh_s.SetHandler(SSH_MSG_KEXDH_REPLY, SSH_TRANS_HANDLER_SSH_MSG_KEXDH_REPLY, NULL);
 	ssh_s.SetHandler(SSH_MSG_NEWKEYS, SSH_TRANS_HANDLER_SSH_MSG_NEWKEYS, NULL);
 
-	ssh_s.LoadPriKey(sim::SshRsa, "./ssh_rsa.pem");
-	ssh_s.LoadPriKey(sim::SshDsa, "./ssh_dsa.pem");
+	ssh_s.LoadPriKey(sim::Rsa, "./ssh_rsa.pem");
+	ssh_s.LoadPriKey(sim::Dsa, "./ssh_dsa.pem");
 
 	sim::SimAsync &async = Get();
 	sim::AsyncHandle handle = async.CreateTcpHandle();
