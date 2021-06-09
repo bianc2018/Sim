@@ -1725,14 +1725,125 @@ namespace sim
 		}
 
 		//写ssh-风格的公钥
-		static bool ReadSshPubKeyFile(const char* filename, Str&type,Str&pubkey);
-		static bool WriteSshPubKeyFile(const char* filename, const Str&type, const Str&pubkey);
+		static bool ReadSshPubKeyData(const Str& data, Str& type, Str& pubkey)
+		{
+			unsigned int offset = 0;
+			for (offset = 0; offset < data.size(); ++offset)
+			{
+				if (data[offset] == ' ')
+					break;
+				type += data[offset];
+			}
+			if (offset+1 >= data.size())
+				return false;
+			pubkey = Base64Decode(data.substr(offset + 1));
+			if (type.empty())
+				return false;
+			if (pubkey.empty())
+				return false;
+			if (GetSshPubKeyType(pubkey) != type)
+				return false;
+			return true;
+		}
+		static bool WriteSshPubKeyData(Str& data, const Str& type, const Str& pubkey)
+		{
+			if (type.empty())
+				return false;
+			if (pubkey.empty())
+				return false;
+			if (GetSshPubKeyType(pubkey) != type)
+				return false;
+			Str base64 = Base64Encode(pubkey);
+			if (base64.empty())
+				return false;
+			data = type + " " + base64;
+			return true;
+		}
 
-		static bool WriteSshRsaPubKey(RSA*dsa, const char* filename);
-		static RSA* ReadSshRsaPubKey(const char* filename );
-		static bool WriteSshDsaPubKey(DSA*dsa, const char* filename );
-		static DSA* ReadSshDsaPubKey(const char* filename );
-		static void* ReadSshPubKey(const char* filename, SshPublicKeyType &type);
+		static bool ReadSshPubKeyFile(const char* filename, Str& type, Str& pubkey)
+		{
+			if (NULL == filename)
+				return false;
+			FILE* fp = fopen(filename, "rb");
+			if (NULL == fp)
+				return false;
+
+			Str filedata;
+			const int temp_size = 1024 * 4;
+			char temp[temp_size] = {0};
+			while (true)
+			{
+				size_t readlen = fread(temp, temp_size, 1, fp);
+				if (readlen <= 0)
+					break;
+				filedata += Str(temp, readlen);
+			}
+			fclose(fp);
+
+			return ReadSshPubKeyData(filedata, type, pubkey);
+		}
+		static bool WriteSshPubKeyFile(const char* filename, const Str& type, const Str& pubkey)
+		{
+			if (NULL == filename)
+				return false;
+			
+			Str filedata;
+			if (!WriteSshPubKeyData(filedata, type, pubkey))
+				return false;
+
+			FILE* fp = fopen(filename, "rb");
+			if (NULL == fp)
+				return false;
+
+			fwrite(filedata.c_str(), filedata.size(), 1, fp);
+			fclose(fp);
+			return true;
+		}
+
+		static bool WriteSshRsaPubKey(RSA* rsa, const char* filename)
+		{
+			const Str type = "ssh-rsa";
+			Str pubkey = MakeSshRsaPubKey(rsa);
+			if (pubkey.size() == 0)
+				return false;
+			return WriteSshPubKeyFile(filename, type, pubkey);
+		}
+		static RSA* ReadSshRsaPubKey(const char* filename)
+		{
+			Str type;
+			Str pubkey;
+			if (!ReadSshPubKeyFile(filename, type, pubkey))
+				return NULL;
+			if (type != "ssh-rsa")
+				return NULL;
+			return  InitRsaPubKeyFromSshPubKey(pubkey);
+		}
+		static bool WriteSshDsaPubKey(DSA* dsa, const char* filename)
+		{
+			const Str type = "ssh-dsa";
+			Str pubkey = MakeSshDsaPubKey(dsa);
+			if (pubkey.size() == 0)
+				return false;
+			return WriteSshPubKeyFile(filename, type, pubkey);
+		}
+		static DSA* ReadSshDsaPubKey(const char* filename)
+		{
+			Str type;
+			Str pubkey;
+			if (!ReadSshPubKeyFile(filename, type, pubkey))
+				return NULL;
+			if (type != "ssh-dsa")
+				return NULL;
+			return  InitDsaPubKeyFromSshPubKey(pubkey);
+		}
+		static void* ReadSshPubKey(const char* filename, SshPublicKeyType& type)
+		{
+			Str stype;
+			Str pubkey;
+			if (!ReadSshPubKeyFile(filename, stype, pubkey))
+				return NULL;
+			return  InitPubKeyFromSshPubKey(pubkey,type);
+		}
 	protected:
 
 		/*bool ReadPacket(const char*data, unsigned int len, unsigned int &offset)
@@ -2267,6 +2378,133 @@ namespace sim
 			if (ret == 0)
 				return "";
 			return Str((char*)temp, len);
+		}
+		//采用 libssh2库的
+		static Str Base64Encode(const Str& raw)
+		{
+			static const short base64_reverse_table[256] = {
+				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63,
+				52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,
+				-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+				15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,
+				-1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+				41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1,
+				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+			};
+			unsigned char* s, * d;
+			short v;
+			int i = 0, len = 0;
+			const char *src = raw.c_str();
+			int src_len = raw.size();
+			unsigned char* data = new unsigned char[(3 * raw.size() / 4) + 1];
+			d = (unsigned char*)*data;
+			if (!d) {
+				return "";
+			}
+
+			for (s = (unsigned char*)src; ((char*)s) < (src + src_len); s++) {
+				v = base64_reverse_table[*s];
+				if (v < 0)
+					continue;
+				switch (i % 4) {
+				case 0:
+					d[len] = (unsigned char)(v << 2);
+					break;
+				case 1:
+					d[len++] |= v >> 4;
+					d[len] = (unsigned char)(v << 4);
+					break;
+				case 2:
+					d[len++] |= v >> 2;
+					d[len] = (unsigned char)(v << 6);
+					break;
+				case 3:
+					d[len++] |= v;
+					break;
+				}
+				i++;
+			}
+			if ((i % 4) == 1) {
+				delete[]data;
+				return "";
+			}
+			Str res = Str((char*)data, len);
+			delete[]data;
+			return res;
+		}
+		static Str Base64Decode(const Str& base64)
+		{
+			static const char table64[] =
+				"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+			unsigned char ibuf[3];
+			unsigned char obuf[4];
+			int i;
+			int inputparts;
+			char* output;
+			char* base64data;
+
+			const char* indata = base64.c_str();
+			int insize = base64.size();
+			
+			base64data = output = new char[insize * 4 / 3 + 4];
+			if (NULL == output)
+				return "";
+
+			while (insize > 0) {
+				for (i = inputparts = 0; i < 3; i++) {
+					if (insize > 0) {
+						inputparts++;
+						ibuf[i] = *indata;
+						indata++;
+						insize--;
+					}
+					else
+						ibuf[i] = 0;
+				}
+
+				obuf[0] = (unsigned char)((ibuf[0] & 0xFC) >> 2);
+				obuf[1] = (unsigned char)(((ibuf[0] & 0x03) << 4) | \
+					((ibuf[1] & 0xF0) >> 4));
+				obuf[2] = (unsigned char)(((ibuf[1] & 0x0F) << 2) | \
+					((ibuf[2] & 0xC0) >> 6));
+				obuf[3] = (unsigned char)(ibuf[2] & 0x3F);
+
+				switch (inputparts) {
+				case 1: /* only one byte read */
+					snprintf(output, 5, "%c%c==",
+						table64[obuf[0]],
+						table64[obuf[1]]);
+					break;
+				case 2: /* two bytes read */
+					snprintf(output, 5, "%c%c%c=",
+						table64[obuf[0]],
+						table64[obuf[1]],
+						table64[obuf[2]]);
+					break;
+				default:
+					snprintf(output, 5, "%c%c%c%c",
+						table64[obuf[0]],
+						table64[obuf[1]],
+						table64[obuf[2]],
+						table64[obuf[3]]);
+					break;
+				}
+				output += 4;
+			}
+			*output = 0;
+			Str res(base64data);
+			delete[]base64data;
+			return res;
 		}
 
 		//压缩 out_len 输入也是输出 输入最大缓存 输出结果缓存
