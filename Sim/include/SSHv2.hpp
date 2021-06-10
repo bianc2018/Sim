@@ -1654,6 +1654,138 @@ namespace sim
 			}
 			return dsa;
 		}
+		static void* ReadPriKey(const char* filename, SshPublicKeyType& type)
+		{
+			if (NULL == filename)
+			{
+				return NULL;
+			}
+			//打开
+			BIO* pIn = BIO_new_file(filename, "r");
+			if (NULL == pIn)
+			{
+				//打开失败
+				return NULL;
+			}
+			EVP_PKEY *pkey = PEM_read_bio_PrivateKey(pIn, NULL, NULL, NULL);
+			BIO_free(pIn);
+			if (NULL == pkey)
+				return NULL;
+			/*
+			* # define EVP_PK_RSA      0x0001
+				# define EVP_PK_DSA      0x0002
+			*/
+#ifdef HAVE_OPAQUE_STRUCTS
+			int pktype = EVP_PKEY_id(pkey);
+#else
+			int pktype = pk->type;
+#endif
+			if (EVP_PKEY_RSA == pktype)
+			{
+				type = Rsa;
+				RSA* raw = EVP_PKEY_get0_RSA(pkey);
+				if (NULL == raw)
+				{
+					EVP_PKEY_free(pkey);
+					return NULL;
+				}
+				RSA* rsa = RSAPrivateKey_dup(raw);
+				EVP_PKEY_free(pkey);
+				if (NULL == rsa)
+				{
+					return NULL;
+				}
+				return rsa;
+			}
+			else if (EVP_PKEY_DSA == pktype)
+			{
+				type = Dsa;
+				DSA* raw = EVP_PKEY_get0_DSA(pkey);
+				if (NULL == raw)
+				{
+					EVP_PKEY_free(pkey);
+					return NULL;
+				}
+				
+				DSA* dsa = DSAparams_dup(raw);
+				EVP_PKEY_free(pkey);
+				if (NULL == dsa)
+				{
+					return NULL;
+				}
+				return dsa;
+			}
+			else
+			{
+				return NULL;
+			}
+		}
+		static void* ReadPubKey(const char* filename, SshPublicKeyType& type)
+		{
+			if (NULL == filename)
+			{
+				return NULL;
+			}
+			//打开
+			BIO* pIn = BIO_new_file(filename, "r");
+			if (NULL == pIn)
+			{
+				//打开失败
+				return NULL;
+			}
+			EVP_PKEY* pkey = PEM_read_bio_PUBKEY(pIn,NULL, NULL, NULL);
+			BIO_free(pIn);
+			if (NULL == pkey)
+				return NULL;
+			/*
+			* # define EVP_PK_RSA      0x0001
+				# define EVP_PK_DSA      0x0002
+			*/
+#ifdef HAVE_OPAQUE_STRUCTS
+			int pktype = EVP_PKEY_id(pkey);
+#else
+			int pktype = pk->type;
+#endif
+			if (EVP_PKEY_RSA == pktype)
+			{
+				type = Rsa;
+				RSA* raw = EVP_PKEY_get0_RSA(pkey);
+				if (NULL == raw)
+				{
+					EVP_PKEY_free(pkey);
+					return NULL;
+				}
+				RSA* rsa = RSAPublicKey_dup(raw);
+				EVP_PKEY_free(pkey);
+				if (NULL == rsa)
+				{
+					return NULL;
+				}
+				return rsa;
+			}
+			else if (EVP_PKEY_DSA == pktype)
+			{
+				type = Dsa;
+				DSA* raw = EVP_PKEY_get0_DSA(pkey);
+				if (NULL == raw)
+				{
+					EVP_PKEY_free(pkey);
+					return NULL;
+				}
+
+				DSA* dsa = DSAparams_dup(raw);
+				EVP_PKEY_free(pkey);
+				if (NULL == dsa)
+				{
+					return NULL;
+				}
+				return dsa;
+			}
+			else
+			{
+				return NULL;
+			}
+		}
 		//写入公钥文件
 		static bool WriteKey(RSA *rsa, const char* pri_filename = NULL,
 			const char* pub_filename = NULL)
@@ -3690,7 +3822,55 @@ namespace sim
 			return PrintAuthRequset(auth_req);
 		}
 
-		Str AuthPublicKey(const Str& user_name, SshPublicKeyType type, const Str& key_file,bool sign,
+		//Str AuthPublicKey(const Str& user_name, SshPublicKeyType type, const Str& key_file,bool sign,
+		//	const Str& service_name = "ssh-connection")
+		//{
+		//	sim::SshAuthRequest auth_req;
+		//	//ssh-connection
+		//	auth_req.user_name = user_name;
+		//	auth_req.service_name = service_name;
+		//	auth_req.method = SSH_AUTH_PUB_KEY;
+		//	auth_req.method_fields.publickey.flag = false;
+		//	if (type == Rsa)
+		//	{
+		//		RSA*rsa = SshTransport::ReadRsaPriKey(key_file.c_str());
+		//		if (NULL == rsa)
+		//			return "";
+		//		auth_req.method_fields.publickey.key_algorithm_name = "ssh-rsa";
+		//		auth_req.method_fields.publickey.key_blob = SshTransport::MakeSshRsaPubKey(rsa);
+		//		if (sign)
+		//		{
+		//			if (false == SignAuthRequest(auth_req, rsa))
+		//			{
+		//				RSA_free(rsa);
+		//				return "";
+		//			}
+		//		}
+		//	}
+		//	else if (type == Dsa) 
+		//	{
+		//		DSA*dsa = SshTransport::ReadDsaPriKey(key_file.c_str());
+		//		if (NULL == dsa)
+		//			return "";
+		//		auth_req.method_fields.publickey.key_algorithm_name = "ssh-dsa";
+		//		auth_req.method_fields.publickey.key_blob = SshTransport::MakeSshDsaPubKey(dsa);
+		//		if (sign)
+		//		{
+		//			if (false == SignAuthRequest(auth_req, dsa))
+		//			{
+		//				DSA_free(dsa);
+		//				return "";
+		//			}
+		//		}
+		//	}
+		//	else
+		//	{
+		//		return "";
+		//	}
+		//	return PrintAuthRequset(auth_req);
+		//}
+
+		Str AuthPublicKey(const Str& user_name, const Str& key_file, bool sign,
 			const Str& service_name = "ssh-connection")
 		{
 			sim::SshAuthRequest auth_req;
@@ -3699,12 +3879,15 @@ namespace sim
 			auth_req.service_name = service_name;
 			auth_req.method = SSH_AUTH_PUB_KEY;
 			auth_req.method_fields.publickey.flag = false;
+			
+			SshPublicKeyType type;
+			void* ctx = SshTransport::ReadPriKey(key_file.c_str(), type);
+			if (NULL == ctx)
+				return "";
 
 			if (type == Rsa)
 			{
-				RSA*rsa = SshTransport::ReadRsaPriKey(key_file.c_str());
-				if (NULL == rsa)
-					return "";
+				RSA* rsa = (RSA*)ctx;
 				auth_req.method_fields.publickey.key_algorithm_name = "ssh-rsa";
 				auth_req.method_fields.publickey.key_blob = SshTransport::MakeSshRsaPubKey(rsa);
 				if (sign)
@@ -3715,12 +3898,11 @@ namespace sim
 						return "";
 					}
 				}
+				RSA_free(rsa);
 			}
-			else if (type == Dsa) 
+			else if (type == Dsa)
 			{
-				DSA*dsa = SshTransport::ReadDsaPriKey(key_file.c_str());
-				if (NULL == dsa)
-					return "";
+				DSA* dsa = (DSA*)ctx;
 				auth_req.method_fields.publickey.key_algorithm_name = "ssh-dsa";
 				auth_req.method_fields.publickey.key_blob = SshTransport::MakeSshDsaPubKey(dsa);
 				if (sign)
@@ -3731,15 +3913,17 @@ namespace sim
 						return "";
 					}
 				}
+				DSA_free(dsa);
 			}
 			else
 			{
+				//异常
+				if(NULL!=ctx)
+					abort();
 				return "";
 			}
-			bool ret = VerifyAuthRequest(auth_req);
 			return PrintAuthRequset(auth_req);
 		}
-		
 		//验证请求
 		bool VerifyAuthRequest(const SshAuthRequest& req)
 		{
@@ -3852,7 +4036,6 @@ namespace sim
 			req.method_fields.publickey.signature += SshTransport::PrintString(signdata);
 		}
 
-		
 	};
 
 	//The Secure Shell (SSH) Connection Protocol

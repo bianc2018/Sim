@@ -118,7 +118,7 @@ void SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_PK_OK(sim::SshTransport*parser,
 	printf("SSH_MSG_USERAUTH_PK_OK \n");
 	const char*keyfile = (const char*)pdata;
 	sim::SshAuthentication*auth = (sim::SshAuthentication*)parser;
-	sim::Str req = auth->AuthPublicKey("root", sim::Rsa, keyfile, true);
+	sim::Str req = auth->AuthPublicKey("root", keyfile, true);
 	if (req.empty())
 	{
 		printf("AuthPublicKey falt\n");
@@ -139,7 +139,7 @@ void SSH_TRANS_HANDLER_SSH_MSG_SERVICE_ACCEPT(sim::SshTransport*parser,
 	ssh_parser.SetHandler(SSH_MSG_USERAUTH_PK_OK, SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_PK_OK,(void*) keyfile);
 
 	sim::SshAuthentication*auth = (sim::SshAuthentication*)parser;
-	sim::Str req = auth->AuthPublicKey("root", sim::Rsa, keyfile,false);
+	sim::Str req = auth->AuthPublicKey("root",  keyfile,false);
 	if (req.empty())
 	{
 		printf("AuthPublicKey falt\n");
