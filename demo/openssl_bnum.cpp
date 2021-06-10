@@ -24,7 +24,7 @@ int main(int argc, char*argv[])
 
 	ret = BN_hex2bn(&bn, a);
 	BN_generate_prime(bn, 10, 1, NULL, NULL,NULL,NULL);
-
+	BN_print_fp(stdout, bn);
 	b = BIO_new(BIO_s_file());
 
 	ret = BIO_set_fp(b, stdout, BIO_NOCLOSE);

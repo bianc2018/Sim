@@ -125,6 +125,24 @@ Local extensions:
 #define SSH_MSG_ERR				SSH_MSG_MAX-1
 
 /*
+		The SSH_MSG_CHANNEL_OPEN_FAILURE ’reason code’ values are defined in
+		the following table. Note that the values for the ’reason code’ are
+		given in decimal format for readability, but they are actually uint32
+		values.
+		Symbolic name reason code
+		------------- -----------
+		SSH_OPEN_ADMINISTRATIVELY_PROHIBITED 1
+		SSH_OPEN_CONNECT_FAILED 2
+		SSH_OPEN_UNKNOWN_CHANNEL_TYPE 3
+		SSH_OPEN_RESOURCE_SHORTAGE 4
+*/
+#define SSH_OPEN_ADMINISTRATIVELY_PROHIBITED	1
+#define SSH_OPEN_CONNECT_FAILED					2
+#define SSH_OPEN_UNKNOWN_CHANNEL_TYPE			3
+#define SSH_OPEN_RESOURCE_SHORTAGE				4
+
+
+/*
 Symbolic Name											reason code
  -------------											-----------
  SSH_DISCONNECT_HOST_NOT_ALLOWED_TO_CONNECT				1
@@ -156,7 +174,7 @@ Symbolic Name											reason code
 #define SSH_AUTH_NONE		"none"
 
 //需要释放内存
-char* DumpHex(const unsigned char*hex, unsigned int hex_len)
+static char* DumpHex(const unsigned char*hex, unsigned int hex_len)
 {
 	unsigned int buff_len = hex_len * 8;
 	char *buff = new char[buff_len];
@@ -1764,7 +1782,7 @@ namespace sim
 		{
 			if (NULL == filename)
 				return false;
-			FILE* fp = fopen(filename, "rb");
+			FILE* fp = fopen(filename, "r");
 			if (NULL == fp)
 				return false;
 
@@ -1791,7 +1809,7 @@ namespace sim
 			if (!WriteSshPubKeyData(filedata, type, pubkey))
 				return false;
 
-			FILE* fp = fopen(filename, "rb");
+			FILE* fp = fopen(filename, "w");
 			if (NULL == fp)
 				return false;
 
@@ -2380,7 +2398,7 @@ namespace sim
 			return Str((char*)temp, len);
 		}
 		//采用 libssh2库的
-		static Str Base64Encode(const Str& raw)
+		static Str Base64Decode(const Str& raw)
 		{
 			static const short base64_reverse_table[256] = {
 				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -2406,7 +2424,7 @@ namespace sim
 			const char *src = raw.c_str();
 			int src_len = raw.size();
 			unsigned char* data = new unsigned char[(3 * raw.size() / 4) + 1];
-			d = (unsigned char*)*data;
+			d = (unsigned char*)data;
 			if (!d) {
 				return "";
 			}
@@ -2441,7 +2459,7 @@ namespace sim
 			delete[]data;
 			return res;
 		}
-		static Str Base64Decode(const Str& base64)
+		static Str Base64Encode(const Str& base64)
 		{
 			static const char table64[] =
 				"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -3307,6 +3325,7 @@ namespace sim
 		signature on the appropriate value by the given host key. The server
 		MAY ignore the client ’user name’, if it wants to authenticate only
 		the client host.
+		//算法名长度+算法名+签名数据长度+签名值。
 		*/
 		Str signature;
 	};
@@ -3679,6 +3698,8 @@ namespace sim
 			auth_req.user_name = user_name;
 			auth_req.service_name = service_name;
 			auth_req.method = SSH_AUTH_PUB_KEY;
+			auth_req.method_fields.publickey.flag = false;
+
 			if (type == Rsa)
 			{
 				RSA*rsa = SshTransport::ReadRsaPriKey(key_file.c_str());
@@ -3715,6 +3736,7 @@ namespace sim
 			{
 				return "";
 			}
+			bool ret = VerifyAuthRequest(auth_req);
 			return PrintAuthRequset(auth_req);
 		}
 		
@@ -3738,8 +3760,24 @@ namespace sim
 			if (req.method_fields.publickey.flag != true)
 				return false;
 
+			Str algo_name, signdata;
+			uint32_t offset = 0;
+			if (!ParserString(req.method_fields.publickey.signature.c_str(), req.method_fields.publickey.signature.size()
+				, offset, algo_name))
+				return false;
+			if (algo_name != req.method_fields.publickey.key_algorithm_name)
+				return false;
+			if (!ParserString(req.method_fields.publickey.signature.c_str(), req.method_fields.publickey.signature.size()
+				, offset, signdata))
+				return false;
+
 			//data
 			Str data = GetSignatureData(req);
+			/*printf("session_id:%s\n", DumpHex((const unsigned char*)algo_ctx_.session_id.c_str(), algo_ctx_.session_id.size()));
+			printf("sign_callback :\nsig:%s \n buf:%s\n", 
+				DumpHex((const unsigned char*)signdata.c_str()
+				, signdata.size()), DumpHex((const unsigned char*)data.c_str(), data.size()));*/
+			
 			SshPublicKeyType pub_type;
 			bool ret = false;
 			void*ctx = SshTransport::InitPubKeyFromSshPubKey(req.method_fields.publickey.key_blob, pub_type);
@@ -3748,13 +3786,19 @@ namespace sim
 				if (Rsa == pub_type)
 				{
 					RSA*rsa = (RSA*)ctx;
-					ret = SshTransport::Verify(rsa, data, req.method_fields.publickey.signature);
+
+				/*	printf("e,n\n");
+					printf("e=0x%s\n", BN_bn2hex(RSA_get0_e(rsa)));
+					printf("n=0x%s\n", BN_bn2hex(RSA_get0_n(rsa)));
+					printf("e,n\n");*/
+					
+					ret = SshTransport::Verify(rsa, data, signdata);
 					RSA_free(rsa);
 				}
 				if (Dsa == pub_type)
 				{
 					DSA*dsa = (DSA*)ctx;
-					ret = SshTransport::Verify(dsa, data, req.method_fields.publickey.signature);
+					ret = SshTransport::Verify(dsa, data, signdata);
 					DSA_free(dsa);
 				}
 				else
@@ -3801,13 +3845,158 @@ namespace sim
 			req.method_fields.publickey.flag = true;
 			//data
 			Str data = GetSignatureData(req);
-			return SshTransport::Sign(ctx, data, req.method_fields.publickey.signature);
+			Str signdata;
+			if (!SshTransport::Sign(ctx, data, signdata))
+				return false;
+			req.method_fields.publickey.signature = SshTransport::PrintString(req.method_fields.publickey.key_algorithm_name);
+			req.method_fields.publickey.signature += SshTransport::PrintString(signdata);
 		}
 
 		
 	};
 
 	//The Secure Shell (SSH) Connection Protocol
+
+	/*
+	Opening a Channel
+	When either side wishes to open a new channel, it allocates a local
+	number for the channel. It then sends the following message to the
+	other side, and includes the local channel number and initial window
+	size in the message.
+	byte SSH_MSG_CHANNEL_OPEN
+	string channel type in US-ASCII only
+	uint32 sender channel
+	uint32 initial window size
+	uint32 maximum packet size
+	.... channel type specific data follows
+	*/
+	struct SshOpenChannelRequest
+	{
+		//The ’channel type’ is a name, as described in [SSH-ARCH] and [SSH - NUMBERS], with similar extension mechanisms.
+		Str channel_type;
+		//The ’sender channel’ is a local identifier for the channel used by the sender of this message.
+		uint32_t sender_channel;
+		//The ’initial window size’ specifies how many bytes of channel data can be sent to the sender of this message without adjusting the window.
+		uint32_t initial_window_size;
+		//The ’maximum packet size’ specifies the maximum size of an individual data packet that can be sent to the sender.
+		uint32_t maximum_packet_size;
+		//.... channel type specific data follows
+	};
+
+	/*
+		byte SSH_MSG_CHANNEL_OPEN_CONFIRMATION
+		uint32 recipient channel
+		uint32 sender channel
+		uint32 initial window size
+		uint32 maximum packet size
+		.... channel type specific data follows
+	*/
+	struct SshOpenChannelConfirmation
+	{
+		/*
+			The ’recipient channel’ is the channel number given in the original
+			open request, and ’sender channel’ is the channel number allocated by
+			the other side.
+		*/
+		uint32_t recipient_channel;
+		uint32_t sender_channel;
+		//The ’initial window size’ specifies how many bytes of channel data can be sent to the sender of this message without adjusting the window.
+		uint32_t initial_window_size;
+		//The ’maximum packet size’ specifies the maximum size of an individual data packet that can be sent to the sender.
+		uint32_t maximum_packet_size;
+		//.... channel type specific data follows
+	};
+
+	/*
+		byte SSH_MSG_CHANNEL_OPEN_FAILURE
+		uint32 recipient channel
+		uint32 reason code
+		string description in ISO-10646 UTF-8 encoding [RFC3629]
+		string language tag [RFC3066]
+	*/
+	struct SshOpenChannelFailure
+	{
+		uint32_t recipient_channel;
+		uint32_t reason_code;
+		Str description;
+		Str language_tag;
+	};
+
+	/*
+		byte SSH_MSG_CHANNEL_WINDOW_ADJUST
+		uint32 recipient channel
+		uint32 bytes to add
+	*/
+	struct SshChannelWindowAdjust
+	{
+		uint32_t recipient_channel;
+		uint32_t bytes_to_add;
+	};
+
+	/*
+		byte SSH_MSG_CHANNEL_DATA
+		uint32 recipient channel
+		string data
+	*/
+	struct SshChannelData
+	{
+		uint32_t recipient_channel;
+		Str data;
+	};
+
+	/*
+	byte SSH_MSG_CHANNEL_EXTENDED_DATA
+	uint32 recipient channel
+	uint32 data_type_code
+	string data
+	*/
+	struct SshChannelExtData
+	{
+		uint32_t recipient_channel;
+		/*
+		Currently, only the following type is defined. Note that the value
+		for the ’data_type_code’ is given in decimal format for readability,
+		but the values are actually uint32 values.
+		Symbolic name data_type_code
+		------------- --------------
+		SSH_EXTENDED_DATA_STDERR 1
+		*/
+		uint32_t data_type_code;
+		Str data;
+	};
+
+	/*
+		byte SSH_MSG_CHANNEL_EOF
+		uint32 recipient channel
+	*/
+	struct SshChannelEof
+	{
+		uint32_t recipient_channel;
+	};
+	/*
+		byte SSH_MSG_CHANNEL_CLOSE
+		uint32 recipient channel
+	*/
+	struct SshChannelClose
+	{
+		uint32_t recipient_channel;
+	};
+
+	//channel
+	struct SshChannel
+	{
+		struct ChnData
+		{
+			uint32_t channel_id;
+			uint32_t initial_window_size;
+			uint32_t maximum_packet_size;
+		};
+	public:
+		ChnData remote_channel;
+		ChnData local_channel;
+		Str channel_type;
+	};
+
 	class SshConnection :public SshAuthentication
 	{
 	public:

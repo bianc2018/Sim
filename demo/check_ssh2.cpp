@@ -11,8 +11,8 @@ sim::SimAsync& Get()
 	return sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Get();
 }
 
-sim::SshTransport ssh_c(sim::SshClient);
-sim::SshTransport ssh_s(sim::SshServer);
+sim::SshAuthentication ssh_c(sim::SshClient);
+sim::SshAuthentication ssh_s(sim::SshServer);
 
 sim::AsyncHandle c_handle=0;
 sim::AsyncHandle s_handle=0;
@@ -375,7 +375,65 @@ void SSH_TRANS_HANDLER_SSH_MSG_NEWKEYS(sim::SshTransport*parser,
 	}
 }
 
+//#define SSH_MSG_SERVICE_REQUEST				5
+void SSH_TRANS_HANDLER_SSH_MSG_SERVICE_REQUEST(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	sim::Str service;
+	parser->ParserServiceRequest(payload_data, payload_data_len, service);
+	printf("request %s\n", service.c_str());
 
+	sim::Str response = parser->PrintServiceAccept(service);
+	if (response.empty())
+	{
+		printf("PrintNewKeys falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	//Get().Send(handle, newkey.c_str(), newkey.size());
+	SendToClient(response);
+}
+//#define SSH_MSG_USERAUTH_REQUEST			50
+void SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_REQUEST(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	sim::SshAuthRequest req;
+	sim::SshAuthentication *auth = (sim::SshAuthentication*)parser;
+	if (!auth->ParserAuthRequset(payload_data, payload_data_len, req))
+	{
+		printf("ParserAuthRequset Failed\n");
+		return;
+	}
+	sim::Str response;
+	if (req.method != SSH_AUTH_PUB_KEY)
+	{
+		printf("auth method %s not support\n", req.method.c_str());
+		response = auth->PrintAuthResponseFailure(SSH_AUTH_PUB_KEY, false);
+	}
+	else
+	{
+		if (req.method_fields.publickey.flag)
+		{
+			if (auth->VerifyAuthRequest(req))
+			{
+				printf("auth success!\n");
+				response = auth->PrintAuthResponseSuccess();
+			}
+			else
+			{
+				printf("VerifyAuthRequest Failed!\n");
+				response = auth->PrintAuthResponseFailure(SSH_AUTH_PUB_KEY, false);
+			}
+		}
+		else
+		{
+			printf("no sig\n");
+			response = auth->PrintPkOK(req.method_fields.publickey.key_algorithm_name, 
+				req.method_fields.publickey.key_blob);
+		}
+	}
+	SendToClient(response);
+}
 int main(int argc, char*argv[])
 {
 	/*ssh_c.SetHandler(c_SSH_TRANS_HANDLER, NULL);
@@ -386,6 +444,8 @@ int main(int argc, char*argv[])
 	ssh_s.SetHandler(SSH_MSG_KEXDH_INIT, SSH_TRANS_HANDLER_SSH_MSG_KEXDH_INIT, NULL);
 	ssh_s.SetHandler(SSH_MSG_KEXDH_REPLY, SSH_TRANS_HANDLER_SSH_MSG_KEXDH_REPLY, NULL);
 	ssh_s.SetHandler(SSH_MSG_NEWKEYS, SSH_TRANS_HANDLER_SSH_MSG_NEWKEYS, NULL);
+	ssh_s.SetHandler(SSH_MSG_SERVICE_REQUEST, SSH_TRANS_HANDLER_SSH_MSG_SERVICE_REQUEST, NULL);
+	ssh_s.SetHandler(SSH_MSG_USERAUTH_REQUEST, SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_REQUEST, NULL);
 
 	ssh_s.LoadPriKey(sim::Rsa, "./ssh_rsa.pem");
 	ssh_s.LoadPriKey(sim::Dsa, "./ssh_dsa.pem");

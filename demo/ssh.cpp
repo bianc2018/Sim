@@ -111,7 +111,22 @@ void SSH_TRANS_HANDLER_SSH_MSG_NEWKEYS(sim::SshTransport*parser,
 	}
 	Get().Send(handle, req.c_str(), req.size());
 }
-
+//SSH_MSG_USERAUTH_PK_OK
+void SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_PK_OK(sim::SshTransport*parser,
+	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+{
+	printf("SSH_MSG_USERAUTH_PK_OK \n");
+	const char*keyfile = (const char*)pdata;
+	sim::SshAuthentication*auth = (sim::SshAuthentication*)parser;
+	sim::Str req = auth->AuthPublicKey("root", sim::Rsa, keyfile, true);
+	if (req.empty())
+	{
+		printf("AuthPublicKey falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	Get().Send(handle, req.c_str(), req.size());
+}
 //SSH_MSG_SERVICE_ACCEPT
 void SSH_TRANS_HANDLER_SSH_MSG_SERVICE_ACCEPT(sim::SshTransport*parser,
 	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
@@ -120,18 +135,14 @@ void SSH_TRANS_HANDLER_SSH_MSG_SERVICE_ACCEPT(sim::SshTransport*parser,
 	parser->ParserServiceAccept(payload_data, payload_data_len, service);
 	printf("accept %s\n", service.c_str());
 
+	const char*keyfile = "id_rsa_2048";
+	ssh_parser.SetHandler(SSH_MSG_USERAUTH_PK_OK, SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_PK_OK,(void*) keyfile);
+
 	sim::SshAuthentication*auth = (sim::SshAuthentication*)parser;
-	sim::SshAuthRequest auth_req;
-	//ssh-connection
-	auth_req.user_name = "root";
-	auth_req.service_name = "ssh-connection";
-	auth_req.method = SSH_AUTH_PASSWORD;
-	auth_req.method_fields.password.flag = false;
-	auth_req.method_fields.password.password = "q1051576073@";
-	sim::Str req = auth->PrintAuthRequset(auth_req);
+	sim::Str req = auth->AuthPublicKey("root", sim::Rsa, keyfile,false);
 	if (req.empty())
 	{
-		printf("PrintServiceRequest falt\n");
+		printf("AuthPublicKey falt\n");
 		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
 		return;
 	}
@@ -147,6 +158,27 @@ void SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_FAILURE(sim::SshTransport*parser,
 	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
 {
 	printf("SSH_MSG_USERAUTH_FAILURE \n");
+
+	sim::Str authentications;
+	bool partial;
+	sim::SshAuthentication*auth = (sim::SshAuthentication*)parser;
+	if (!auth->ParserAuthResponseFailure(payload_data, payload_data_len, authentications, partial))
+	{
+		printf("ParserAuthResponseFailure falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	printf("authentications %s,partial %s\n", authentications.c_str(), partial?"true":"false");
+	
+	/*sim::SshAuthentication*auth = (sim::SshAuthentication*)parser;
+	sim::Str req = auth->AuthPublicKey("root", sim::Rsa, "id_rsa_2048", true);
+	if (req.empty())
+	{
+		printf("AuthPublicKey falt\n");
+		sim::GlobalPoll<sim::SimAsync, MY_THREAD_NUM>::Exit();
+		return;
+	}
+	Get().Send(handle, req.c_str(), req.size());*/
 }
 void SSH_TRANS_HANDLER_SSH_MSG_USERAUTH_SUCCESS(sim::SshTransport*parser,
 	const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
@@ -164,6 +196,8 @@ void SSH_TRANS_HANDLER_SSH_MSG_ERROR(sim::SshTransport*parser,
 {
 
 }
+
+
 
 void AcceptHandler(sim::AsyncHandle handle, sim::AsyncHandle client, void*data)
 {
