@@ -110,6 +110,8 @@ namespace sim
 		static SockRet GetHostByName(const char* szHost,
 			GetHostByNameCallBack cb, void* pdata);
 
+		static bool GetFirstIpByName(const char* szHost, char*ip_buff, int ip_buff_len);
+
 		virtual SockRet Connect(const char* ipaddr, unsigned short port);
 
 		/*
@@ -214,12 +216,12 @@ namespace sim
 	{
 		if (NULL == szHost || NULL == cb)
 		{
-			return -1;//
+			return false;//
 		}
 		hostent* pHost = gethostbyname(szHost);
 		if (NULL == pHost)
 		{
-			return -1;
+			return false;
 		}
 		int i;
 		in_addr addr;
@@ -241,9 +243,47 @@ namespace sim
 				p, buff, buff_size);
 #endif 
 			if (!cb(strIp, pdata))
-				return 0;
+				return true;
 		}
-		return 0;
+		return true;
+	}
+	inline bool Socket::GetFirstIpByName(const char * szHost, char * ip_buff, int ip_buff_len)
+	{
+		if (NULL == szHost )
+		{
+			return false;//
+		}
+		hostent* pHost = gethostbyname(szHost);
+		if (NULL == pHost)
+		{
+			return false;
+		}
+		int i;
+		in_addr addr;
+		for (i = 0;; i++)
+		{
+			char* p = pHost->h_addr_list[i];
+			if (p == NULL)
+			{
+				break;
+			}
+#ifdef OS_WINDOWS
+			memcpy(&addr.S_un.S_addr, p, pHost->h_length);
+			const char* strIp = ::inet_ntoa(addr);
+#endif // OS_WINDOWS
+#ifdef OS_LINUX
+			const socklen_t buff_size = 128;
+			char buff[buff_size] = { 0 };
+			const char* strIp = inet_ntop(pHost->h_addrtype,
+				p, buff, buff_size);
+#endif 
+			int ip_len = strlen(strIp);
+			if (ip_len > ip_buff_len)
+				return false;
+			memcpy(ip_buff, strIp, ip_len);
+			return true;
+		}
+		return false;
 	}
 	inline SockRet Socket::Connect(const char * ipaddr, unsigned short port)
 	{
