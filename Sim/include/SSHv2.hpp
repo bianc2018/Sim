@@ -110,7 +110,7 @@
 #define SSH_MSG_CHANNEL_EOF					96 
 #define SSH_MSG_CHANNEL_CLOSE				97
 #define SSH_MSG_CHANNEL_REQUEST				98
-#define SH_MSG_CHANNEL_SUCCESS				99
+#define SSH_MSG_CHANNEL_SUCCESS				99
 #define SSH_MSG_CHANNEL_FAILURE				100
 
 //1-256
@@ -396,9 +396,6 @@ namespace sim
 		//发送的时候
 		SshHMac *mac,*check_mac;
 
-		//是否已经发送或者接收报文 new key 标识算法可用。
-		bool is_newkeys;
-
 		//V_C, V_S, I_C, I_S, K_S
 		Str V_C, V_S, I_C, I_S, K_S;
 		Str H, session_id;
@@ -418,7 +415,6 @@ namespace sim
 			, evp_ctx_decrypt(NULL)
 			, mac(NULL)
 			, check_mac(NULL)
-			, is_newkeys(false)
 			,e(NULL)
 			, x(NULL)
 			,f(NULL)
@@ -572,7 +568,7 @@ namespace sim
 			memset(handlers_, 0, sizeof(handlers_));
 		}
 		
-		void ReSet()
+		virtual void ReSet()
 		{
 			packet_lenght_ =0;
 			status_= SshTransportStatus_VersionLF;
@@ -589,7 +585,44 @@ namespace sim
 			//memset(handlers_, 0, sizeof(handlers_));
 		}
 		
-		bool SetHandler(uint8_t msg_code,SSH_TRANS_HANDLER handler, void*pdata)
+		//拷贝 公钥和句柄
+		virtual bool DupFrom(SshTransport*other)
+		{
+			if (NULL == other)
+				return false;
+			
+			//SSHAlgorithmsCtx algo_ctx_;
+			if (algo_ctx_.rsa)
+			{
+				RSA_free(algo_ctx_.rsa);
+				algo_ctx_.rsa = NULL;
+			}
+			if(other->algo_ctx_.rsa)
+				algo_ctx_.rsa = RSAPrivateKey_dup(other->algo_ctx_.rsa);
+			if (algo_ctx_.dsa)
+			{
+				DSA_free(algo_ctx_.dsa);
+				algo_ctx_.dsa = NULL;
+			}
+			if (other->algo_ctx_.dsa)
+				algo_ctx_.dsa = DSAparams_dup(other->algo_ctx_.dsa);
+
+			//SshTransportHandler handlers_[SSH_MSG_MAX];
+			memcpy(handlers_, other->handlers_, SSH_MSG_MAX);
+
+			//type
+			sp_type_ = other->sp_type_;
+
+			return true;
+		}
+
+		//type
+		virtual SshPointType PointType()
+		{
+			return sp_type_;
+		}
+
+		virtual bool SetHandler(uint8_t msg_code,SSH_TRANS_HANDLER handler, void*pdata)
 		{
 			if (msg_code >= SSH_MSG_MAX)
 				return false;
@@ -661,7 +694,7 @@ namespace sim
 		}
 
 		//从文件中加载私钥
-		bool LoadPriKey(SshPublicKeyType type, const char*filename)
+		virtual bool LoadPriKey(SshPublicKeyType type, const char*filename)
 		{
 			if (type == Rsa)
 			{
@@ -701,7 +734,7 @@ namespace sim
 		}
 		
 		//或者生成私钥 filename !=NULL 写到对应的文件
-		bool GeneratePriKey(SshPublicKeyType type, const char*filename = NULL)
+		virtual bool GeneratePriKey(SshPublicKeyType type, const char*filename = NULL)
 		{
 			if (type == Rsa)
 			{
@@ -4165,25 +4198,14 @@ namespace sim
 		uint32_t recipient_channel;
 	};
 
-	//channel
-	struct SshChannel
-	{
-		struct ChnData
-		{
-			uint32_t channel_id;
-			uint32_t initial_window_size;
-			uint32_t maximum_packet_size;
-		};
-	public:
-		ChnData remote_channel;
-		ChnData local_channel;
-		Str channel_type;
-	};
-
 	class SshConnection :public SshAuthentication
 	{
 	public:
+		SshConnection(SshPointType sp_type)
+			:SshAuthentication(sp_type)
+		{
 
+		}
 	private:
 
 	};
