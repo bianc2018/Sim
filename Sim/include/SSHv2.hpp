@@ -1746,12 +1746,17 @@ namespace sim
 #ifdef HAVE_OPAQUE_STRUCTS
 			int pktype = EVP_PKEY_id(pkey);
 #else
-			int pktype = pk->type;
+			int pktype = pkey->type;
 #endif
 			if (EVP_PKEY_RSA == pktype)
 			{
 				type = Rsa;
+#ifdef HAVE_OPAQUE_STRUCTS
 				RSA* raw = EVP_PKEY_get0_RSA(pkey);
+#else
+				RSA* raw = pkey->pkey.rsa;
+#endif
+				
 				if (NULL == raw)
 				{
 					EVP_PKEY_free(pkey);
@@ -1768,7 +1773,11 @@ namespace sim
 			else if (EVP_PKEY_DSA == pktype)
 			{
 				type = Dsa;
+#ifdef HAVE_OPAQUE_STRUCTS
 				DSA* raw = EVP_PKEY_get0_DSA(pkey);
+#else
+				DSA* raw = pkey->pkey.dsa;
+#endif
 				if (NULL == raw)
 				{
 					EVP_PKEY_free(pkey);
@@ -1812,12 +1821,16 @@ namespace sim
 #ifdef HAVE_OPAQUE_STRUCTS
 			int pktype = EVP_PKEY_id(pkey);
 #else
-			int pktype = pk->type;
+			int pktype = pkey->type;
 #endif
 			if (EVP_PKEY_RSA == pktype)
 			{
 				type = Rsa;
+#ifdef HAVE_OPAQUE_STRUCTS
 				RSA* raw = EVP_PKEY_get0_RSA(pkey);
+#else
+				RSA* raw = pkey->pkey.rsa;
+#endif
 				if (NULL == raw)
 				{
 					EVP_PKEY_free(pkey);
@@ -1834,7 +1847,11 @@ namespace sim
 			else if (EVP_PKEY_DSA == pktype)
 			{
 				type = Dsa;
+#ifdef HAVE_OPAQUE_STRUCTS
 				DSA* raw = EVP_PKEY_get0_DSA(pkey);
+#else
+				DSA* raw = pkey->pkey.dsa;
+#endif
 				if (NULL == raw)
 				{
 					EVP_PKEY_free(pkey);
