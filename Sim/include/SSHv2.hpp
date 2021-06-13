@@ -732,7 +732,42 @@ namespace sim
 				return false;
 			}
 		}
-		
+		virtual bool LoadPriKey(const char* filename)
+		{
+			SshPublicKeyType type;
+			void* ctx = ReadPriKey(filename, type);
+			if (ctx)
+			{
+				if (type == Rsa)
+				{
+					//释放已经存在的
+					if (algo_ctx_.rsa)
+					{
+						RSA_free(algo_ctx_.rsa);
+						algo_ctx_.rsa = NULL;
+					}
+					algo_ctx_.rsa = (RSA*)ctx;
+					return true;
+				}
+				else if (type == Dsa)
+				{
+					//释放已经存在的
+					if (algo_ctx_.dsa)
+					{
+						DSA_free(algo_ctx_.dsa);
+						algo_ctx_.dsa = NULL;
+					}
+					algo_ctx_.dsa = (DSA*)ctx;
+					return true;
+				}
+				else
+				{
+					abort();
+					return false;
+				}
+			}
+			return false;
+		}
 		//或者生成私钥 filename !=NULL 写到对应的文件
 		virtual bool GeneratePriKey(SshPublicKeyType type, const char*filename = NULL)
 		{
@@ -4027,6 +4062,40 @@ namespace sim
 			{
 				return ret;
 			}
+		}
+
+		bool CheckPkOK(const Str& key_name, const Str& key, const Str& key_file)
+		{
+			SshPublicKeyType type;
+			void* ctx = SshTransport::ReadPriKey(key_file.c_str(), type);
+			if (NULL == ctx)
+				return false;
+			if (type == Rsa)
+			{
+				if (key_name != "ssh-rsa" || key != MakeSshRsaPubKey((RSA*)ctx))
+				{
+					RSA_free((RSA*)ctx);
+					return false;
+				}
+				RSA_free((RSA*)ctx);
+				return true;
+			}
+			else if (type == Dsa)
+			{
+				if (key_name != "ssh-dsa" || key != MakeSshDsaPubKey((DSA*)ctx))
+				{
+					DSA_free((DSA*)ctx);
+					return false;
+				}
+				DSA_free((DSA*)ctx);
+				return true;
+			}
+			else
+			{
+				abort();
+				return false;
+			}
+			return false;
 		}
 	private:
 		Str GetSignatureData(const SshAuthRequest& req)
