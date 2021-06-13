@@ -1468,7 +1468,7 @@ namespace sim
 
 			if ((SOCKET_ERROR == res) && (WSA_IO_PENDING != WSAGetLastError())) {
 				delete e;//Ê§°ÜÉ¾³ýÊÂ¼þ
-				SIM_LERROR("WSASend error res=" << res << "  WSAGetLastError()=" << WSAGetLastError());
+				SIM_LERROR(ref->sock.GetSocket()<<" WSASend error res=" << res << "  WSAGetLastError()=" << WSAGetLastError());
 				return false;
 			}
 			return true;
