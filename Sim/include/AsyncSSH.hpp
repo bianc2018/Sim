@@ -5,7 +5,11 @@
 #define SIM_ASYNC_SSH_HPP_
 
 #include "Async.hpp"
+
+#ifndef SIM_PARSER_MULTI_THREAD
 #define SIM_PARSER_MULTI_THREAD
+#endif
+
 #include "SSHv2.hpp"
 
 namespace sim
@@ -28,16 +32,12 @@ namespace sim
 		Str channel_type;
 	};
 
-	
-
 	class SshSessionHandler
 	{
 	public:
 		
 		////连接建立
 		virtual void OnConnectEstablished(SshSession*session) { return; }
-
-		virtual void OnConnectAccepted(SshSession*session, SshSession*client) { return; };
 
 		//连接会话关闭
 		virtual void OnConnectClosed(SshSession*session) { return; };
@@ -60,9 +60,11 @@ namespace sim
 	{
 		SSH_INIT,
 		SSH_CONN,
+		SSH_ACCEPT,
 		//handshake
 		SSH_HANDSHAKE,
 		SSH_AUTH,
+		SSH_SESSION,
 		SSH_CLOSE,
 	};
 	class SshSession
@@ -94,38 +96,65 @@ namespace sim
 		}
 
 		//客户端
-		bool Connect(const Str&host, unsigned port = 22)
+		virtual bool Connect(const Str& host, unsigned port = 22);
+		virtual bool LoginPassWord(const Str& username, const Str& password)
 		{
-			if (status_ != SSH_INIT)
-				return false;
-			if (host.size() == 0)
+			if (status_ != SSH_AUTH)
 				return false;
 
-			//获取ip
-			const int buff_size = 64;
-			char ip[buff_size] = { 0 };
-			if (!Socket::GetFirstIpByName(host.c_str(),ip,buff_size))
-			{
+			ssh_conn_->SetHandler(SSH_MSG_USERAUTH_PASSWD_CHANGEREQ, MsgUserAuthPassWdChangeReq, this);
+
+			Str service_name = "ssh-connection";
+			Str req = ssh_conn_->AuthPassWord(username, password, service_name);
+			if (req.size() == 0)
 				return false;
-			}
 			
-			//连接
-			if (SOCK_SUCCESS != async_.AddTcpConnect(handle_, ip, port))
-				return false;
-			return true;
+			auth_req_.method = SSH_AUTH_PASSWORD;
+			auth_req_.user_name = username;
+			auth_req_.service_name = service_name;
+			auth_req_.method_fields.password.flag = false;
+			auth_req_.method_fields.password.password = password;
+
+			return SendRawStr(req);
 		}
-		bool Login(const Str&username, const Str&password);
-		bool Login(const Str&key_file);
+		virtual bool LoginPublicKey(const Str& username, const Str& key_file)
+		{
+			if (status_ != SSH_AUTH)
+				return false;
+			
+			ssh_conn_->SetHandler(SSH_MSG_USERAUTH_PK_OK, MsgUserAuthPKok, this);
+
+			Str service_name = "ssh-connection";
+			Str req = ssh_conn_->AuthPublicKey(username, key_file,false, service_name);
+			if (req.size() == 0)
+				return false;
+
+			login_key_file_ = key_file;
+			auth_req_.method = SSH_AUTH_PUB_KEY;
+			auth_req_.user_name = username;
+			auth_req_.service_name = service_name;
+			auth_req_.method_fields.publickey.flag = false;
+
+			return SendRawStr(req);
+		}
 
 		//服务端
 		//加载私钥
-		bool LoadHostPrivateKey(const Str&file);
-		bool Accept(unsigned port = 22);
-
-		bool Close()
+		virtual bool LoadHostPrivateKey(const Str& file)
 		{
-			return SOCK_SUCCESS==async_.Close(handle_);
+			if (NULL == ssh_conn_ || ssh_conn_->PointType() != SshServer)
+			{
+				ssh_conn_ = NewSshConnection(SshServer);
+			}
+			if (!ssh_conn_->LoadPriKey(file.c_str()))
+			{
+				return false;
+			}
+			return true;
 		}
+		virtual bool Accept(unsigned port = 22);
+
+		virtual bool Close();
 
 		//拷贝句柄
 		virtual bool DupFrom(SshSession*other)
@@ -138,9 +167,10 @@ namespace sim
 				if (ssh_conn_)
 					ssh_conn_->ReSet();
 				else
-					ssh_conn_ = RefObject<SshConnection>(new SshConnection(other->ssh_conn_->PointType()));
+					ssh_conn_ = NewSshConnection(other->ssh_conn_->PointType());
 				if (!ssh_conn_->DupFrom(other->ssh_conn_.get()))
 					return false;
+				ResetHandlers(ssh_conn_);
 			}
 			phandlers_ = other->phandlers_;
 			return true;
@@ -150,107 +180,552 @@ namespace sim
 		//发送底层数据
 		bool SendRawData(const char*buff, unsigned int buff_len);
 		
+		bool SendRawStr(const Str& data)
+		{
+			return SendRawData(data.c_str(), data.size());
+		}
+
 		//加载验证公钥
 		bool LoadAuthorizedKeys(const Str&usename, const Str&file);
+
+		bool OnNetStart()
+		{
+			if (ssh_conn_)
+			{
+				sim::Str ver = ssh_conn_->PrintProtocolVersion();
+				if (ver.empty())
+				{
+					printf("PrintProtocolVersion falt\n");
+					Close();
+					return false;
+				}
+				SendRawData(ver.c_str(), ver.size());
+				status_ = SSH_HANDSHAKE;
+				return true;
+			}
+			return false;
+		}
 	private:
 		//网络回调接口
-		void OnNetClose(AsyncCloseReason reason, int error);
+		void OnNetClose(AsyncCloseReason reason, int error)
+		{
+			if (phandlers_)
+				phandlers_->OnConnectClosed(this);
+		}
 		
-		void OnNetAccept(AsyncHandle client);
+		void OnNetAccept(RefObject<SshSession> cli_ref);
 
-		void OnNetConnect();
+		void OnNetConnect()
+		{
+			OnNetStart();
+		}
 
-		void OnNetRecvData(char *buff, unsigned int buff_len);
+		void OnNetRecvData(char* buff, unsigned int buff_len)
+		{
+			if (ssh_conn_)
+			{
+				if (!ssh_conn_->Parser(buff, buff_len))
+				{
+					SIM_LERROR(handle_ << " Parser error");
+					Close();
+				}
+			}
+			else
+			{
+				SIM_LERROR(handle_ << " ssh_conn_ is NULL");
+				Close();
+			}
+		}
 
-		void OnNetSendComplete(char *buff, unsigned int buff_len);
+		void OnNetSendComplete(char* buff, unsigned int buff_len) {}
 	private:
 		//回调
-		void OnMsgVersion(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
-		static void MsgVersion(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
+		void OnMsgVersion(const char* payload_data, sim::uint32_t payload_data_len)
+		{
+			SIM_FUNC_DEBUG();
+			SSHVersion ver;
+			if (!ssh_conn_->ParserVersion(payload_data, payload_data_len, ver))
+			{
+				SIM_LERROR(handle_<<" ParserVersion error ");
+				Close();
+				return;
+			}
 
-		void OnMsgKexInit(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
+			if (!ssh_conn_->VersionExchange(ver))
+			{
+				SIM_LERROR(handle_ << " VersionExchange error ");
+				Close();
+				return;
+			}
+
+			Str data = ssh_conn_->PrintKexInit();
+			if(data.size() == 0)
+			{
+				SIM_LERROR(handle_ << " PrintKexInit error ");
+				Close();
+				return;
+			}
+			SendRawData(data.c_str(), data.size());
+			return;
+		}
+		static void MsgVersion(sim::SshTransport* parser,
+			const char* payload_data, sim::uint32_t payload_data_len, void* pdata)
+		{
+			SshSession* s = (SshSession*)pdata;
+			if (s)
+			{
+				s->OnMsgVersion(payload_data, payload_data_len);
+			}
+		}
+
+		void OnMsgKexInit(const char* payload_data, sim::uint32_t payload_data_len)
+		{
+			SIM_FUNC_DEBUG();
+
+			SSHKexInit kex_init;
+			if (!ssh_conn_->ParserKexInit(payload_data, payload_data_len, kex_init))
+			{
+				SIM_LERROR(handle_ << " ParserKexInit error ");
+				Close();
+				return;
+			}
+			if (!ssh_conn_->KexInit(kex_init))
+			{
+				SIM_LERROR(handle_ << " KexInit error ");
+				Close();
+				return;
+			}
+
+			if (ssh_conn_->PointType() == SshClient)
+			{
+				Str data = ssh_conn_->PrintKexDHInit();
+				if (data.size() == 0)
+				{
+					SIM_LERROR(handle_ << " PrintKexDHInit error ");
+					Close();
+					return;
+				}
+				SendRawData(data.c_str(), data.size());
+			}
+			return;
+		}
 		static void MsgKexInit(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
+			const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+		{
+			SshSession* s = (SshSession*)pdata;
+			if (s)
+			{
+				s->OnMsgKexInit(payload_data, payload_data_len);
+			}
+		}
 
 		//KEXDH_INIT
-		void OnMsgKexDHInit(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
+		void OnMsgKexDHInit(const char* payload_data, sim::uint32_t payload_data_len)
+		{
+			SIM_FUNC_DEBUG();
+			sim::SSHKexDHInit dh_init;
+			if (!ssh_conn_->ParserKexDHInit(payload_data, payload_data_len, dh_init))
+			{
+				SIM_LERROR(handle_ << " ParserKexDHInit error ");
+				Close();
+				return;
+			}
+			
+			sim::SSHKexDHReply dh_reply;
+			if (!ssh_conn_->KeyExchange(dh_init, dh_reply))
+			{
+				SIM_LERROR(handle_ << " KeyExchange error ");
+				Close();
+				return;
+			}
+			
+			sim::Str reply = ssh_conn_->PrintKexDHReply(dh_reply);
+			if (reply.empty())
+			{
+				SIM_LERROR(handle_ << " PrintKexDHReply error ");
+				Close();
+				return;
+			}
+			SendRawStr(reply);
+
+			sim::Str newkey = ssh_conn_->PrintNewKeys();
+			if (newkey.empty())
+			{
+				SIM_LERROR(handle_ << " PrintNewKeys error ");
+				Close();
+				return;
+			}
+			SendRawStr(newkey);
+		}
 		static void MsgKexDHInit(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
+			const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+		{
+			SshSession* s = (SshSession*)pdata;
+			if (s)
+			{
+				s->OnMsgKexDHInit(payload_data, payload_data_len);
+			}
+		}
 
 		//KEXDH_REPLY
-		void OnMsgKexDHReply(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
+		void OnMsgKexDHReply(const char* payload_data, sim::uint32_t payload_data_len)
+		{
+			SIM_FUNC_DEBUG();
+			sim::SSHKexDHReply reply;
+			if (!ssh_conn_->ParserKexDHReply(payload_data, payload_data_len, reply))
+			{
+				SIM_LERROR(handle_ << " ParserKexDHReply error ");
+				Close();
+				return;
+			}
+			
+			if (!ssh_conn_->KeyExchange(reply))
+			{
+				SIM_LERROR(handle_ << " KeyExchange error ");
+				Close();
+				return;
+			}
+			
+			sim::Str newkey = ssh_conn_->PrintNewKeys();
+			if (newkey.empty())
+			{
+				SIM_LERROR(handle_ << " PrintNewKeys error ");
+				Close();
+				return;
+			}
+			SendRawStr(newkey);
+		}
 		static void MsgKexDHReply(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
+			const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+		{
+			SshSession* s = (SshSession*)pdata;
+			if (s)
+			{
+				s->OnMsgKexDHReply(payload_data, payload_data_len);
+			}
+		}
 
 		//NEWKEYS
-		void OnMsgNewKeys(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
+		void OnMsgNewKeys(const char* payload_data, sim::uint32_t payload_data_len)
+		{
+			SIM_FUNC_DEBUG();
+			if (!ssh_conn_->NewKeys())
+			{
+				SIM_LERROR(handle_ << " NewKeys error ");
+				Close();
+				return;
+			}
+			
+			if (ssh_conn_->PointType() == SshClient)
+			{
+				sim::Str req = ssh_conn_->PrintServiceRequest("ssh-userauth");
+				if (req.empty())
+				{
+					return;
+				}
+				SendRawStr(req);
+			}
+		}
 		static void MsgNewKeys(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
+			const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+		{
+			SshSession* s = (SshSession*)pdata;
+			if (s)
+			{
+				s->OnMsgNewKeys(payload_data, payload_data_len);
+			}
+		}
 
 		//SERVICE_REQUEST
-		void OnMsgServiceRequest(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
-		static void MsgServiceRequest(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
+		void OnMsgServiceRequest(const char* payload_data, sim::uint32_t payload_data_len)
+		{
+			SIM_FUNC_DEBUG();
+			Str service;
+			if (!ssh_conn_->ParserServiceRequest(payload_data, payload_data_len, service))
+			{
+				SIM_LERROR(handle_ << " ParserServiceRequest error ");
+				Close();
+				return;
+			}
+			
+			if ("ssh-userauth" == service)
+			{
+				//握手完成
+				status_ = SSH_AUTH;
+				if (phandlers_)
+					phandlers_->OnConnectEstablished(this);
 
-		void OnMsgServiceAccept(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
+				sim::Str response = ssh_conn_->PrintServiceAccept(service);
+				if (response.empty())
+				{
+					SIM_LERROR(handle_ << " PrintServiceAccept error service=" << service);
+					Close();
+					return;
+				}
+				//Get().Send(handle, newkey.c_str(), newkey.size());
+				SendRawStr(response);
+			}
+			else
+			{
+				SIM_LERROR(handle_ << " nuknow error service="<< service);
+				Close();
+				return;
+			}
+		}
+		static void MsgServiceRequest(sim::SshTransport*parser,
+			const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+		{
+			SshSession* s = (SshSession*)pdata;
+			if (s)
+			{
+				s->OnMsgServiceRequest(payload_data, payload_data_len);
+			}
+		}
+
+		void OnMsgServiceAccept(const char* payload_data, sim::uint32_t payload_data_len)
+		{
+			SIM_FUNC_DEBUG();
+			Str service;
+			if (!ssh_conn_->ParserServiceAccept(payload_data, payload_data_len, service))
+			{
+				SIM_LERROR(handle_ << " ParserServiceAccept error ");
+				Close();
+				return;
+			}
+			if ("ssh-userauth" == service)
+			{
+				//握手完成
+				status_ = SSH_AUTH;
+				if (phandlers_)
+					phandlers_->OnConnectEstablished(this);
+			}
+			else
+			{
+				SIM_LERROR(handle_ << " nuknow error service=" << service);
+				Close();
+				return;
+			}
+		}
 		static void MsgServiceAccept(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
+			const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+		{
+			SshSession* s = (SshSession*)pdata;
+			if (s)
+			{
+				s->OnMsgServiceAccept(payload_data, payload_data_len);
+			}
+		}
 
 		//USERAUTH_REQUEST
-		void OnMsgUserAuthRequest(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
+		void OnMsgUserAuthRequest(const char* payload_data, sim::uint32_t payload_data_len)
+		{
+			SIM_FUNC_DEBUG();
+			sim::SshAuthRequest req;
+			if (!ssh_conn_->ParserAuthRequset(payload_data, payload_data_len, req))
+			{
+				SIM_LERROR(handle_ << " ParserAuthRequset error ");
+				Close();
+				return;
+			}
+
+			//验证签名
+			if (req.method == SSH_AUTH_PUB_KEY && req.method_fields.publickey.flag)
+			{
+				if (!ssh_conn_->VerifyAuthRequest(req))
+				{
+					SIM_LERROR(handle_ << " VerifyAuthRequest error ");
+					Close();
+					return;
+				}
+			}
+
+			int res_status = -1;// fail
+			if (phandlers_)
+				phandlers_->OnAuthRequest(this, req, res_status);
+
+			//res_status -1 fail
+			//res_status 0  retry SSH_MSG_USERAUTH_PK_OK or SSH_MSG_USERAUTH_PASSWD_CHANGEREQ 
+			//res_status 1  success
+			Str response;
+			if (res_status == -1)
+			{
+				response = ssh_conn_->PrintAuthResponseFailure(SSH_AUTH_PASSWORD + Str(",") + SSH_AUTH_PUB_KEY, false);
+			}
+			else if (res_status == 0)
+			{
+				if (req.method == SSH_AUTH_PASSWORD)
+					response = ssh_conn_->PrintPkOK(req.method_fields.publickey.key_algorithm_name, req.method_fields.publickey.key_blob);
+				else if (req.method == SSH_AUTH_PASSWORD)
+					response = ssh_conn_->PrintPassWDChangeReq("password is changed!", "UTF-8");
+				else
+					response = ssh_conn_->PrintAuthResponseFailure(SSH_AUTH_PASSWORD + Str(",") + SSH_AUTH_PUB_KEY, false);
+			}
+			else if (res_status == 1)
+			{
+				response = ssh_conn_->PrintAuthResponseSuccess();
+			}
+
+			if (response.size() == 0)
+			{
+				SIM_LERROR(handle_ << " response is empty ");
+				Close();
+				return;
+			}
+			SendRawStr(response);
+		}
 		static void MsgUserAuthRequest(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
+			const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+		{
+			SshSession* s = (SshSession*)pdata;
+			if (s)
+			{
+				s->OnMsgUserAuthRequest(payload_data, payload_data_len);
+			}
+		}
 		
 		//USERAUTH_PK_OK
-		void OnMsgUserAuthPKok(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
+		void OnMsgUserAuthPKok(const char* payload_data, sim::uint32_t payload_data_len)
+		{
+			SIM_FUNC_DEBUG();
+			Str key_name,key;
+			if (!ssh_conn_->ParserPkOK(payload_data, payload_data_len, key_name, key))
+			{
+				SIM_LERROR(handle_ << " ParserPkOK error ");
+				Close();
+				return;
+			}
+			
+			if (!ssh_conn_->CheckPkOK(key_name, key, login_key_file_))
+			{
+				SIM_LERROR(handle_ << " CheckPkOK error ");
+				Close();
+				return;
+			}
+			
+			Str response = ssh_conn_->AuthPublicKey(auth_req_.user_name, login_key_file_, true, auth_req_.service_name);
+			if (response.size() == 0)
+			{
+				SIM_LERROR(handle_ << " AuthPublicKey error ");
+				Close();
+				return;
+			}
+			SendRawStr(response);
+		}
 		static void MsgUserAuthPKok(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
+			const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+		{
+			SshSession* s = (SshSession*)pdata;
+			if (s)
+			{
+				s->OnMsgUserAuthPKok(payload_data, payload_data_len);
+			}
+		}
 
 		//SSH_MSG_USERAUTH_FAILURE
-		void OnMsgUserAuthFailure(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
+		void OnMsgUserAuthFailure(const char* payload_data, sim::uint32_t payload_data_len)
+		{
+			SIM_FUNC_DEBUG();
+			if (phandlers_)
+				phandlers_->OnAuthResponse(this, false);
+		}
 		static void MsgUserAuthFailure(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
-
-		//SSH_MSG_USERAUTH_FAILURE
-		void OnMsgUserAuthFailure(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
-		static void MsgUserAuthFailure(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
+			const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+		{
+			SshSession* s = (SshSession*)pdata;
+			if (s)
+			{
+				s->OnMsgUserAuthFailure(payload_data, payload_data_len);
+			}
+		}
 
 		//SSH_MSG_USERAUTH_SUCCESS
-		void OnMsgUserAuthSucccess(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
+		void OnMsgUserAuthSucccess(const char* payload_data, sim::uint32_t payload_data_len)
+		{
+			SIM_FUNC_DEBUG();
+			status_ = SSH_SESSION;
+			if (phandlers_)
+				phandlers_->OnAuthResponse(this, true);
+		}
 		static void MsgUserAuthSucccess(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
+			const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+		{
+			SshSession* s = (SshSession*)pdata;
+			if (s)
+			{
+				s->OnMsgUserAuthSucccess(payload_data, payload_data_len);
+			}
+		}
 
 		//SSH_MSG_USERAUTH_BANNER
-		void OnMsgUserAuthBanner(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
+		void OnMsgUserAuthBanner(const char* payload_data, sim::uint32_t payload_data_len)
+		{
+			SIM_FUNC_DEBUG();
+			Str msg, lag;
+			if (!ssh_conn_->ParserBannerMessage(payload_data, payload_data_len, msg, lag))
+			{
+				SIM_LERROR(handle_ << " ParserBannerMessage error");
+				return;
+			}
+			SIM_LINFO(handle_ << " Banner[" << lag << "]:" << msg);
+		}
 		static void MsgUserAuthBanner(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
+			const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+		{
+			SshSession* s = (SshSession*)pdata;
+			if (s)
+			{
+				s->OnMsgUserAuthBanner(payload_data, payload_data_len);
+			}
+		}
 
 		//SSH_MSG_USERAUTH_PASSWD_CHANGEREQ
-		void OnMsgUserAuthPassWdChangeReq(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len);
-		static void MsgUserAuthPassWdChangeReq(sim::SshTransport*parser,
-			const char*payload_data, sim::uint32_t payload_data_len, void*pdata);
-	private:
-		RefObject<SshConnection> NewSshConnection(SshPointType type)
+		void OnMsgUserAuthPassWdChangeReq(const char* payload_data, sim::uint32_t payload_data_len)
 		{
-			RefObject<SshConnection> ssh_conn(new SshConnection(type));
+			SIM_FUNC_DEBUG();
+			Str prompt, lag;
+			if (!ssh_conn_->ParserPassWDChangeReq(payload_data, payload_data_len, prompt, lag))
+			{
+				SIM_LERROR(handle_ << " ParserPassWDChangeReq error");
+				Close();
+				return;
+			}
+			Str new_password;
+			if (phandlers_)
+				phandlers_->OnPassWordChanged(this, new_password);
+			if (new_password.size() == 0)
+			{
+				SIM_LERROR(handle_ << " new_password is empty");
+				Close();
+				return;
+			}
+			Str response = ssh_conn_->AuthPassWordChangeReq(auth_req_.user_name,
+				auth_req_.method_fields.password.password,
+				new_password,
+				auth_req_.service_name);
+			if (response.size() == 0)
+			{
+				SIM_LERROR(handle_ << " AuthPassWordChangeReq error");
+				Close();
+				return;
+			}
+			SendRawStr(response);
+			auth_req_.method_fields.password.old_password = auth_req_.method_fields.password.password;
+			auth_req_.method_fields.password.password = new_password;
+		}
+		static void MsgUserAuthPassWdChangeReq(sim::SshTransport*parser,
+			const char*payload_data, sim::uint32_t payload_data_len, void*pdata)
+		{
+			SshSession* s = (SshSession*)pdata;
+			if (s)
+			{
+				s->OnMsgUserAuthPassWdChangeReq(payload_data, payload_data_len);
+			}
+		}
+	private:
+		bool ResetHandlers(RefObject<SshConnection> ssh_conn)
+		{
 			if (NULL == ssh_conn)
-				return NULL;
+				return false;
 
 			ssh_conn->SetHandler(SSH_MSG_VERSION, MsgVersion, this);
 			ssh_conn->SetHandler(SSH_MSG_KEXINIT, MsgKexInit, this);
@@ -263,9 +738,19 @@ namespace sim
 			ssh_conn->SetHandler(SSH_MSG_USERAUTH_FAILURE, MsgUserAuthFailure, this);
 			ssh_conn->SetHandler(SSH_MSG_USERAUTH_SUCCESS, MsgUserAuthSucccess, this);
 			ssh_conn->SetHandler(SSH_MSG_USERAUTH_BANNER, MsgUserAuthBanner, this);
-			
+			return true;
+		}
+		RefObject<SshConnection> NewSshConnection(SshPointType type)
+		{
+			RefObject<SshConnection> ssh_conn(new SshConnection(type));
+			if (!ResetHandlers(ssh_conn))
+				return NULL;
+			return ssh_conn;
 		}
 	private:
+		Str login_key_file_;
+		SshAuthRequest auth_req_;
+
 		Mutex channel_map_lock_;
 		//local channel id->channel obj
 		RbTree< RefObject<SshChannel> > channel_map_;
@@ -338,11 +823,11 @@ namespace sim
 
 		void OnNetAccept(AsyncHandle handle, AsyncHandle client)
 		{
+			SIM_LERROR(handle << " OnNetAccept " << client);
 			RefObject<SshSession> session = GetSession(handle);
 			if (session)
 			{
-				NewSession(client);
-				session->OnNetAccept(client);
+				session->OnNetAccept(NewSession(client));
 			}
 		}
 		static void NetAcceptHandler(AsyncHandle handle, AsyncHandle client, void*data)
@@ -423,5 +908,68 @@ namespace sim
 		Mutex session_map_lock_;
 		RbTree< RefObject<SshSession> > session_map_;
 	};
+
+	//SshSession 实现
+	//客户端
+	bool SshSession::Connect(const Str& host, unsigned port)
+	{
+		if (status_ != SSH_INIT)
+			return false;
+		if (host.size() == 0)
+			return false;
+		
+		//获取ip
+		const int buff_size = 64;
+		char ip[buff_size] = { 0 };
+		if (!Socket::GetFirstIpByName(host.c_str(), ip, buff_size))
+		{
+			return false;
+		}
+		ssh_conn_ = NewSshConnection(SshClient);
+		//连接
+		if (SOCK_SUCCESS != async_.AddTcpConnect(handle_, ip, port))
+			return false;
+		status_ = SSH_CONN;
+		return true;
+	}
+	
+	bool SshSession::Accept(unsigned port)
+	{
+		if (status_ != SSH_INIT)
+			return false;
+		if (NULL == ssh_conn_)
+		{
+			ssh_conn_ = NewSshConnection(SshServer);
+		}
+		//连接
+		if (SOCK_SUCCESS != async_.AddTcpServer(handle_, NULL, port))
+			return false;
+		status_ = SSH_CONN;
+		return true;
+	}
+
+	bool SshSession::Close()
+	{
+		return SOCK_SUCCESS == async_.Close(handle_);
+	}
+
+	void SshSession::OnNetAccept(RefObject<SshSession> cli_ref)
+	{
+		//RefObject<SshSession> cli_ref = async_.GetSession(client);
+		if (cli_ref)
+		{
+			cli_ref->DupFrom(this);
+			/*if (phandlers_)
+				phandlers_->OnConnectAccepted(this, cli_ref.get());*/
+			cli_ref->OnNetStart();
+		}
+	}
+
+	bool SshSession::SendRawData(const char* buff, unsigned int buff_len)
+	{
+		SIM_LERROR(handle_ << " SendRawData " << buff_len);
+		async_.Send(handle_, buff, buff_len);
+		return true;
+	}
 }
 #endif
