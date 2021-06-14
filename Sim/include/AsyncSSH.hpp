@@ -11,25 +11,73 @@
 #endif
 
 #include "SSHv2.hpp"
-
+#define DEFAULT_INIT_WINDOWS_SIZE	4*1024*1024
+#define DEFAULT_MAX_PACK_SIZE		4*1024
 namespace sim
 {
-	class AsyncSsh;
+	//前置声明
+	class SshChannel;
 	class SshSession;
+	class AsyncSsh;
+
+	class SshChannelHandler
+	{
+	public:
+		//打开通道
+		virtual void OnConfirmation(SshChannel* channel) { return; }
+
+		virtual void OnClosed(SshChannel* channel) { return; }
+
+		virtual void OnData(SshChannel* channel,const Str&data) { return; }
+
+		virtual void OnExtData(SshChannel* channel, uint32_t data_type_code, const Str& data) { return; }
+	};
 
 	//channel
-	struct SshChannel
+	class SshChannel
 	{
+		friend class SshSession;
+		friend class AsyncSsh;
+
 		struct ChnData
 		{
 			uint32_t channel_id;
 			uint32_t initial_window_size;
 			uint32_t maximum_packet_size;
+			ChnData()
+				:channel_id(0), initial_window_size(0), maximum_packet_size(0)
+			{}
 		};
 	public:
-		ChnData remote_channel;
-		ChnData local_channel;
-		Str channel_type;
+		SshChannel(SshSession& session, RefObject<SshChannelHandler> phandlers=NULL)
+			:session_(session), phandlers_(phandlers)
+		{
+
+		}
+		void SetHandlers(RefObject<SshChannelHandler> phandlers)
+		{
+			phandlers_ = phandlers;
+		}
+		bool Open(const Str& channel_type,
+			uint32_t initial_window_size = DEFAULT_INIT_WINDOWS_SIZE,
+			uint32_t maximum_packet_size = DEFAULT_MAX_PACK_SIZE);
+		bool Close();
+		bool Send(const Str& data);
+		bool SendExt(uint32_t data_type_code,const Str& data);
+		bool SendEof();
+		bool WindowAdjust(uint32_t bytes_to_add);
+
+	public:
+		uint32_t GetId()
+		{
+			return local_channel_.channel_id;
+		}
+	private:
+		ChnData remote_channel_;
+		ChnData local_channel_;
+		Str channel_type_;
+		RefObject<SshChannelHandler> phandlers_;
+		SshSession& session_;
 	};
 
 	class SshSessionHandler
@@ -53,7 +101,7 @@ namespace sim
 
 		//密钥变更
 		virtual void OnPassWordChanged(SshSession*session, Str&new_password) { return; };
-		
+
 	};
 
 	enum SSH_SESSION_STATUS
@@ -76,6 +124,7 @@ namespace sim
 		//AsyncHandle handle_;
 		SshSession(AsyncSsh&async, AsyncHandle handle)
 			:async_(async), handle_(handle), status_(SSH_INIT)
+			, channel_id_(0)
 		{
 
 		}
@@ -84,14 +133,20 @@ namespace sim
 			Close();
 		}
 
-		AsyncHandle GetHandle();
-		AsyncHandle GetServerHandle();
-		AsyncSsh& GetAsync();
+		AsyncHandle GetHandle() { return handle_; }
+		AsyncSsh& GetAsync() { return async_; }
 		
 		//设置句柄
 		virtual bool SetHandler(RefObject<SshSessionHandler> phandlers)
 		{
 			phandlers_ = phandlers;
+			return true;
+		}
+
+		//设置通道默认句柄
+		virtual bool SetChannelHandler(RefObject<SshChannelHandler> phandlers)
+		{
+			channel_phandlers_ = phandlers;
 			return true;
 		}
 
@@ -138,6 +193,19 @@ namespace sim
 			return SendRawStr(req);
 		}
 
+		virtual RefObject<SshChannel> CreateChannel(RefObject<SshChannelHandler> channel_phandlers = NULL)
+		{
+			return NewSshChannel(channel_phandlers);
+		}
+		virtual RefObject<SshChannel> GetChannel(uint32_t channel_id)
+		{
+			RefObject<SshChannel> chn;
+			{
+				AutoMutex lk(channel_map_lock_);
+				channel_map_.Find(channel_id,&chn);
+			}
+			return chn;
+		}
 		//服务端
 		//加载私钥
 		virtual bool LoadHostPrivateKey(const Str& file)
@@ -173,6 +241,7 @@ namespace sim
 				ResetHandlers(ssh_conn_);
 			}
 			phandlers_ = other->phandlers_;
+			channel_phandlers_ = other->channel_phandlers_;
 			return true;
 		}
 
@@ -740,12 +809,40 @@ namespace sim
 			ssh_conn->SetHandler(SSH_MSG_USERAUTH_BANNER, MsgUserAuthBanner, this);
 			return true;
 		}
+
 		RefObject<SshConnection> NewSshConnection(SshPointType type)
 		{
 			RefObject<SshConnection> ssh_conn(new SshConnection(type));
 			if (!ResetHandlers(ssh_conn))
 				return NULL;
 			return ssh_conn;
+		}
+
+		RefObject<SshChannel> NewSshChannel(RefObject<SshChannelHandler> channel_phandlers)
+		{
+			RefObject<SshChannel> chn(new SshChannel(*this, channel_phandlers));
+			if (NULL == chn)
+			{
+				SIM_LERROR("new SshChannel error");
+				return NULL;
+			}
+			if (NULL == channel_phandlers)
+				chn->SetHandlers(channel_phandlers_);//设置默认回调
+			
+			chn->local_channel_.channel_id = NextChannelId();
+			{
+				//加入环境
+				AutoMutex lk(channel_map_lock_);
+				//chn->local_channel_.channel_id
+				channel_map_.Add(chn->local_channel_.channel_id, chn);
+			}
+			return chn;
+		}
+
+		uint32_t NextChannelId()
+		{
+			AutoMutex lk(channel_id_lock_);
+			return ++channel_id_;
 		}
 	private:
 		Str login_key_file_;
@@ -763,7 +860,12 @@ namespace sim
 
 		RefObject<SshSessionHandler> phandlers_;
 
+		RefObject<SshChannelHandler> channel_phandlers_;
+
 		SSH_SESSION_STATUS status_;
+
+		Mutex channel_id_lock_;
+		uint32_t channel_id_;
 	};
 
 	class AsyncSsh :protected SimAsync

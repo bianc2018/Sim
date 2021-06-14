@@ -173,6 +173,60 @@ Symbolic Name											reason code
 #define SSH_AUTH_HOST_BASED "hostbased"
 #define SSH_AUTH_NONE		"none"
 
+
+/*
+* The following table lists the initial assignments of the Connection
+Protocol Channel Types.
+Channel type Reference
+------------ ---------
+session [SSH-CONNECT, Section 6.1]
+x11 [SSH-CONNECT, Section 6.3.2]
+forwarded-tcpip [SSH-CONNECT, Section 7.2]
+direct-tcpip [SSH-CONNECT, Section 7.2]
+*/
+#define SSH_CHANNEL_TYPE_SESSION				"session"
+#define SSH_CHANNEL_TYPE_X11					"x11"
+#define SSH_CHANNEL_TYPE_FORWARDED_TCPIP		"forwarded-tcpip"
+#define SSH_CHANNEL_TYPE_DIRECT_TCPIP			"direct-tcpip"
+
+/*
+Protocol Global Request Names.
+Request type Reference
+------------ ---------
+tcpip-forward [SSH-CONNECT, Section 7.1]
+cancel-tcpip-forward [SSH-CONNECT, Section 7.1]
+*/
+#define SSH_GLOBAL_TCPIP_FORWARD		"tcpip-forward"
+#define SSH_GLOBAL_CANCEL_TCPIP_FORWARD "cancel-tcpip-forward"
+
+/*
+Protocol Channel Request Names.
+Request type Reference
+------------ ---------
+pty-req [SSH-CONNECT, Section 6.2]
+x11-req [SSH-CONNECT, Section 6.3.1]
+env [SSH-CONNECT, Section 6.4]
+shell [SSH-CONNECT, Section 6.5]
+exec [SSH-CONNECT, Section 6.5]
+subsystem [SSH-CONNECT, Section 6.5]
+window-change [SSH-CONNECT, Section 6.7]
+xon-xoff [SSH-CONNECT, Section 6.8]
+signal [SSH-CONNECT, Section 6.9]
+exit-status [SSH-CONNECT, Section 6.10]
+exit-signal [SSH-CONNECT, Section 6.10]
+*/
+#define SSH_CHANNEL_REQ_PTY_REQ			"pty-req"
+#define SSH_CHANNEL_REQ_X11_REQ			"x11-req"
+#define SSH_CHANNEL_REQ_ENV				"env"
+#define SSH_CHANNEL_REQ_SHELL			"shell"
+#define SSH_CHANNEL_REQ_EXEC			"exec"
+#define SSH_CHANNEL_REQ_SUBSYSTEM		"subsystem"
+#define SSH_CHANNEL_REQ_WINDOW_CHANGE	"window-change"
+#define SSH_CHANNEL_REQ_XON_XOFF		"xon-xoff"
+#define SSH_CHANNEL_REQ_SIGNAL		"signal"
+#define SSH_CHANNEL_REQ_EXIT_STATUS "exit-status"
+#define SSH_CHANNEL_REQ_EXIT_SIGNAL "exit-signal"
+
 //需要释放内存
 static char* DumpHex(const unsigned char*hex, unsigned int hex_len)
 {
@@ -1570,6 +1624,45 @@ namespace sim
 				return false;
 			list = name_list(payload + offset + 4, list_len);
 			offset += list_len + 4;
+			return true;
+		}
+
+		static Str PrintUInit32(uint32_t data)
+		{
+			data = htonl(data);
+			return Str((const char*)&data, 4);
+		}
+
+		static bool ParserUInit32(const char* payload, uint32_t payload_len,
+			uint32_t& offset, uint32_t& data)
+		{
+			//剩余的字节数
+			uint32_t has_bytes = payload_len - offset;
+			//必须有四字节长度
+			if (has_bytes < 4)
+				return false;
+			data = ntohl(*(unsigned long*)(payload + offset));
+			offset += 4;
+			return true;
+		}
+
+		static Str PrintBoolean(bool data)
+		{
+			char res[1] = {0};
+			res[0] = (data ? char(1) : char(0));
+			return res;
+		}
+
+		static bool ParserBoolean(const char* payload, uint32_t payload_len,
+			uint32_t& offset, bool& data)
+		{
+			//剩余的字节数
+			uint32_t has_bytes = payload_len - offset;
+			//必须有1字节长度
+			if (has_bytes < 1)
+				return false;
+			data = payload[offset] !=0;
+			offset += 1;
 			return true;
 		}
 
@@ -3641,7 +3734,6 @@ namespace sim
 			}
 			return PrintPacket(SSH_MSG_USERAUTH_REQUEST, payload_data.c_str(), payload_data.size());
 		}
-
 		bool ParserAuthRequset(const char* payload_data, uint32_t payload_data_len, SshAuthRequest& req)
 		{
 			if (NULL == payload_data || 0 == payload_data_len)
@@ -4159,6 +4251,27 @@ namespace sim
 
 	//The Secure Shell (SSH) Connection Protocol
 
+	struct ChannelOpenX11
+	{
+		/*
+		* X11 channels are opened with a channel open request. The resulting
+		channels are independent of the session, and closing the session
+		channel does not close the forwarded X11 channels.
+		byte SSH_MSG_CHANNEL_OPEN
+		string "x11"
+		uint32 sender channel
+		uint32 initial window size
+		uint32 maximum packet size
+		string originator address (e.g., "192.168.7.38")
+		uint32 originator port
+		The recipient should respond with SSH_MSG_CHANNEL_OPEN_CONFIRMATION
+		or SSH_MSG_CHANNEL_OPEN_FAILURE.
+		Implementations MUST reject any X11 channel open requests if they
+		have not requested X11 forwarding.
+		*/
+		Str originator_address;
+		uint32_t originator_port;
+	};
 	/*
 	Opening a Channel
 	When either side wishes to open a new channel, it allocates a local
@@ -4183,6 +4296,12 @@ namespace sim
 		//The ’maximum packet size’ specifies the maximum size of an individual data packet that can be sent to the sender.
 		uint32_t maximum_packet_size;
 		//.... channel type specific data follows
+		struct type_spcific
+		{
+			//channel_type == "x11"
+			ChannelOpenX11 x11;
+		};
+		type_spcific ts;
 	};
 
 	/*
@@ -4219,6 +4338,18 @@ namespace sim
 	struct SshOpenChannelFailure
 	{
 		uint32_t recipient_channel;
+		/*
+		The SSH_MSG_CHANNEL_OPEN_FAILURE ’reason code’ values are defined in
+		the following table. Note that the values for the ’reason code’ are
+		given in decimal format for readability, but they are actually uint32
+		values.
+		Symbolic name reason code
+		------------- -----------
+		SSH_OPEN_ADMINISTRATIVELY_PROHIBITED 1
+		SSH_OPEN_CONNECT_FAILED 2
+		SSH_OPEN_UNKNOWN_CHANNEL_TYPE 3
+		SSH_OPEN_RESOURCE_SHORTAGE 4
+		*/
 		uint32_t reason_code;
 		Str description;
 		Str language_tag;
@@ -4267,21 +4398,250 @@ namespace sim
 		Str data;
 	};
 
+	///*
+	//	byte SSH_MSG_CHANNEL_EOF
+	//	uint32 recipient channel
+	//*/
+	//struct SshChannelEof
+	//{
+	//	uint32_t recipient_channel;
+	//};
+	///*
+	//	byte SSH_MSG_CHANNEL_CLOSE
+	//	uint32 recipient channel
+	//*/
+	//struct SshChannelClose
+	//{
+	//	uint32_t recipient_channel;
+	//};
+
+
+	//Channel-Specific Requests
 	/*
-		byte SSH_MSG_CHANNEL_EOF
-		uint32 recipient channel
+	Requesting a Pseudo-Terminal
 	*/
-	struct SshChannelEof
+	struct ChannelRequestPtyReq
 	{
-		uint32_t recipient_channel;
+		/*
+		*	string TERM environment variable value (e.g., vt100)
+			uint32 terminal width, characters (e.g., 80)
+			uint32 terminal height, rows (e.g., 24)
+			uint32 terminal width, pixels (e.g., 640)
+			uint32 terminal height, pixels (e.g., 480)
+			string encoded terminal modes
+		*/
+		Str term_value;
+		uint32_t width_characters;
+		uint32_t height_rows;
+		uint32_t width_pixels;
+		uint32_t height_pixels;
+		Str encoded_terminal_modes;
 	};
-	/*
-		byte SSH_MSG_CHANNEL_CLOSE
+
+	//Requesting X11 Forwarding
+	struct ChannelRequestX11Req
+	{
+		/*
+		X11 forwarding may be requested for a session by sending a
+		SSH_MSG_CHANNEL_REQUEST message.
+		byte SSH_MSG_CHANNEL_REQUEST
 		uint32 recipient channel
+		string "x11-req"
+		boolean want reply
+		boolean single connection
+		string x11 authentication protocol
+		string x11 authentication cookie
+		uint32 x11 screen number
+		*/
+		bool single_connection;
+		Str authentication_protocol;
+		Str authentication_cookie;
+		uint32_t screen_number;
+	};
+
+	//Environment Variable Passing
+	struct ChannelRequestEnv
+	{
+		/*
+		Environment variables may be passed to the shell/command to be
+		started later. Uncontrolled setting of environment variables in a
+		privileged process can be a security hazard. It is recommended that
+		implementations either maintain a list of allowable variable names or
+		only set environment variables after the server process has dropped
+		sufficient privileges.
+		byte SSH_MSG_CHANNEL_REQUEST
+		uint32 recipient channel
+		string "env"
+		boolean want reply
+		string variable name
+		string variable value
+		*/
+		Str name;
+		Str value;
+	};
+
+	struct ChannelRequestExec
+	{
+		/*
+		byte SSH_MSG_CHANNEL_REQUEST
+		uint32 recipient channel
+		string "exec"
+		boolean want reply
+		string command
+		*/
+		Str command;
+	};
+
+	struct ChannelRequestSubSystem
+	{
+		/*
+		byte SSH_MSG_CHANNEL_REQUEST
+		uint32 recipient channel
+		string "subsystem"
+		boolean want reply
+		string subsystem name
+		*/
+		Str subsystem_name;
+	};
+
+	struct ChannelRequestWindowChange
+	{
+		/*
+		When the window (terminal) size changes on the client side, it MAY
+		send a message to the other side to inform it of the new dimensions.
+		byte SSH_MSG_CHANNEL_REQUEST
+		uint32 recipient channel
+		string "window-change"
+		boolean FALSE
+		uint32 terminal width, columns
+		uint32 terminal height, rows
+		uint32 terminal width, pixels
+		uint32 terminal height, pixels
+		A response SHOULD NOT be sent to this message.
+		*/
+		uint32_t width_characters;
+		uint32_t height_rows;
+		uint32_t width_pixels;
+		uint32_t height_pixels;
+	};
+
+	//Local Flow Control
+	struct ChannelRequestXonXoff
+	{
+		/*
+		byte SSH_MSG_CHANNEL_REQUEST
+		uint32 recipient channel
+		string "xon-xoff"
+		boolean FALSE
+		boolean client can do
+
+		//No response is sent to this message.
+		*/
+		bool client_can_do;
+	};
+
+	//Signals
+	struct ChannelRequestSignal
+	{
+		/*
+		A signal can be delivered to the remote process/service using the
+		following message. Some systems may not implement signals, in which
+		case they SHOULD ignore this message.
+		byte SSH_MSG_CHANNEL_REQUEST
+		uint32 recipient channel
+		string "signal"
+		boolean FALSE
+		string signal name (without the "SIG" prefix)
+		’signal name’ values will be encoded as discussed in the passage
+		describing SSH_MSG_CHANNEL_REQUEST messages using "exit-signal" in
+		this section.
+
+		//No response is sent to this message.
+		*/
+		Str signal_name;
+	};
+
+	//Returning Exit Status
+	struct ChannelRequestExitStatus
+	{
+		/*
+		byte SSH_MSG_CHANNEL_REQUEST
+		uint32 recipient channel
+		string "exit-status"
+		boolean FALSE
+		uint32 exit_status
+
+		//No response is sent to this message.
+		*/
+		uint32_t exit_status;
+	};
+
+	/*
+	* The remote command may also terminate violently due to a signal.
+Such a condition can be indicated by the following message. A zero
+’exit_status’ usually means that the command terminated successfully.
 	*/
-	struct SshChannelClose
+	struct ChannelRequestExitSignal
+	{
+		/*
+		byte SSH_MSG_CHANNEL_REQUEST
+		uint32 recipient channel
+		string "exit-signal"
+		boolean FALSE
+		string signal name (without the "SIG" prefix)
+		boolean core dumped
+		string error message in ISO-10646 UTF-8 encoding
+		string language tag [RFC3066]
+
+		//No response is sent to this message.
+		*/
+		Str signal_name;
+		bool core_dumped;
+		Str error_message;
+		Str language_tag;
+	};
+
+	/*
+	* Many ’channel type’ values have extensions that are specific to that
+	particular ’channel type’. An example is requesting a pty (pseudo
+	terminal) for an interactive session.
+	All channel-specific requests use the following format.
+		byte SSH_MSG_CHANNEL_REQUEST
+		uint32 recipient channel
+		string request type in US-ASCII characters only
+		boolean want reply
+		.... type-specific data follows
+	*/
+	struct SshChannelRequest
 	{
 		uint32_t recipient_channel;
+		Str type;
+		bool want_reply;
+		struct type_specific
+		{
+			//when type="pty-req"
+			ChannelRequestPtyReq pty_req;
+			//when type="x11-req"
+			ChannelRequestX11Req x11_req;
+			//when type ="env"
+			ChannelRequestEnv env;
+			//when type ="shell" empty
+			//when type ="exec" 
+			ChannelRequestExec exec;
+			//when type ="subsystem" 
+			ChannelRequestSubSystem subsystem;
+			//when type ="window-change" 
+			ChannelRequestWindowChange window_change;
+			//when type ="xon-xoff" 
+			ChannelRequestXonXoff xon_xoff;
+			//when type ="signal" 
+			ChannelRequestSignal signal;
+			//when type ="exit-status" 
+			ChannelRequestExitStatus exit_status;
+			//when type ="exit-signal" 
+			ChannelRequestExitSignal exit_signal;
+		};
+		type_specific ts;
 	};
 
 	class SshConnection :public SshAuthentication
@@ -4291,6 +4651,352 @@ namespace sim
 			:SshAuthentication(sp_type)
 		{
 
+		}
+	public:
+		bool ParserOpenChannelRequest(const char* payload_data, uint32_t payload_data_len,
+			SshOpenChannelRequest& req)
+		{
+			uint32_t offset = 0;
+			if (!ParserString(payload_data, payload_data_len, offset, req.channel_type))
+				return false;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.sender_channel))
+				return false;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.initial_window_size))
+				return false;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.maximum_packet_size))
+				return false;
+			//.... channel type specific data follows
+			if (req.channel_type == SSH_CHANNEL_TYPE_X11)
+			{
+				if (!ParserString(payload_data, payload_data_len, offset, req.ts.x11.originator_address))
+					return false;
+				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.x11.originator_port))
+					return false;
+			}
+			return true;
+		}
+		Str  PrintOpenChannelRequest(SshOpenChannelRequest& req)
+		{
+			Str payload_data = PrintString(req.channel_type);
+			payload_data += PrintUInit32(req.sender_channel);
+			payload_data += PrintUInit32(req.initial_window_size);
+			payload_data += PrintUInit32(req.maximum_packet_size);
+			if (req.channel_type == SSH_CHANNEL_TYPE_X11)
+			{
+				payload_data += PrintString(req.ts.x11.originator_address);
+				payload_data += PrintUInit32(req.ts.x11.originator_port);
+			}
+			return PrintPacket(SSH_MSG_CHANNEL_OPEN, payload_data.c_str(), payload_data.size());
+		}
+
+		//SshOpenChannelConfirmation
+		bool ParserOpenChannelConfirmation(const char* payload_data, uint32_t payload_data_len,
+			SshOpenChannelConfirmation& req, const Str&req_channel_type="")
+		{
+			uint32_t offset = 0;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.recipient_channel))
+				return false;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.sender_channel))
+				return false;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.initial_window_size))
+				return false;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.maximum_packet_size))
+				return false;
+			//.... channel type specific data follows
+			return true;
+		}
+		Str  PrintOpenChannelConfirmation(SshOpenChannelConfirmation& req, const Str& req_channel_type = "")
+		{
+			Str payload_data = PrintUInit32(req.recipient_channel);
+			payload_data += PrintUInit32(req.sender_channel);
+			payload_data += PrintUInit32(req.initial_window_size);
+			payload_data += PrintUInit32(req.maximum_packet_size);
+			return PrintPacket(SSH_MSG_CHANNEL_OPEN_CONFIRMATION, payload_data.c_str(), payload_data.size());
+		}
+
+		//SshOpenChannelFailure
+		bool ParserOpenChannelFailure(const char* payload_data, uint32_t payload_data_len,
+			SshOpenChannelFailure& req)
+		{
+			uint32_t offset = 0;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.recipient_channel))
+				return false;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.reason_code))
+				return false;
+			if (!ParserString(payload_data, payload_data_len, offset, req.description))
+				return false;
+			if (!ParserString(payload_data, payload_data_len, offset, req.language_tag))
+				return false;
+			return true;
+		}
+		Str  PrintOpenChannelFailure(SshOpenChannelFailure& req)
+		{
+			Str payload_data = PrintUInit32(req.recipient_channel);
+			payload_data += PrintUInit32(req.reason_code);
+			payload_data += PrintString(req.description);
+			payload_data += PrintString(req.language_tag);
+			return PrintPacket(SSH_MSG_CHANNEL_OPEN_FAILURE, payload_data.c_str(), payload_data.size());
+		}
+
+		//SshChannelWindowAdjust
+		bool ParserChannelWindowAdjust(const char* payload_data, uint32_t payload_data_len,
+			SshChannelWindowAdjust& req)
+		{
+			uint32_t offset = 0;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.recipient_channel))
+				return false;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.bytes_to_add))
+				return false;
+			return true;
+		}
+		Str  PrintChannelWindowAdjust(SshChannelWindowAdjust& req)
+		{
+			Str payload_data = PrintUInit32(req.recipient_channel);
+			payload_data += PrintUInit32(req.bytes_to_add);
+			return PrintPacket(SSH_MSG_CHANNEL_WINDOW_ADJUST, payload_data.c_str(), payload_data.size());
+		}
+
+		//SshChannelData
+		bool ParserChannelData(const char* payload_data, uint32_t payload_data_len,
+			SshChannelData& req)
+		{
+			uint32_t offset = 0;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.recipient_channel))
+				return false;
+			if (!ParserString(payload_data, payload_data_len, offset, req.data))
+				return false;
+			return true;
+		}
+		Str  PrintChannelData(SshChannelData& req)
+		{
+			Str payload_data = PrintUInit32(req.recipient_channel);
+			payload_data += PrintString(req.data);
+			return PrintPacket(SSH_MSG_CHANNEL_DATA, payload_data.c_str(), payload_data.size());
+		}
+
+		//SshChannelExtData
+		bool ParserChannelExtData(const char* payload_data, uint32_t payload_data_len,
+			SshChannelExtData& req)
+		{
+			uint32_t offset = 0;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.recipient_channel))
+				return false;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.data_type_code))
+				return false;
+			if (!ParserString(payload_data, payload_data_len, offset, req.data))
+				return false;
+			return true;
+		}
+		Str  PrintChannelExtData(SshChannelExtData& req)
+		{
+			Str payload_data = PrintUInit32(req.recipient_channel);
+			payload_data += PrintUInit32(req.data_type_code);
+			payload_data += PrintString(req.data);
+			return PrintPacket(SSH_MSG_CHANNEL_EXTENDED_DATA, payload_data.c_str(), payload_data.size());
+		}
+
+		//EOF or Close
+		bool ParserChannelEof(const char* payload_data, uint32_t payload_data_len,
+			uint32_t&recipient_channel)
+		{
+			uint32_t offset = 0;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, recipient_channel))
+				return false;
+			return true;
+		}
+		Str  PrintChannelEof(uint32_t recipient_channel)
+		{
+			Str payload_data = PrintUInit32(recipient_channel);
+			return PrintPacket(SSH_MSG_CHANNEL_EOF, payload_data.c_str(), payload_data.size());
+		}
+		bool ParserChannelClose(const char* payload_data, uint32_t payload_data_len,
+			uint32_t& recipient_channel)
+		{
+			uint32_t offset = 0;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, recipient_channel))
+				return false;
+			return true;
+		}
+		Str  PrintChannelClose(uint32_t recipient_channel)
+		{
+			Str payload_data = PrintUInit32(recipient_channel);
+			return PrintPacket(SSH_MSG_CHANNEL_CLOSE, payload_data.c_str(), payload_data.size());
+		}
+
+		//channel request
+		bool ParserChannelRequest(const char* payload_data, uint32_t payload_data_len,
+			SshChannelRequest& req)
+		{
+			uint32_t offset = 0;
+			if (!ParserUInit32(payload_data, payload_data_len, offset, req.recipient_channel))
+				return false;
+			if (!ParserString(payload_data, payload_data_len, offset, req.type))
+				return false;
+			if (!ParserBoolean(payload_data, payload_data_len, offset, req.want_reply))
+				return false;
+
+			//.... channel type specific data follows
+			if (req.type == SSH_CHANNEL_REQ_PTY_REQ)
+			{
+				if (!ParserString(payload_data, payload_data_len, offset, req.ts.pty_req.term_value))
+					return false;
+				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.pty_req.width_characters))
+					return false;
+				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.pty_req.height_rows))
+					return false;
+				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.pty_req.width_pixels))
+					return false;
+				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.pty_req.height_pixels))
+					return false;
+				if (!ParserString(payload_data, payload_data_len, offset, req.ts.pty_req.encoded_terminal_modes))
+					return false;
+			}
+			else if (req.type == SSH_CHANNEL_REQ_X11_REQ)
+			{
+				if (!ParserBoolean(payload_data, payload_data_len, offset, req.ts.x11_req.single_connection))
+					return false;
+				if (!ParserString(payload_data, payload_data_len, offset, req.ts.x11_req.authentication_protocol))
+					return false;
+				if (!ParserString(payload_data, payload_data_len, offset, req.ts.x11_req.authentication_cookie))
+					return false;
+				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.x11_req.screen_number))
+					return false;
+			}
+			else if (req.type == SSH_CHANNEL_REQ_ENV)
+			{
+				if (!ParserString(payload_data, payload_data_len, offset, req.ts.env.name))
+					return false;
+				if (!ParserString(payload_data, payload_data_len, offset, req.ts.env.value))
+					return false;
+			}
+			else if (req.type == SSH_CHANNEL_REQ_SHELL)
+			{
+				//empty
+			}
+			else if (req.type == SSH_CHANNEL_REQ_EXEC)
+			{
+				if (!ParserString(payload_data, payload_data_len, offset, req.ts.exec.command))
+					return false;
+			}
+			else if (req.type == SSH_CHANNEL_REQ_SUBSYSTEM)
+			{
+				if (!ParserString(payload_data, payload_data_len, offset, req.ts.subsystem.subsystem_name))
+					return false;
+			}
+			else if (req.type == SSH_CHANNEL_REQ_WINDOW_CHANGE)
+			{
+				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.window_change.width_characters))
+					return false;
+				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.window_change.height_rows))
+					return false;
+				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.window_change.width_pixels))
+					return false;
+				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.window_change.height_pixels))
+					return false;
+			}
+			else if (req.type == SSH_CHANNEL_REQ_XON_XOFF)
+			{
+				if (!ParserBoolean(payload_data, payload_data_len, offset, req.ts.xon_xoff.client_can_do))
+					return false;
+			}
+			else if (req.type == SSH_CHANNEL_REQ_SIGNAL)
+			{
+				if (!ParserString(payload_data, payload_data_len, offset, req.ts.signal.signal_name))
+					return false;
+			}
+			else if (req.type == SSH_CHANNEL_REQ_EXIT_STATUS)
+			{
+				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.exit_status.exit_status))
+					return false;
+			}
+			else if (req.type == SSH_CHANNEL_REQ_EXIT_SIGNAL)
+			{
+				if (!ParserString(payload_data, payload_data_len, offset, req.ts.exit_signal.signal_name))
+					return false;
+				if (!ParserBoolean(payload_data, payload_data_len, offset, req.ts.exit_signal.core_dumped))
+					return false;
+				if (!ParserString(payload_data, payload_data_len, offset, req.ts.exit_signal.error_message))
+					return false;
+				if (!ParserString(payload_data, payload_data_len, offset, req.ts.exit_signal.language_tag))
+					return false;
+			}
+			else
+			{
+				return false;
+			}
+			return true;
+		}
+		Str  PrintChannelRequest(SshChannelRequest& req)
+		{
+			Str payload_data = PrintUInit32(req.recipient_channel);
+			payload_data += PrintString(req.type);
+			payload_data += PrintBoolean(req.want_reply);
+				
+			//.... channel type specific data follows
+			if (req.type == SSH_CHANNEL_REQ_PTY_REQ)
+			{
+				payload_data += PrintString(req.ts.pty_req.term_value);
+				payload_data += PrintUInit32(req.ts.pty_req.width_characters);
+				payload_data += PrintUInit32(req.ts.pty_req.height_rows);
+				payload_data += PrintUInit32(req.ts.pty_req.width_pixels);
+				payload_data += PrintUInit32(req.ts.pty_req.height_pixels);
+				payload_data += PrintString(req.ts.pty_req.encoded_terminal_modes);
+			}
+			else if (req.type == SSH_CHANNEL_REQ_X11_REQ)
+			{
+				payload_data += PrintBoolean(req.ts.x11_req.single_connection);
+				payload_data += PrintString(req.ts.x11_req.authentication_protocol);
+				payload_data += PrintString(req.ts.x11_req.authentication_cookie);
+				payload_data += PrintUInit32(req.ts.x11_req.screen_number);
+			}
+			else if (req.type == SSH_CHANNEL_REQ_ENV)
+			{
+				payload_data += PrintString(req.ts.env.name);
+				payload_data += PrintString(req.ts.env.value);
+			}
+			else if (req.type == SSH_CHANNEL_REQ_SHELL)
+			{
+				//empty
+			}
+			else if (req.type == SSH_CHANNEL_REQ_EXEC)
+			{
+				payload_data += PrintString(req.ts.exec.command);
+			}
+			else if (req.type == SSH_CHANNEL_REQ_SUBSYSTEM)
+			{
+				payload_data += PrintString(req.ts.subsystem.subsystem_name);
+			}
+			else if (req.type == SSH_CHANNEL_REQ_WINDOW_CHANGE)
+			{
+				payload_data += PrintUInit32(req.ts.window_change.width_characters);
+				payload_data += PrintUInit32(req.ts.window_change.height_rows);
+				payload_data += PrintUInit32(req.ts.window_change.width_pixels);
+				payload_data += PrintUInit32(req.ts.window_change.height_pixels);
+			}
+			else if (req.type == SSH_CHANNEL_REQ_XON_XOFF)
+			{
+				payload_data += PrintBoolean(req.ts.xon_xoff.client_can_do);
+			}
+			else if (req.type == SSH_CHANNEL_REQ_SIGNAL)
+			{
+				payload_data += PrintString(req.ts.signal.signal_name);
+			}
+			else if (req.type == SSH_CHANNEL_REQ_EXIT_STATUS)
+			{
+				payload_data += PrintUInit32(req.ts.exit_status.exit_status);
+			}
+			else if (req.type == SSH_CHANNEL_REQ_EXIT_SIGNAL)
+			{
+				payload_data += PrintString(req.ts.exit_signal.signal_name);
+				payload_data += PrintBoolean(req.ts.exit_signal.core_dumped);
+				payload_data += PrintString(req.ts.exit_signal.error_message);
+				payload_data += PrintString(req.ts.exit_signal.language_tag);
+			}
+			else
+			{
+				return "";
+			}
+			return PrintPacket(SSH_MSG_CHANNEL_REQUEST, payload_data.c_str(), payload_data.size());
 		}
 	private:
 
