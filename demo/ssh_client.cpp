@@ -1,7 +1,34 @@
 #include "AsyncSSH.hpp"
 #include "GlobalPoll.hpp"
 #include "CmdLineParser.hpp"
+#include <iostream>
 #define MY_THREAD 3
+//异步服务对象基类
+class AsyncInput
+{
+public:
+	//运行接口，取事件和分发
+	virtual int Poll(unsigned int wait_ms)
+	{
+		while (channel&&channel->Status() != sim::SSH_CHANNEL_CLOSED)
+		{
+			char c = getchar();
+			//printf("%c\n", c);
+			//channel->Send(input + "\n");
+			input += c;
+			if (c == '\n'|| c == '\t')
+			{
+				channel->Send(input);
+				input = "";
+			}
+
+		}
+		return 0;
+	}
+public:
+	sim::Str input;
+	sim::RefObject<sim::SshChannel> channel;
+};
 
 class myChannelHandler :public sim::SshChannelHandler
 {
@@ -9,11 +36,13 @@ class myChannelHandler :public sim::SshChannelHandler
 	virtual void OnOpenConfirmation(sim::SshChannel* channel) 
 	{
 		printf("channel[%u] is OnOpenConfirmation\n", channel->GetId());
-		//channel->PtyReq("vanilla",true);
-		//channel->Shell(true);
+		channel->PtyReq("vanilla",true);
+		channel->Shell(true);
+		
+		sim::GlobalPoll<AsyncInput, 1>::Get().channel = channel->GetRef();
 		////channel->Env("FOO", "bar", true);
 		////channel->Send("ll\n");
-		channel->Exec("ls -l",true);
+		//channel->Exec("ls -l",true);
 		//channel->Close();
 		return; 
 	}
@@ -32,22 +61,24 @@ class myChannelHandler :public sim::SshChannelHandler
 
 	virtual void OnData(sim::SshChannel* channel, const sim::Str&data)
 	{
-		printf("channel[%u]OnData:%s\n", channel->GetId(),data.c_str());
+		//printf("channel[%u]OnData:%s\n", channel->GetId(),data.c_str());
+		printf("%s", data.c_str());
 	}
 
 	virtual void OnExtData(sim::SshChannel* channel, sim::uint32_t data_type_code, const sim::Str& data)
 	{
-		printf("channel[%u]OnExtData %u:%s\n", channel->GetId(), data_type_code, data.c_str());
+		//printf("channel[%u]OnExtData %u:%s\n", channel->GetId(), data_type_code, data.c_str());
+		printf("%s", data.c_str());
 	}
 
 	virtual void OnRequest(sim::SshChannel* channel, const sim::SshChannelRequest&req)
 	{
-		printf("channel[%u]OnRequest %s\n", channel->GetId(), req.type.c_str());
+		//printf("channel[%u]OnRequest %s\n", channel->GetId(), req.type.c_str());
 	}
 
 	virtual void OnResponse(sim::SshChannel* channel, bool success)
 	{
-		printf("channel[%u]OnResponse %s\n", channel->GetId(), success?"success":"failure");
+		//printf("channel[%u]OnResponse %s\n", channel->GetId(), success?"success":"failure");
 	}
 };
 
@@ -79,7 +110,7 @@ public:
 		}
 	}
 
-	virtual void OnAuthRequest(sim::SshSession* session,
+	/*virtual void OnAuthRequest(sim::SshSession* session,
 		const sim::SshAuthRequest& req, int& res_status)
 	{
 		if (req.method != SSH_AUTH_PASSWORD)
@@ -94,7 +125,7 @@ public:
 		}
 		res_status = -1;
 		return;
-	}
+	}*/
 };
 int main(int argc, char*argv[])
 {

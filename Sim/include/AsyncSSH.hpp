@@ -90,6 +90,10 @@ namespace sim
 		bool PtyReq(const Str &term, bool want_reply = false,const Str &modes="",
 			int width= SSH_TERM_WIDTH, int height= SSH_TERM_HEIGHT,
 			int width_px= SSH_TERM_WIDTH_PX, int height_px= SSH_TERM_HEIGHT_PX);
+
+		inline SSH_CHANNEL_STATUS Status() { return status_; }
+
+		RefObject<SshChannel> GetRef();
 	public:
 		uint32_t GetId();
 	
@@ -1876,7 +1880,10 @@ namespace sim
 		//
 		remote_channel_.initial_window_size += bytes_to_add;
 	}
-
+	RefObject<SshChannel> SshChannel::GetRef()
+	{
+		return session_.GetChannel(local_channel_.channel_id);
+	}
 	//SshSession 实现
 	//客户端
 	bool SshSession::Connect(const Str& host, unsigned port)

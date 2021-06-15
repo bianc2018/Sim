@@ -714,13 +714,17 @@ namespace sim
 		}
 		
 		//数据输入
-		virtual bool Parser(const char*data, unsigned int len)
+		virtual bool Parser(const char* data, unsigned int len)
+		{
+			unsigned int offset = 0;
+			return Parser(data, len, offset);
+		}
+		virtual bool Parser(const char* data, unsigned int len, unsigned int& offset)
 		{
 			//并行情况
 #ifdef SIM_PARSER_MULTI_THREAD
 			sim::AutoMutex lk(parser_lock_);
 #endif
-			unsigned int offset = 0;
 			while (offset < len)
 			{
 				if (status_ == SshTransportStatus_VersionLF)
@@ -2236,6 +2240,7 @@ namespace sim
 						if (t_msg_.size() >= 4)
 						{
 							packet_lenght_ = ntohl(*((uint32_t*)(t_msg_.c_str())));
+							//printf("packet_lenght_=%u\n", packet_lenght_);
 							break;
 						}
 						t_msg_ += data[offset++];
@@ -2371,7 +2376,10 @@ namespace sim
 		void OnHandler(uint8_t message_code,
 			const char*payload_data, uint32_t payload_data_len)
 		{
-			printf("OnHandler message_code %d\n", message_code);
+			//debug
+			//printf("OnHandler message_code %d\n", message_code);
+			/*printf("OnHandler message_code %d send %u recv %u\n",
+				message_code,send_sequence_number_,recv_sequence_number_);*/
 
 			if (SSH_MSG_VERSION == message_code)
 			{
@@ -2438,6 +2446,7 @@ namespace sim
 			//校验
 			if (algo_ctx_.check_mac)
 			{
+				//printf("packet_lenght_=%u\n", packet_lenght_);
 				//the length fields, ’payload’ and ’random padding’
 				const char *mac = t_msg_.c_str() + packet_lenght_ + 4;
 				if (!CheckMac(recv_sequence_number_, t_msg_.c_str(), packet_lenght_ + 4,mac, t_msg_.size()- packet_lenght_ - 4))
@@ -2917,8 +2926,11 @@ namespace sim
 			}
 			if (check_mac_len != mac_len || memcmp(mac, check_mac, mac_len) != 0)
 			{
+				/*printf("CheckMac fail,mac %s,check_mac %s\n",
+					mac, check_mac);*/
 				delete[]check_mac;
 				return false;
+				//return true;
 			}
 			delete[]check_mac;
 			return true;
