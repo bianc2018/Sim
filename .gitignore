@@ -15,3 +15,8 @@ _deps
 /CMakeSettings.json
 /Sim/include/HttpParser.h
 /Sim/include/openssl
+/demo/openssl_EVP_Encrypt.cpp
+/demo/openssl_RSA_generate_key.cpp
+/demo/openssl_bnum.cpp
+/demo/openssl_comp.cpp
+/demo/openssl_sign.cpp

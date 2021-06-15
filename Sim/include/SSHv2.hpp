@@ -223,9 +223,33 @@ exit-signal [SSH-CONNECT, Section 6.10]
 #define SSH_CHANNEL_REQ_SUBSYSTEM		"subsystem"
 #define SSH_CHANNEL_REQ_WINDOW_CHANGE	"window-change"
 #define SSH_CHANNEL_REQ_XON_XOFF		"xon-xoff"
-#define SSH_CHANNEL_REQ_SIGNAL		"signal"
-#define SSH_CHANNEL_REQ_EXIT_STATUS "exit-status"
-#define SSH_CHANNEL_REQ_EXIT_SIGNAL "exit-signal"
+#define SSH_CHANNEL_REQ_SIGNAL			"signal"
+#define SSH_CHANNEL_REQ_EXIT_STATUS		"exit-status"
+#define SSH_CHANNEL_REQ_EXIT_SIGNAL		"exit-signal"
+
+/* Defaults for pty requests */
+#define SSH_TERM_WIDTH      80
+#define SSH_TERM_HEIGHT     24
+#define SSH_TERM_WIDTH_PX   0
+#define SSH_TERM_HEIGHT_PX  0
+
+/*
+The SSH_MSG_CHANNEL_OPEN_FAILURE ’reason code’ values are defined in
+the following table. Note that the values for the ’reason code’ are
+given in decimal format for readability, but they are actually uint32
+values.
+Symbolic name reason code
+------------- -----------
+SSH_OPEN_ADMINISTRATIVELY_PROHIBITED 1
+SSH_OPEN_CONNECT_FAILED 2
+SSH_OPEN_UNKNOWN_CHANNEL_TYPE 3
+SSH_OPEN_RESOURCE_SHORTAGE 4
+*/
+#define SSH_OPEN_ADMINISTRATIVELY_PROHIBITED	1
+#define SSH_OPEN_CONNECT_FAILED					2
+#define SSH_OPEN_UNKNOWN_CHANNEL_TYPE			3
+#define SSH_OPEN_RESOURCE_SHORTAGE				4
+
 
 //需要释放内存
 static char* DumpHex(const unsigned char*hex, unsigned int hex_len)
@@ -243,6 +267,10 @@ static char* DumpHex(const unsigned char*hex, unsigned int hex_len)
 //35000
 #define SSH_TRANS_PACKET_MAX_SIZE 35000
 #endif
+
+#define SSH_CHANNEL_WINDOW_DEFAULT  (2*1024*1024)
+#define SSH_CHANNEL_PACKET_DEFAULT  32768
+#define SSH_CHANNEL_MINADJUST       1024
 
 namespace sim
 {
@@ -1633,7 +1661,7 @@ namespace sim
 			return Str((const char*)&data, 4);
 		}
 
-		static bool ParserUInit32(const char* payload, uint32_t payload_len,
+		static bool ParserUInt32(const char* payload, uint32_t payload_len,
 			uint32_t& offset, uint32_t& data)
 		{
 			//剩余的字节数
@@ -1648,7 +1676,7 @@ namespace sim
 
 		static Str PrintBoolean(bool data)
 		{
-			char res[1] = {0};
+			char res[2] = {0};
 			res[0] = (data ? char(1) : char(0));
 			return res;
 		}
@@ -4156,7 +4184,7 @@ namespace sim
 					ret = SshTransport::Verify(rsa, data, signdata);
 					RSA_free(rsa);
 				}
-				if (Dsa == pub_type)
+				else if (Dsa == pub_type)
 				{
 					DSA*dsa = (DSA*)ctx;
 					ret = SshTransport::Verify(dsa, data, signdata);
@@ -4167,10 +4195,7 @@ namespace sim
 					return ret;
 				}
 			}
-			else
-			{
-				return ret;
-			}
+			return ret;
 		}
 
 		bool CheckPkOK(const Str& key_name, const Str& key, const Str& key_file)
@@ -4245,11 +4270,50 @@ namespace sim
 				return false;
 			req.method_fields.publickey.signature = SshTransport::PrintString(req.method_fields.publickey.key_algorithm_name);
 			req.method_fields.publickey.signature += SshTransport::PrintString(signdata);
+			return true;
 		}
 
 	};
 
 	//The Secure Shell (SSH) Connection Protocol
+
+	struct GlobalRequestPortForwarding
+	{
+		/*
+		Requesting Port Forwarding
+		byte SSH_MSG_GLOBAL_REQUEST
+		string "tcpip-forward"
+		boolean want reply
+		string address to bind (e.g., "0.0.0.0")
+		uint32 port number to bind
+		*/
+		Str address;
+		uint32_t port;
+	};
+	//Global Requests
+	struct SshChannelGlobalRequest
+	{
+		/*
+		There are several kinds of requests that affect the state of the
+		remote end globally, independent of any channels. An example is a
+		request to start TCP/IP forwarding for a specific port. Note that
+		both the client and server MAY send global requests at any time, and
+		the receiver MUST respond appropriately. All such requests use the
+		following format.
+		byte SSH_MSG_GLOBAL_REQUEST
+		string request name in US-ASCII only
+		boolean want reply
+		.... request-specific data follows
+		*/
+		Str request_name;
+		bool want_reply;
+		struct request_specific
+		{
+			//request_name = tcpip-forward or cancel-tcpip-forward
+			GlobalRequestPortForwarding tcpip_forward;
+		};
+		request_specific rs;
+	};
 
 	struct ChannelOpenX11
 	{
@@ -4653,29 +4717,91 @@ Such a condition can be indicated by the following message. A zero
 
 		}
 	public:
+		//Global Requests
+		bool ParserChannelGlobalRequest(const char* payload_data, uint32_t payload_data_len,
+			SshChannelGlobalRequest& req)
+		{
+			uint32_t offset = 0;
+			if (!ParserString(payload_data, payload_data_len, offset, req.request_name))
+				return false;
+			if (!ParserBoolean(payload_data, payload_data_len, offset, req.want_reply))
+				return false;
+			/*
+			#define SSH_GLOBAL_TCPIP_FORWARD		"tcpip-forward"
+#define SSH_GLOBAL_CANCEL_TCPIP_FORWARD "cancel-tcpip-forward"
+			*/
+			if (req.request_name == SSH_GLOBAL_TCPIP_FORWARD || req.request_name == SSH_GLOBAL_CANCEL_TCPIP_FORWARD)
+			{
+				if (!ParserString(payload_data, payload_data_len, offset, req.rs.tcpip_forward.address))
+					return false;
+				if (!ParserUInt32(payload_data, payload_data_len, offset, req.rs.tcpip_forward.port))
+					return false;
+			}
+			return true;
+		}
+		Str  PrintChannelGlobalRequest(const SshChannelGlobalRequest& req)
+		{
+			Str payload_data = PrintString(req.request_name);
+			payload_data += PrintBoolean(req.want_reply);
+
+			//.... channel type specific data follows
+			if (req.request_name == SSH_GLOBAL_TCPIP_FORWARD || req.request_name == SSH_GLOBAL_CANCEL_TCPIP_FORWARD)
+			{
+				payload_data += PrintString(req.rs.tcpip_forward.address);
+				payload_data += PrintUInit32(req.rs.tcpip_forward.port);
+			}
+		
+			return PrintPacket(SSH_MSG_CHANNEL_REQUEST, payload_data.c_str(), payload_data.size());
+		}
+
+		//SSH_MSG_REQUEST_SUCCESS
+		Str  PrintChannelGlobalReqSuccess()
+		{
+			return PrintPacket(SSH_MSG_REQUEST_SUCCESS, NULL, 0);
+		}
+		//while request_name==tcpip-forward
+		bool ParserChannelGlobalReqSuccess(const char* payload_data, uint32_t payload_data_len,
+			uint32_t& port)
+		{
+			uint32_t offset = 0;
+			if (!ParserUInt32(payload_data, payload_data_len, offset, port))
+				return false;
+			return true;
+		}
+		Str  PrintChannelGlobalReqSuccess(uint32_t port)
+		{
+			Str payload_data = PrintUInit32(port);
+			return PrintPacket(SSH_MSG_REQUEST_SUCCESS, payload_data.c_str(), payload_data.size());
+		}
+		//SSH_MSG_REQUEST_FAILURE
+		Str  PrintChannelGlobalReqFailure()
+		{
+			return PrintPacket(SSH_MSG_REQUEST_FAILURE, NULL,0);
+		}
+
 		bool ParserOpenChannelRequest(const char* payload_data, uint32_t payload_data_len,
 			SshOpenChannelRequest& req)
 		{
 			uint32_t offset = 0;
 			if (!ParserString(payload_data, payload_data_len, offset, req.channel_type))
 				return false;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.sender_channel))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.sender_channel))
 				return false;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.initial_window_size))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.initial_window_size))
 				return false;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.maximum_packet_size))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.maximum_packet_size))
 				return false;
 			//.... channel type specific data follows
 			if (req.channel_type == SSH_CHANNEL_TYPE_X11)
 			{
 				if (!ParserString(payload_data, payload_data_len, offset, req.ts.x11.originator_address))
 					return false;
-				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.x11.originator_port))
+				if (!ParserUInt32(payload_data, payload_data_len, offset, req.ts.x11.originator_port))
 					return false;
 			}
 			return true;
 		}
-		Str  PrintOpenChannelRequest(SshOpenChannelRequest& req)
+		Str  PrintOpenChannelRequest(const SshOpenChannelRequest& req)
 		{
 			Str payload_data = PrintString(req.channel_type);
 			payload_data += PrintUInit32(req.sender_channel);
@@ -4694,18 +4820,18 @@ Such a condition can be indicated by the following message. A zero
 			SshOpenChannelConfirmation& req, const Str&req_channel_type="")
 		{
 			uint32_t offset = 0;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.recipient_channel))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.recipient_channel))
 				return false;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.sender_channel))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.sender_channel))
 				return false;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.initial_window_size))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.initial_window_size))
 				return false;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.maximum_packet_size))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.maximum_packet_size))
 				return false;
 			//.... channel type specific data follows
 			return true;
 		}
-		Str  PrintOpenChannelConfirmation(SshOpenChannelConfirmation& req, const Str& req_channel_type = "")
+		Str  PrintOpenChannelConfirmation(const SshOpenChannelConfirmation& req, const Str& req_channel_type = "")
 		{
 			Str payload_data = PrintUInit32(req.recipient_channel);
 			payload_data += PrintUInit32(req.sender_channel);
@@ -4719,9 +4845,9 @@ Such a condition can be indicated by the following message. A zero
 			SshOpenChannelFailure& req)
 		{
 			uint32_t offset = 0;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.recipient_channel))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.recipient_channel))
 				return false;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.reason_code))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.reason_code))
 				return false;
 			if (!ParserString(payload_data, payload_data_len, offset, req.description))
 				return false;
@@ -4729,7 +4855,7 @@ Such a condition can be indicated by the following message. A zero
 				return false;
 			return true;
 		}
-		Str  PrintOpenChannelFailure(SshOpenChannelFailure& req)
+		Str  PrintOpenChannelFailure(const SshOpenChannelFailure& req)
 		{
 			Str payload_data = PrintUInit32(req.recipient_channel);
 			payload_data += PrintUInit32(req.reason_code);
@@ -4743,9 +4869,9 @@ Such a condition can be indicated by the following message. A zero
 			SshChannelWindowAdjust& req)
 		{
 			uint32_t offset = 0;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.recipient_channel))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.recipient_channel))
 				return false;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.bytes_to_add))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.bytes_to_add))
 				return false;
 			return true;
 		}
@@ -4761,13 +4887,13 @@ Such a condition can be indicated by the following message. A zero
 			SshChannelData& req)
 		{
 			uint32_t offset = 0;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.recipient_channel))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.recipient_channel))
 				return false;
 			if (!ParserString(payload_data, payload_data_len, offset, req.data))
 				return false;
 			return true;
 		}
-		Str  PrintChannelData(SshChannelData& req)
+		Str  PrintChannelData(const SshChannelData& req)
 		{
 			Str payload_data = PrintUInit32(req.recipient_channel);
 			payload_data += PrintString(req.data);
@@ -4779,15 +4905,15 @@ Such a condition can be indicated by the following message. A zero
 			SshChannelExtData& req)
 		{
 			uint32_t offset = 0;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.recipient_channel))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.recipient_channel))
 				return false;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.data_type_code))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.data_type_code))
 				return false;
 			if (!ParserString(payload_data, payload_data_len, offset, req.data))
 				return false;
 			return true;
 		}
-		Str  PrintChannelExtData(SshChannelExtData& req)
+		Str  PrintChannelExtData(const SshChannelExtData& req)
 		{
 			Str payload_data = PrintUInit32(req.recipient_channel);
 			payload_data += PrintUInit32(req.data_type_code);
@@ -4800,7 +4926,7 @@ Such a condition can be indicated by the following message. A zero
 			uint32_t&recipient_channel)
 		{
 			uint32_t offset = 0;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, recipient_channel))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, recipient_channel))
 				return false;
 			return true;
 		}
@@ -4813,7 +4939,7 @@ Such a condition can be indicated by the following message. A zero
 			uint32_t& recipient_channel)
 		{
 			uint32_t offset = 0;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, recipient_channel))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, recipient_channel))
 				return false;
 			return true;
 		}
@@ -4828,7 +4954,7 @@ Such a condition can be indicated by the following message. A zero
 			SshChannelRequest& req)
 		{
 			uint32_t offset = 0;
-			if (!ParserUInit32(payload_data, payload_data_len, offset, req.recipient_channel))
+			if (!ParserUInt32(payload_data, payload_data_len, offset, req.recipient_channel))
 				return false;
 			if (!ParserString(payload_data, payload_data_len, offset, req.type))
 				return false;
@@ -4840,13 +4966,13 @@ Such a condition can be indicated by the following message. A zero
 			{
 				if (!ParserString(payload_data, payload_data_len, offset, req.ts.pty_req.term_value))
 					return false;
-				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.pty_req.width_characters))
+				if (!ParserUInt32(payload_data, payload_data_len, offset, req.ts.pty_req.width_characters))
 					return false;
-				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.pty_req.height_rows))
+				if (!ParserUInt32(payload_data, payload_data_len, offset, req.ts.pty_req.height_rows))
 					return false;
-				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.pty_req.width_pixels))
+				if (!ParserUInt32(payload_data, payload_data_len, offset, req.ts.pty_req.width_pixels))
 					return false;
-				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.pty_req.height_pixels))
+				if (!ParserUInt32(payload_data, payload_data_len, offset, req.ts.pty_req.height_pixels))
 					return false;
 				if (!ParserString(payload_data, payload_data_len, offset, req.ts.pty_req.encoded_terminal_modes))
 					return false;
@@ -4859,7 +4985,7 @@ Such a condition can be indicated by the following message. A zero
 					return false;
 				if (!ParserString(payload_data, payload_data_len, offset, req.ts.x11_req.authentication_cookie))
 					return false;
-				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.x11_req.screen_number))
+				if (!ParserUInt32(payload_data, payload_data_len, offset, req.ts.x11_req.screen_number))
 					return false;
 			}
 			else if (req.type == SSH_CHANNEL_REQ_ENV)
@@ -4885,13 +5011,13 @@ Such a condition can be indicated by the following message. A zero
 			}
 			else if (req.type == SSH_CHANNEL_REQ_WINDOW_CHANGE)
 			{
-				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.window_change.width_characters))
+				if (!ParserUInt32(payload_data, payload_data_len, offset, req.ts.window_change.width_characters))
 					return false;
-				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.window_change.height_rows))
+				if (!ParserUInt32(payload_data, payload_data_len, offset, req.ts.window_change.height_rows))
 					return false;
-				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.window_change.width_pixels))
+				if (!ParserUInt32(payload_data, payload_data_len, offset, req.ts.window_change.width_pixels))
 					return false;
-				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.window_change.height_pixels))
+				if (!ParserUInt32(payload_data, payload_data_len, offset, req.ts.window_change.height_pixels))
 					return false;
 			}
 			else if (req.type == SSH_CHANNEL_REQ_XON_XOFF)
@@ -4906,7 +5032,7 @@ Such a condition can be indicated by the following message. A zero
 			}
 			else if (req.type == SSH_CHANNEL_REQ_EXIT_STATUS)
 			{
-				if (!ParserUInit32(payload_data, payload_data_len, offset, req.ts.exit_status.exit_status))
+				if (!ParserUInt32(payload_data, payload_data_len, offset, req.ts.exit_status.exit_status))
 					return false;
 			}
 			else if (req.type == SSH_CHANNEL_REQ_EXIT_SIGNAL)
@@ -4926,7 +5052,7 @@ Such a condition can be indicated by the following message. A zero
 			}
 			return true;
 		}
-		Str  PrintChannelRequest(SshChannelRequest& req)
+		Str  PrintChannelRequest(const SshChannelRequest& req)
 		{
 			Str payload_data = PrintUInit32(req.recipient_channel);
 			payload_data += PrintString(req.type);
@@ -4997,6 +5123,29 @@ Such a condition can be indicated by the following message. A zero
 				return "";
 			}
 			return PrintPacket(SSH_MSG_CHANNEL_REQUEST, payload_data.c_str(), payload_data.size());
+		}
+		//
+		/*
+		byte SSH_MSG_CHANNEL_SUCCESS
+		uint32 recipient channel
+		byte SSH_MSG_CHANNEL_FAILURE
+		uint32 recipient channel
+		*/
+		bool ParserChannelReqResponse(const char* payload_data, uint32_t payload_data_len,
+			uint32_t& recipient_channel)
+		{
+			uint32_t offset = 0;
+			if (!ParserUInt32(payload_data, payload_data_len, offset, recipient_channel))
+				return false;
+			return true;
+		}
+		Str  PrintChannelReqResponse(bool success,uint32_t recipient_channel)
+		{
+			Str payload_data = PrintUInit32(recipient_channel);
+			if(success)
+				return PrintPacket(SSH_MSG_CHANNEL_SUCCESS, payload_data.c_str(), payload_data.size());
+			else
+				return PrintPacket(SSH_MSG_CHANNEL_FAILURE, payload_data.c_str(), payload_data.size());
 		}
 	private:
 

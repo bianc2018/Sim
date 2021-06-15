@@ -2,6 +2,55 @@
 #include "GlobalPoll.hpp"
 #include "CmdLineParser.hpp"
 #define MY_THREAD 3
+
+class myChannelHandler :public sim::SshChannelHandler
+{
+	//打开通道 主动
+	virtual void OnOpenConfirmation(sim::SshChannel* channel) 
+	{
+		printf("channel[%u] is OnOpenConfirmation\n", channel->GetId());
+		//channel->PtyReq("vanilla",true);
+		//channel->Shell(true);
+		////channel->Env("FOO", "bar", true);
+		////channel->Send("ll\n");
+		channel->Exec("ls -l",true);
+		//channel->Close();
+		return; 
+	}
+
+	virtual void OnOpenFailure(sim::SshChannel* channel, const sim::SshOpenChannelFailure&failure) 
+	{ 
+		printf("channel[%u] is OnOpenFailure\n", channel->GetId());
+		return; 
+	}
+
+	virtual void OnClosed(sim::SshChannel* channel) 
+	{
+		printf("channel[%u] is OnClosed\n", channel->GetId());
+		return;
+	}
+
+	virtual void OnData(sim::SshChannel* channel, const sim::Str&data)
+	{
+		printf("channel[%u]OnData:%s\n", channel->GetId(),data.c_str());
+	}
+
+	virtual void OnExtData(sim::SshChannel* channel, sim::uint32_t data_type_code, const sim::Str& data)
+	{
+		printf("channel[%u]OnExtData %u:%s\n", channel->GetId(), data_type_code, data.c_str());
+	}
+
+	virtual void OnRequest(sim::SshChannel* channel, const sim::SshChannelRequest&req)
+	{
+		printf("channel[%u]OnRequest %s\n", channel->GetId(), req.type.c_str());
+	}
+
+	virtual void OnResponse(sim::SshChannel* channel, bool success)
+	{
+		printf("channel[%u]OnResponse %s\n", channel->GetId(), success?"success":"failure");
+	}
+};
+
 class myHandler:public sim::SshSessionHandler
 {
 public:
@@ -23,6 +72,11 @@ public:
 	virtual void OnAuthResponse(sim::SshSession* session, bool success)
 	{
 		printf("%p OnAuthResponse %s \n", session,success?"success":"fail");
+		if (success)
+		{
+			sim::RefObject<sim::SshChannel> channel = session->CreateChannel();
+			channel->Open(SSH_CHANNEL_TYPE_SESSION);
+		}
 	}
 
 	virtual void OnAuthRequest(sim::SshSession* session,
@@ -48,15 +102,15 @@ int main(int argc, char*argv[])
 
 	sim::AsyncSsh&ssh =sim::GlobalPoll<sim::AsyncSsh, MY_THREAD>::Get();
 	sim::RefObject<sim::SshSession> session=ssh.CreateSession();
-	session->SetHandler(sim::RefObject<sim::SshSessionHandler>(new myHandler));
-	
+	session->SetHandler(new myHandler);
+	session->SetChannelHandler(new myChannelHandler());
 	//sim::SshTransport::WriteKey(sim::SshTransport::GenerateRsaKey(2048), "./ssh_rsa.pem");
 	//sim::SshTransport::WriteKey(sim::SshTransport::GenerateDsaKey(2048), "./ssh_dsa.pem");
 
-	session->LoadHostPrivateKey("./ssh_rsa.pem");
-	session->LoadHostPrivateKey("./ssh_dsa.pem");
-	//session->Connect("49.234.220.213");
-	session->Accept(8080);
+	//session->LoadHostPrivateKey("./ssh_rsa.pem");
+	//session->LoadHostPrivateKey("./ssh_dsa.pem");
+	session->Connect("49.234.220.213");
+	//session->Accept(8080);
 	sim::GlobalPoll<sim::AsyncSsh, MY_THREAD>::Wait();
 	return 0;
 }
