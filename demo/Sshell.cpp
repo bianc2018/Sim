@@ -2,6 +2,7 @@
 #include "GlobalPoll.hpp"
 #include "CmdLineParser.hpp"
 #include <iostream>
+sim::CmdLineParser cmd;
 #define MY_THREAD 3
 //异步服务对象基类
 class AsyncInput
@@ -18,7 +19,8 @@ public:
 			input += c;
 			if (c == '\n'|| c == '\t')
 			{
-				channel->Send(input);
+				if(channel)
+					channel->Send(input);
 				input = "";
 			}
 
@@ -30,15 +32,16 @@ public:
 	sim::RefObject<sim::SshChannel> channel;
 };
 
-class myChannelHandler :public sim::SshChannelHandler
+class SshellChannelHandler :public sim::SshChannelHandler
 {
 	//打开通道 主动
 	virtual void OnOpenConfirmation(sim::SshChannel* channel) 
 	{
-		printf("channel[%u] is OnOpenConfirmation\n", channel->GetId());
+		//printf("channel[%u] is OnOpenConfirmation\n", channel->GetId());
+		SIM_LINFO("channel "<<channel->GetId() << " OnOpenConfirmation ok");
 		channel->PtyReq("vanilla",true);
 		channel->Shell(true);
-		
+		SIM_LINFO("Sshell is ok");
 		sim::GlobalPoll<AsyncInput, 1>::Get().channel = channel->GetRef();
 		////channel->Env("FOO", "bar", true);
 		////channel->Send("ll\n");
@@ -49,13 +52,18 @@ class myChannelHandler :public sim::SshChannelHandler
 
 	virtual void OnOpenFailure(sim::SshChannel* channel, const sim::SshOpenChannelFailure&failure) 
 	{ 
-		printf("channel[%u] is OnOpenFailure\n", channel->GetId());
+		SIM_LERROR("channel " << channel->GetId() 
+			<< " OnOpenFailure reason_code "<<failure.reason_code
+		<<" description: "<<failure.description);
+		channel->Close();
 		return; 
 	}
 
 	virtual void OnClosed(sim::SshChannel* channel) 
 	{
-		printf("channel[%u] is OnClosed\n", channel->GetId());
+		SIM_LINFO("channel " << channel->GetId() << " OnClosed ok");
+		sim::GlobalPoll<AsyncInput, 1>::Get().channel.reset();
+		channel->GetSession().Close();//关闭会话
 		return;
 	}
 
@@ -82,34 +90,89 @@ class myChannelHandler :public sim::SshChannelHandler
 	}
 };
 
-class myHandler:public sim::SshSessionHandler
+class SshellSessionHandler:public sim::SshSessionHandler
 {
 public:
 
 	////连接建立
 	virtual void OnConnectEstablished(sim::SshSession* session)
 	{
-		printf("%p OnConnectEstablished ok\n",session);
-		session->LoginPassWord("root", "q1051576073@");
+		SIM_LINFO(session->GetHandle() << " OnConnectEstablished ok");
+
+		sim::Str username = cmd.GetCmdLineParams("u", "root");
+		sim::Str auth_method = cmd.GetCmdLineParams("a", "password");
+		SIM_LINFO("Login " << username << " by " << auth_method);
+		if ("password" == auth_method)
+		{
+			sim::Str password = cmd.GetCmdLineParams("password", "");	
+			if (!session->LoginPassWord(username, password))
+			{
+				SIM_LERROR("Start LoginPassWord Error");
+				session->Close();
+				return;
+			}
+		}
+		else if ("publickey" == auth_method)
+		{
+			sim::Str publickey = cmd.GetCmdLineParams("publickey", "");
+			if (!session->LoginPublicKey(username, publickey))
+			{
+				SIM_LERROR("Start LoginPublicKey Error");
+				session->Close();
+				return;
+			}
+		}
+		else
+		{
+			SIM_LERROR("未知的鉴权方式 " << auth_method);
+			session->Close();
+			return;
+		}
+		
 	}
 
 	//连接会话关闭
 	virtual void OnConnectClosed(sim::SshSession* session)
 	{
-		printf("%p OnConnectClosed \n", session);
+		//printf("%p OnConnectClosed \n", session);
+		SIM_LINFO(session->GetHandle() << " OnConnectClosed");
+		sim::GlobalPoll<sim::AsyncSsh, MY_THREAD>::Exit();
 	}
 
 	//客户端验证结果
 	virtual void OnAuthResponse(sim::SshSession* session, bool success)
 	{
-		printf("%p OnAuthResponse %s \n", session,success?"success":"fail");
+		SIM_LINFO(session->GetHandle() << " OnAuthResponse ok "<<(session, success ? "success" : "fail"));
 		if (success)
 		{
 			sim::RefObject<sim::SshChannel> channel = session->CreateChannel();
-			channel->Open(SSH_CHANNEL_TYPE_SESSION);
+			if (!channel->Open(SSH_CHANNEL_TYPE_SESSION))
+			{
+				SIM_LERROR(session->GetHandle() << " Open Channel error");
+				session->Close();
+				return;
+			}
+			
+		}
+		else
+		{
+			session->Close();
 		}
 	}
 
+	virtual void OnPassWordChanged(sim::SshSession*session, sim::Str&new_password)
+	{
+		SIM_LWARN(session->GetHandle() << "the password is changed!please input new password");
+		std::cout << "new_password:";
+		std::cin >> new_password;
+		if (new_password.size() == 0)
+		{
+			SIM_LERROR(session->GetHandle() << " new_password is Empty,may be Close");
+			session->Close();
+			return;
+		}
+	}
+	
 	/*virtual void OnAuthRequest(sim::SshSession* session,
 		const sim::SshAuthRequest& req, int& res_status)
 	{
@@ -127,21 +190,116 @@ public:
 		return;
 	}*/
 };
+
+void PrintHelp()
+{
+	printf("use as:\n"
+		"\t-h host 目标主机\n"
+		"\t-p port 访问端口（默认22）\n"
+		"\t-a 验证方法（password or publickey 默认password）\n"
+		"\t-u 用户名（默认root）\n"
+		"\t-password 密码\n"
+		"\t-publickey 登陆密钥文件\n"
+		"\t-log 日志级别(INFO,ERROR,WARNING,NONE,DEBUG 默认 ERROR)\n"
+		"\t-output 日志输出路径\n"
+		"\t-help   帮助\n");
+	getchar();
+}
+
+bool CheckConfig(sim::CmdLineParser &cmd)
+{
+	if (cmd.HasParam("help"))
+	{
+		return false;
+	}
+
+	if (!cmd.HasParam("h"))
+	{
+		printf("请输入目标主机 -h\n");
+		return false;
+	}
+	sim::Str auth_method = cmd.GetCmdLineParams("a", "password");
+	if ("password" == auth_method)
+	{
+		if (!cmd.HasParam("password"))
+		{
+			printf("请输入目标主机密码 -password\n");
+			return false;
+		}
+	}
+	else if ("publickey" == auth_method)
+	{
+		if (!cmd.HasParam("publickey"))
+		{
+			printf("请输入目标主机公钥 -publickey\n");
+			return false;
+		}
+	}
+	else
+	{
+		printf("未知的鉴权方式 %s\n",auth_method.c_str());
+		return false;
+	}
+
+	sim::Str log = cmd.GetCmdLineParams("log", "ERROR");
+	sim::Str output = cmd.GetCmdLineParams("output", "");
+	sim::LogLevel ll = sim::LError;
+
+	if ("DEBUG" == log)
+		ll = sim::LDebug;
+	else if ("INFO" == log)
+		ll = sim::LInfo;
+	else if ("WARNING" == log)
+		ll = sim::LWarn;
+	else if ("ERROR" == log)
+		ll = sim::LError;
+	else if ("NONE" == log)
+		ll = sim::LNone;
+	else
+	{
+		printf("错误的日志级别 %s\n", log.c_str());
+		return false;
+	}
+
+	SIM_LOG_CONSOLE(ll);
+	if(output.size()!=0)
+		SIM_LOG_ADD(sim::LogFileStream, ll, output, "Sshell");
+	return true;
+}
+
 int main(int argc, char*argv[])
 {
-	SIM_LOG_CONSOLE(sim::LError);
+#if 1
+	cmd.InitCmdLineParams("h", "49.234.220.213");
+	cmd.InitCmdLineParams("password", "q1051576073@");
+	cmd.InitCmdLineParams("log", "DEBUG");
+	cmd.InitCmdLineParams("output", "./log/");
+#endif
 
+	//test
+	/*FILE*fp = fopen("./0.d", "w");
+	const int size = 1 * 1024 * 1024;
+	sim::Str data(size, '0');
+	for (int i = 0; i < 1024; ++i)
+		fwrite(data.c_str(), sizeof(char), size,fp);
+	fclose(fp);*/
+	//test
+
+	//配置初始化
+	if (!cmd.Parser(argc, argv)||!CheckConfig(cmd))
+	{
+		PrintHelp();
+		return -1;
+	}
 	sim::AsyncSsh&ssh =sim::GlobalPoll<sim::AsyncSsh, MY_THREAD>::Get();
 	sim::RefObject<sim::SshSession> session=ssh.CreateSession();
-	session->SetHandler(new myHandler);
-	session->SetChannelHandler(new myChannelHandler());
-	//sim::SshTransport::WriteKey(sim::SshTransport::GenerateRsaKey(2048), "./ssh_rsa.pem");
-	//sim::SshTransport::WriteKey(sim::SshTransport::GenerateDsaKey(2048), "./ssh_dsa.pem");
-
-	//session->LoadHostPrivateKey("./ssh_rsa.pem");
-	//session->LoadHostPrivateKey("./ssh_dsa.pem");
-	session->Connect("49.234.220.213");
-	//session->Accept(8080);
+	session->SetHandler(new SshellSessionHandler);
+	session->SetChannelHandler(new SshellChannelHandler());
+	sim::Str host = cmd.GetCmdLineParams("h", "");
+	int port = cmd.GetCmdLineParams("p", 22);
+	SIM_LINFO("Connect " << host << ":" << port);
+	session->Connect(host,port);
 	sim::GlobalPoll<sim::AsyncSsh, MY_THREAD>::Wait();
+	getchar();
 	return 0;
 }
