@@ -36,6 +36,49 @@
 #include "Mutex.hpp"
 #endif
 
+//日志使能
+#define SIM_ENABLE_LOGGER
+#ifdef SIM_ENABLE_LOGGER
+#include "Logger.hpp"
+#else
+//空的定义防止编译报错
+#ifndef SIM_LOG
+	namespace sim
+	{
+		//日志级别
+		enum LogLevel
+		{
+			LNone,
+			LError,
+			LWarn,
+			LInfo,
+			LDebug,
+		};
+	}		//格式
+	#define SIM_FORMAT_NUM(num,base,w,f)	
+	#define SIM_FORMAT_STR(str,w,f)			
+	#define SIM_HEX(num) SIM_FORMAT_NUM(num,16,8,'0')
+	#define SIM_FORMAT_STR0(str,w) SIM_FORMAT_STR(str,w,' ')
+
+	//防止重名
+	#define SIM_FUNC(lv)
+	#define SIM_FUNC_DEBUG() 
+
+	//新增输出流
+	#define SIM_LOG_ADD(Stream,...) 
+	//配置输出句柄
+	#define SIM_LOG_HANDLER(max_lv,handler,userdata)
+	//配置控制台输出
+	#define SIM_LOG_CONSOLE(max_lv)
+
+	#define SIM_LOG(lv,x)
+	#define SIM_LDEBUG(x) SIM_LOG(sim::LDebug,x)
+	#define SIM_LINFO(x) SIM_LOG(sim::LInfo,x)
+	#define SIM_LWARN(x) SIM_LOG(sim::LWarn,x)
+	#define SIM_LERROR(x) SIM_LOG(sim::LError,x)
+#endif
+#endif
+
 #define SIM_SSH_VER "SSH-2.0-SIM.SSH.1.1"
 
 /*
@@ -647,11 +690,14 @@ namespace sim
 			, send_sequence_number_(0)
 			, recv_sequence_number_(0)
 		{
+			SIM_FUNC_DEBUG();
 			memset(handlers_, 0, sizeof(handlers_));
 		}
 		
 		virtual void ReSet()
 		{
+			SIM_FUNC_DEBUG();
+
 			packet_lenght_ =0;
 			status_= SshTransportStatus_VersionLF;
 
@@ -670,6 +716,8 @@ namespace sim
 		//拷贝 公钥和句柄
 		virtual bool DupFrom(SshTransport*other)
 		{
+			SIM_FUNC_DEBUG();
+
 			if (NULL == other)
 				return false;
 			
@@ -706,6 +754,7 @@ namespace sim
 
 		virtual bool SetHandler(uint8_t msg_code,SSH_TRANS_HANDLER handler, void*pdata)
 		{
+			SIM_FUNC_DEBUG();
 			if (msg_code >= SSH_MSG_MAX)
 				return false;
 			handlers_[msg_code].func = handler;
@@ -716,11 +765,19 @@ namespace sim
 		//数据输入
 		virtual bool Parser(const char* data, unsigned int len)
 		{
+			SIM_FUNC_DEBUG();
 			unsigned int offset = 0;
-			return Parser(data, len, offset);
+			if (false == Parser(data, len, offset))
+			{
+				SIM_LERROR("Parser error offset=" << offset << ",len=" << len);
+				return false;
+			}
+			return true;
+
 		}
 		virtual bool Parser(const char* data, unsigned int len, unsigned int& offset)
 		{
+			SIM_FUNC_DEBUG();
 			//并行情况
 #ifdef SIM_PARSER_MULTI_THREAD
 			sim::AutoMutex lk(parser_lock_);
@@ -732,6 +789,7 @@ namespace sim
 					//LF
 					if (FindChar(data, len, offset,'\n',temp_))
 					{
+						SIM_LDEBUG("Version:" << temp_);
 						temp_ += "\n";
 						//回调
 						OnHandler(SSH_MSG_VERSION, temp_.c_str(), temp_.size());
@@ -744,35 +802,18 @@ namespace sim
 					/*bool ret = ReadPacket(data, len, offset);
 					if (false == ret)
 						return ret;*/
+					SIM_LDEBUG("temp_.size=" << temp_.size() << " offset=" << offset << " len=" << len);
 					temp_ += Str(data + offset, len - offset);
+					SIM_LDEBUG("temp_.size=" << temp_.size()<<" offset="<<offset<<" len="<<len);
 					offset = len;
 					//分割报文
 					bool ret = ReadPacket();
 					if (false == ret)
 						return ret;
 				}
-				/*else if (status_ == SshTransportStatus_Mac)
-				{
-					bool has_mac = false;
-					if (has_mac)
-					{
-						if (temp_.size() >= packet_lenght_ + 4 + 20)
-						{
-							bool ret = OnMessage();
-							if (false == ret)
-								return ret;
-						}
-						temp_ += data[offset++];
-					}
-					else
-					{
-						bool ret = OnMessage();
-						if (false == ret)
-							return ret;
-					}
-				}*/
 				else
 				{
+					SIM_LERROR("unknow status "<< status_);
 					return false;
 				}
 			}
@@ -782,6 +823,7 @@ namespace sim
 		//从文件中加载私钥
 		virtual bool LoadPriKey(SshPublicKeyType type, const char*filename)
 		{
+			SIM_FUNC_DEBUG();
 			if (type == Rsa)
 			{
 				//释放已经存在的
@@ -820,6 +862,7 @@ namespace sim
 		}
 		virtual bool LoadPriKey(const char* filename)
 		{
+			SIM_FUNC_DEBUG();
 			SshPublicKeyType type;
 			void* ctx = ReadPriKey(filename, type);
 			if (ctx)
@@ -857,6 +900,7 @@ namespace sim
 		//或者生成私钥 filename !=NULL 写到对应的文件
 		virtual bool GeneratePriKey(SshPublicKeyType type, const char*filename = NULL)
 		{
+			SIM_FUNC_DEBUG();
 			if (type == Rsa)
 			{
 				//释放已经存在的
@@ -895,6 +939,7 @@ namespace sim
 		//SSH-protoversion-softwareversion SP comments CR LF
 		Str PrintProtocolVersion()
 		{
+			SIM_FUNC_DEBUG();
 			//缓存报文
 			if (sp_type_ == SshClient)
 			{
@@ -911,6 +956,8 @@ namespace sim
 		//SSH-protoversion-softwareversion SP comments CR LF
 		Str PrintVersion(const SSHVersion&ver)
 		{
+			SIM_FUNC_DEBUG();
+
 			Str res = "SSH-";
 			if (ver.protoversion.size() == 0)
 			{
@@ -947,7 +994,7 @@ namespace sim
 		}
 		bool ParserVersion(const char*payload_data, uint32_t payload_data_len, SSHVersion&ver)
 		{
-			
+			SIM_FUNC_DEBUG();
 			enum ParserVerSt
 			{
 				ParserVerSt_SSH,
@@ -1021,6 +1068,7 @@ namespace sim
 		//打印默认的算法列表
 		Str PrintKexInit()
 		{
+			SIM_FUNC_DEBUG();
 			SSHKexInit kex_init;
 			if (!OpensslGenerateRandArray(kex_init.cookie, sizeof(kex_init.cookie)))
 			{
@@ -1043,6 +1091,7 @@ namespace sim
 		}
 		Str PrintKexInit(const SSHKexInit&kex_init)
 		{
+			SIM_FUNC_DEBUG();
 			Str payload_data= Str((const char*)kex_init.cookie,16);
 			/*
 			name-list kex_algorithms
@@ -1077,6 +1126,7 @@ namespace sim
 		}
 		bool ParserKexInit(const char*payload_data, uint32_t payload_data_len, SSHKexInit&kex_init)
 		{
+			SIM_FUNC_DEBUG();
 			uint32_t offset = 0;
 			if (payload_data_len < 16)
 				return false;//长度不够 
@@ -1133,6 +1183,7 @@ namespace sim
 		//SSHKexDHInit
 		Str PrintKexDHInit()
 		{
+			SIM_FUNC_DEBUG();
 			//如果不存在就创建
 			if (NULL == algo_ctx_.e)
 				algo_ctx_.e = BN_new();
@@ -1157,6 +1208,7 @@ namespace sim
 		}
 		Str PrintKexDHInit(const SSHKexDHInit&dh_init)
 		{
+			SIM_FUNC_DEBUG();
 			Str payload_data = PrintString(dh_init.e);
 			if (payload_data.size() == 0)
 				return "";
@@ -1164,6 +1216,7 @@ namespace sim
 		}
 		bool ParserKexDHInit(const char*payload_data, uint32_t payload_data_len, SSHKexDHInit&dh_init)
 		{
+			SIM_FUNC_DEBUG();
 			uint32_t offset = 0;
 			if (!ParserString(payload_data, payload_data_len, offset, dh_init.e))
 				return false;
@@ -1173,6 +1226,7 @@ namespace sim
 		//SSHKexDHReply
 		Str PrintKexDHReply(const SSHKexDHReply&dh_reply)
 		{
+			SIM_FUNC_DEBUG();
 			/*
 			string server public host key and certificates (K_S)
 			mpint f
@@ -1185,6 +1239,7 @@ namespace sim
 		}
 		bool ParserKexDHReply(const char*payload_data, uint32_t payload_data_len, SSHKexDHReply&dh_reply)
 		{
+			SIM_FUNC_DEBUG();
 			uint32_t offset = 0;
 			if (!ParserString(payload_data, payload_data_len, offset, dh_reply.K_S))
 				return false;
@@ -1197,11 +1252,13 @@ namespace sim
 
 		Str PrintNewKeys()
 		{
+			SIM_FUNC_DEBUG();
 			return PrintPacket(SSH_MSG_NEWKEYS, NULL, 0);
 		}
 
 		Str PrintPacket(uint8_t message_code,const char*payload_data, uint32_t payload_data_len)
 		{
+			SIM_FUNC_DEBUG();
 			//包过大
 			if (payload_data_len + 1 +1 + 4> SSH_TRANS_PACKET_MAX_SIZE)
 				return "";
@@ -1305,6 +1362,7 @@ namespace sim
 		//SERVICE_REQUEST
 		Str PrintServiceRequest(const Str &service)
 		{
+			SIM_FUNC_DEBUG();
 			/*
 			byte SSH_MSG_SERVICE_REQUEST
 			string service name
@@ -1314,6 +1372,7 @@ namespace sim
 		}
 		Str PrintServiceAccept(const Str &service)
 		{
+			SIM_FUNC_DEBUG();
 			/*
 			byte SSH_MSG_SERVICE_ACCEPT
 			string service name
@@ -1323,6 +1382,7 @@ namespace sim
 		}
 		bool ParserServiceRequest(const char*payload_data, uint32_t payload_data_len, Str &service)
 		{
+			SIM_FUNC_DEBUG();
 			uint32_t offset = 0;
 			if (!ParserString(payload_data, payload_data_len, offset, service))
 				return false;
@@ -1330,12 +1390,14 @@ namespace sim
 		}
 		bool ParserServiceAccept(const char*payload_data, uint32_t payload_data_len, Str &service)
 		{
+			SIM_FUNC_DEBUG();
 			return ParserServiceRequest(payload_data, payload_data_len, service);
 		}
 	public:
 		//版本协商
 		bool VersionExchange(const SSHVersion&ver)
 		{
+			SIM_FUNC_DEBUG();
 			if (ver.protoversion == "2.0")
 				return true;
 			else
@@ -1345,6 +1407,7 @@ namespace sim
 		//算法协商
 		bool KexInit(const SSHKexInit&other_kex_init)
 		{
+			SIM_FUNC_DEBUG();
 			if (!AgreeKexAlgorithms(other_kex_init.kex_algorithms))
 				return false;
 			if (!AgreeServerHostKeyAlgorithms(other_kex_init.server_host_key_algorithms))
@@ -1374,6 +1437,7 @@ namespace sim
 		//dh_reply 发送的回复报文
 		bool KeyExchange(const SSHKexDHInit&dh_init, SSHKexDHReply &dh_reply)
 		{
+			SIM_FUNC_DEBUG();
 			/*
 				服务器也随机选取一个整数 y (0 < y < q)，计算 f = g^y mod p 。
 				然后获得客户端的 e ，计算 K = e^y mod p 。
@@ -1451,6 +1515,7 @@ namespace sim
 		//客户端
 		bool KeyExchange(const SSHKexDHReply &dh_reply)
 		{
+			SIM_FUNC_DEBUG();
 			if (!InitPubKey(dh_reply))
 			{
 				return false;
@@ -1494,6 +1559,7 @@ namespace sim
 		//计算密钥，返回报文
 		bool NewKeys()
 		{
+			SIM_FUNC_DEBUG();
 			//检查数据
 			if (NULL == algo_ctx_.K||0==algo_ctx_.H.size()|| 0 == algo_ctx_.session_id.size())
 				return false;
@@ -1635,6 +1701,7 @@ namespace sim
 	public:
 		static Str PrintString(const name_list& list)
 		{
+			SIM_FUNC_DEBUG();
 			uint32_t size = htonl(list.size());
 
 			Str res = Str((const char*)&size, 4);
@@ -1645,6 +1712,7 @@ namespace sim
 		
 		static bool ParserString(const char*payload, uint32_t payload_len, uint32_t &offset, name_list&list)
 		{
+			SIM_FUNC_DEBUG();
 			//剩余的字节数
 			uint32_t has_bytes = payload_len - offset;
 			//必须有四字节长度
@@ -1661,6 +1729,7 @@ namespace sim
 
 		static Str PrintUInit32(uint32_t data)
 		{
+			SIM_FUNC_DEBUG();
 			data = htonl(data);
 			return Str((const char*)&data, 4);
 		}
@@ -1668,6 +1737,7 @@ namespace sim
 		static bool ParserUInt32(const char* payload, uint32_t payload_len,
 			uint32_t& offset, uint32_t& data)
 		{
+			SIM_FUNC_DEBUG();
 			//剩余的字节数
 			uint32_t has_bytes = payload_len - offset;
 			//必须有四字节长度
@@ -1680,6 +1750,7 @@ namespace sim
 
 		static Str PrintBoolean(bool data)
 		{
+			SIM_FUNC_DEBUG();
 			char res[2] = {0};
 			res[0] = (data ? char(1) : char(0));
 			return res;
@@ -1688,6 +1759,7 @@ namespace sim
 		static bool ParserBoolean(const char* payload, uint32_t payload_len,
 			uint32_t& offset, bool& data)
 		{
+			SIM_FUNC_DEBUG();
 			//剩余的字节数
 			uint32_t has_bytes = payload_len - offset;
 			//必须有1字节长度
@@ -1701,6 +1773,8 @@ namespace sim
 		//大数转换为字符串
 		static Str BN2Str(const BIGNUM *n)
 		{
+			SIM_FUNC_DEBUG();
+
 			if (NULL == n)
 				return "";
 
@@ -1737,6 +1811,8 @@ namespace sim
 		//子串转换为大数
 		static BIGNUM * Str2BN(Str m, BIGNUM *n=NULL)
 		{
+			SIM_FUNC_DEBUG();
+
 			if (m.size() == 0)
 				return NULL;
 			if(NULL == n)
@@ -1750,6 +1826,7 @@ namespace sim
 		//读取私钥文件
 		static RSA* ReadRsaPriKey(const char* filename)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == filename)
 			{
 				return NULL;
@@ -1767,6 +1844,7 @@ namespace sim
 		}
 		static RSA* ReadRsaPubKey(const char* filename)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == filename)
 			{
 				return NULL;
@@ -1784,6 +1862,7 @@ namespace sim
 		}
 		static DSA* ReadDsaPriKey(const char* filename)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == filename)
 			{
 				return NULL;
@@ -1801,6 +1880,7 @@ namespace sim
 		}
 		static DSA* ReadDsaPubKey(const char* filename)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == filename)
 			{
 				return NULL;
@@ -1818,6 +1898,7 @@ namespace sim
 		}
 		static RSA* GenerateRsaKey(int bits=1024)
 		{
+			SIM_FUNC_DEBUG();
 			unsigned long  e = RSA_3;
 			RSA* rsa = NULL;
 			
@@ -1830,6 +1911,7 @@ namespace sim
 		}
 		static DSA* GenerateDsaKey(int bits = 1024)
 		{
+			SIM_FUNC_DEBUG();
 			DSA* dsa = DSA_new();
 			int ret = DSA_generate_parameters_ex(dsa, bits, NULL, 0, NULL, NULL, NULL);
 			if (ret != 1)
@@ -1849,6 +1931,7 @@ namespace sim
 		}
 		static void* ReadPriKey(const char* filename, SshPublicKeyType& type)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == filename)
 			{
 				return NULL;
@@ -1924,6 +2007,7 @@ namespace sim
 		}
 		static void* ReadPubKey(const char* filename, SshPublicKeyType& type)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == filename)
 			{
 				return NULL;
@@ -2000,6 +2084,7 @@ namespace sim
 		static bool WriteKey(RSA *rsa, const char* pri_filename = NULL,
 			const char* pub_filename = NULL)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == rsa)
 				return false;
 
@@ -2044,6 +2129,7 @@ namespace sim
 		static bool WriteKey(DSA*dsa, const char* pri_filename = NULL,
 			const char* pub_filename = NULL)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == dsa)
 				return false;
 
@@ -2087,6 +2173,7 @@ namespace sim
 		//写ssh-风格的公钥
 		static bool ReadSshPubKeyData(const Str& data, Str& type, Str& pubkey)
 		{
+			SIM_FUNC_DEBUG();
 			unsigned int offset = 0;
 			for (offset = 0; offset < data.size(); ++offset)
 			{
@@ -2107,6 +2194,7 @@ namespace sim
 		}
 		static bool WriteSshPubKeyData(Str& data, const Str& type, const Str& pubkey)
 		{
+			SIM_FUNC_DEBUG();
 			if (type.empty())
 				return false;
 			if (pubkey.empty())
@@ -2122,6 +2210,7 @@ namespace sim
 
 		static bool ReadSshPubKeyFile(const char* filename, Str& type, Str& pubkey)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == filename)
 				return false;
 			FILE* fp = fopen(filename, "r");
@@ -2144,6 +2233,7 @@ namespace sim
 		}
 		static bool WriteSshPubKeyFile(const char* filename, const Str& type, const Str& pubkey)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == filename)
 				return false;
 			
@@ -2162,6 +2252,7 @@ namespace sim
 
 		static bool WriteSshRsaPubKey(RSA* rsa, const char* filename)
 		{
+			SIM_FUNC_DEBUG();
 			const Str type = "ssh-rsa";
 			Str pubkey = MakeSshRsaPubKey(rsa);
 			if (pubkey.size() == 0)
@@ -2170,6 +2261,7 @@ namespace sim
 		}
 		static RSA* ReadSshRsaPubKey(const char* filename)
 		{
+			SIM_FUNC_DEBUG();
 			Str type;
 			Str pubkey;
 			if (!ReadSshPubKeyFile(filename, type, pubkey))
@@ -2180,6 +2272,7 @@ namespace sim
 		}
 		static bool WriteSshDsaPubKey(DSA* dsa, const char* filename)
 		{
+			SIM_FUNC_DEBUG();
 			const Str type = "ssh-dsa";
 			Str pubkey = MakeSshDsaPubKey(dsa);
 			if (pubkey.size() == 0)
@@ -2188,6 +2281,7 @@ namespace sim
 		}
 		static DSA* ReadSshDsaPubKey(const char* filename)
 		{
+			SIM_FUNC_DEBUG();
 			Str type;
 			Str pubkey;
 			if (!ReadSshPubKeyFile(filename, type, pubkey))
@@ -2198,6 +2292,7 @@ namespace sim
 		}
 		static void* ReadSshPubKey(const char* filename, SshPublicKeyType& type)
 		{
+			SIM_FUNC_DEBUG();
 			Str stype;
 			Str pubkey;
 			if (!ReadSshPubKeyFile(filename, stype, pubkey))
@@ -2228,10 +2323,15 @@ namespace sim
 
 		bool SplitPacket(const char*data, unsigned int len, uint32_t &offset)
 		{
+			SIM_FUNC_DEBUG();
 			while (offset < len)
 			{
 				if (t_msg_.size() > SSH_TRANS_PACKET_MAX_SIZE)
+				{
+					SIM_LERROR("cache t_msg_ size["<< t_msg_.size()
+						<<"] is out of :"<<SSH_TRANS_PACKET_MAX_SIZE);
 					return false;
+				}
 
 				if (packet_lenght_ == 0)
 				{
@@ -2241,6 +2341,7 @@ namespace sim
 						{
 							packet_lenght_ = ntohl(*((uint32_t*)(t_msg_.c_str())));
 							//printf("packet_lenght_=%u\n", packet_lenght_);
+							SIM_LDEBUG("Get the packet_lenght_=" << packet_lenght_);
 							break;
 						}
 						t_msg_ += data[offset++];
@@ -2249,27 +2350,34 @@ namespace sim
 				else
 				{
 					uint32_t need_bytes = (packet_lenght_ + 4) - t_msg_.size();
+					SIM_LDEBUG("need_bytes=" << need_bytes << " packet_lenght_=" << packet_lenght_
+						<< " t_msg_ size=" << t_msg_.size());
 					if (need_bytes == 0)
 					{
 						/*bool ret = OnMessage();
 						if (false == ret)
 							return false;*/
 						status_ = SshTransportStatus_Mac;
+						SIM_LDEBUG("try find mac");
 						break;
 					}
 					else
 					{
 						uint32_t has_bytes = len - offset;
 						uint32_t copy_bytes = need_bytes>has_bytes? has_bytes: need_bytes;
+						SIM_LDEBUG("copy_bytes " << copy_bytes);
 						t_msg_ += Str(data + offset, copy_bytes);
 						offset += copy_bytes;
 						need_bytes = (packet_lenght_ + 4) - t_msg_.size();
+						SIM_LDEBUG("need_bytes=" << need_bytes << " packet_lenght_=" << packet_lenght_
+							<< " t_msg_ size=" << t_msg_.size());
 						if (need_bytes == 0)
 						{
 							/*bool ret = OnMessage();
 							if (false == ret)
 								return false;*/
 							status_ = SshTransportStatus_Mac;
+							SIM_LDEBUG("try find mac");
 							break;
 						}
 					}
@@ -2279,6 +2387,7 @@ namespace sim
 			{
 				if (algo_ctx_.check_mac == NULL)
 				{
+					SIM_LDEBUG("no check_mac");
 					bool ret = OnMessage();
 					if (false == ret)
 						return ret;
@@ -2293,6 +2402,7 @@ namespace sim
 
 		bool ReadPacket()
 		{
+			SIM_FUNC_DEBUG();
 			uint32_t offset = 0;
 			while (offset < temp_.size())
 			{
@@ -2310,6 +2420,7 @@ namespace sim
 							uint32_t out_len = decrypt_buff_size;
 							if (!Decrypt(temp_.c_str() + offset, block_size, decrypt_buff, out_len))
 							{
+								SIM_LERROR("Decrypt Fail block_size=" << block_size);
 								return false;
 							}
 							if (out_len > 0)
@@ -2322,20 +2433,28 @@ namespace sim
 								}
 								if (s_offset != out_len)
 								{
+									SIM_LERROR("SplitPacket Fail s_offset["<<s_offset
+										<<"] != out_len["<<out_len<<"]");
 									return false;
 								}
 								if (status_ == SshTransportStatus_Mac)
 								{
 									offset += block_size;
+									SIM_LDEBUG("Find Mac now offset=" << offset);
 									break;
 								}
 							}
 						}
 						if (offset > temp_.size())
+						{
+							SIM_LDEBUG("offset["<<offset<<"] > temp_.size["<< temp_.size()<<"] block_size="<<(int) block_size);
 							offset -= block_size;//多了
+							break;
+						}
 					}
 					else
 					{
+						SIM_LDEBUG("no evp_ctx_decrypt offset=" << offset);
 						bool ret = SplitPacket(temp_.c_str(), temp_.size(), offset);
 						if (false == ret)
 							return false;
@@ -2348,6 +2467,7 @@ namespace sim
 						t_msg_ += temp_[offset++];
 						if (t_msg_.size() >= packet_lenght_ + 4 + algo_ctx_.check_mac->len())
 						{
+							SIM_LDEBUG("Find Mac Ok :" << offset);
 							bool ret = OnMessage();
 							if (false == ret)
 								return ret;
@@ -2356,6 +2476,7 @@ namespace sim
 					}
 					else
 					{
+						SIM_LDEBUG("no check_mac :" << offset);
 						bool ret = OnMessage();
 						if (false == ret)
 							return ret;
@@ -2366,16 +2487,19 @@ namespace sim
 					return false;
 				}
 			}
+			SIM_LDEBUG("reset temp_,size=" << temp_.size()<<" offset="<< offset);
 			if (offset >= temp_.size())
 				temp_ = "";
 			else
 				temp_ = temp_.substr(offset);
+			SIM_LDEBUG("temp_,size=" << temp_.size());
 			return true;
 		}
 
 		void OnHandler(uint8_t message_code,
 			const char*payload_data, uint32_t payload_data_len)
 		{
+			SIM_FUNC_DEBUG();
 			//debug
 			//printf("OnHandler message_code %d\n", message_code);
 			/*printf("OnHandler message_code %d send %u recv %u\n",
@@ -2430,6 +2554,7 @@ namespace sim
 
 		bool OnMessage()
 		{
+			SIM_FUNC_DEBUG();
 			/*
 				uint32 packet_length
 				byte padding_length											|
@@ -2442,6 +2567,17 @@ namespace sim
 			//载荷大小
 			uint32_t payload_length = packet_lenght_ - padding_length - 1;
 			const char *payload = t_msg_.c_str() + 4 + 1;
+			SIM_LDEBUG("t_msg_ size "<< t_msg_.size()
+				<<" packet_lenght_ "<< packet_lenght_
+				<<" payload_length "<< payload_length
+				<<" padding_length "<< (int)padding_length
+				<<" msg code "<<(int) payload[0]);
+
+			//SIM_LDEBUG("\n\n" << t_msg_);
+			Str name = "./log/payload." + NumToStr(recv_sequence_number_);
+			FILE*fp = fopen(name.c_str(), "w");
+			fwrite(payload, sizeof(char), payload_length, fp);
+			fclose(fp);
 
 			//校验
 			if (algo_ctx_.check_mac)
@@ -2451,6 +2587,7 @@ namespace sim
 				const char *mac = t_msg_.c_str() + packet_lenght_ + 4;
 				if (!CheckMac(recv_sequence_number_, t_msg_.c_str(), packet_lenght_ + 4,mac, t_msg_.size()- packet_lenght_ - 4))
 				{
+					
 					return false;
 				}
 			}
@@ -2479,11 +2616,13 @@ namespace sim
 		//获取默认的算法
 		name_list GetLocalKexAlgorithms()
 		{
+			SIM_FUNC_DEBUG();
 			return "diffie-hellman-group14-sha1,diffie-hellman-group1-sha1";
 		}
 		
 		name_list GetLocalServerHostKeyAlgorithms()
 		{
+			SIM_FUNC_DEBUG();
 			//#include <openssl/rsa.h>
 			/*PEM_read_RSAPrivateKey()
 				PEM_read_DSAPrivateKey*/
@@ -2511,46 +2650,55 @@ namespace sim
 		
 		name_list GetLocalEncryptionAlgorithmsClientToServer()
 		{
+			SIM_FUNC_DEBUG();
 			return "aes128-cbc,3des-cbc,aes256-ctr,aes128-ctr,aes192-ctr";
 		}
 		
 		name_list GetLocalEncryptionAlgorithmsServerToClient()
 		{
+			SIM_FUNC_DEBUG();
 			return "aes128-cbc,3des-cbc,aes256-ctr,aes128-ctr,aes192-ctr";
 		}
 		
 		name_list GetLocalMacAlgorithmsClientToServer()
 		{
+			SIM_FUNC_DEBUG();
 			return "hmac-sha1-96,hmac-sha1";
 		}
 		
 		name_list GetLocalMacAlgorithmsServerToClient()
 		{
+			SIM_FUNC_DEBUG();
 			return "hmac-sha1-96,hmac-sha1";
 		}
 		
 		name_list GetLocalCompressionAlgorithmsClientToServer()
 		{
+			SIM_FUNC_DEBUG();
 			return "none";
 		}
 		
 		name_list GetLocalCompressionAlgorithmsServerToClient()
 		{
+			SIM_FUNC_DEBUG();
 			return "none";
 		}
 		
 		name_list GetLocalLanguagesClientToServer()
 		{
+			SIM_FUNC_DEBUG();
 			return "";
 		}
 		
 		name_list GetLocalLanguagesServerToClient()
 		{
+			SIM_FUNC_DEBUG();
 			return "";
 		}
 
 		bool AgreeKexAlgorithms(name_list list)
 		{
+			SIM_FUNC_DEBUG();
 			if (sp_type_ == SshClient)
 				algo_ctx_.kex_algorithms = AgreeAlgorithms(list, GetLocalKexAlgorithms());
 			else
@@ -2563,6 +2711,7 @@ namespace sim
 
 		bool AgreeServerHostKeyAlgorithms(name_list list)
 		{
+			SIM_FUNC_DEBUG();
 			if (sp_type_ == SshClient)
 				algo_ctx_.server_host_key_algorithms = AgreeAlgorithms(list, GetLocalServerHostKeyAlgorithms());
 			else
@@ -2575,6 +2724,7 @@ namespace sim
 
 		bool AgreeEncryptionAlgorithmsClientToServerAlgorithms(name_list list)
 		{
+			SIM_FUNC_DEBUG();
 			if (sp_type_ == SshClient)
 				algo_ctx_.encryption_algorithms_client_to_server = AgreeAlgorithms(list, GetLocalEncryptionAlgorithmsClientToServer());
 			else
@@ -2587,6 +2737,7 @@ namespace sim
 
 		bool AgreeEncryptionAlgorithmsServerToClientAlgorithms(name_list list)
 		{
+			SIM_FUNC_DEBUG();
 			if (sp_type_ == SshClient)
 				algo_ctx_.encryption_algorithms_server_to_client = AgreeAlgorithms(list, GetLocalEncryptionAlgorithmsServerToClient());
 			else
@@ -2599,6 +2750,7 @@ namespace sim
 
 		bool AgreeMacAlgorithmsClientToServerAlgorithms(name_list list)
 		{
+			SIM_FUNC_DEBUG();
 			if (sp_type_ == SshClient)
 				algo_ctx_.mac_algorithms_client_to_server = AgreeAlgorithms(list, GetLocalMacAlgorithmsClientToServer());
 			else
@@ -2611,6 +2763,7 @@ namespace sim
 
 		bool AgreeMacAlgorithmsServerToClientAlgorithms(name_list list)
 		{
+			SIM_FUNC_DEBUG();
 			if (sp_type_ == SshClient)
 				algo_ctx_.mac_algorithms_server_to_client = AgreeAlgorithms(list, GetLocalMacAlgorithmsServerToClient());
 			else
@@ -2623,6 +2776,7 @@ namespace sim
 
 		bool AgreeCompressionAlgorithmsClientToServerAlgorithms(name_list list)
 		{
+			SIM_FUNC_DEBUG();
 			if (sp_type_ == SshClient)
 				algo_ctx_.compression_algorithms_client_to_server = AgreeAlgorithms(list, GetLocalCompressionAlgorithmsClientToServer());
 			else
@@ -2635,6 +2789,7 @@ namespace sim
 
 		bool AgreeCompressionAlgorithmsServerToClientAlgorithms(name_list list)
 		{
+			SIM_FUNC_DEBUG();
 			if (sp_type_ == SshClient)
 				algo_ctx_.compression_algorithms_server_to_client = AgreeAlgorithms(list, GetLocalCompressionAlgorithmsServerToClient());
 			else
@@ -2647,17 +2802,20 @@ namespace sim
 
 		bool AgreeLanguagesClientToServerAlgorithms(name_list list)
 		{
+			SIM_FUNC_DEBUG();
 			return true;
 		}
 
 		bool AgreeLanguagesServerToClientAlgorithms(name_list list)
 		{
+			SIM_FUNC_DEBUG();
 			return true;
 		}
 		
 		//算法协商none 或者空返回""
 		Str AgreeAlgorithms(name_list server, name_list client)
 		{
+			SIM_FUNC_DEBUG();
 			Str client_algo, server_algo;
 			for (int i = 0; i < client.size(); ++i)
 			{
@@ -2688,8 +2846,9 @@ namespace sim
 		}
 
 		//根据名称获取加密方法
-		const EVP_CIPHER      *GetEncryptionCipher(const Str &name)
+		const EVP_CIPHER *GetEncryptionCipher(const Str &name)
 		{
+			SIM_FUNC_DEBUG();
 			//return EVP_get_cipherbyname(name.c_str());
 			//"aes128-cbc,3des-cbc,aes256-ctr,aes128-ctr,aes192-ctr";
 			if ("aes128-cbc" == name)
@@ -2708,6 +2867,7 @@ namespace sim
 		//根据算法名称创建 hmac
 		SshHMac * NewHMac(const Str &name)
 		{
+			SIM_FUNC_DEBUG();
 			//"hmac-sha1-96,hmac-sha1"
 			if ("hmac-sha1")
 				return new SshHMacSha1();
@@ -2718,6 +2878,7 @@ namespace sim
 
 		static Str Sha1(const Str&data)
 		{
+			SIM_FUNC_DEBUG();
 			//sha-1 运算
 #ifdef HAVE_OPAQUE_STRUCTS
 			EVP_MD_CTX *ctx = EVP_MD_CTX_new();
@@ -2747,6 +2908,7 @@ namespace sim
 		//采用 libssh2库的
 		static Str Base64Decode(const Str& raw)
 		{
+			SIM_FUNC_DEBUG();
 			static const short base64_reverse_table[256] = {
 				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 				-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -2808,6 +2970,7 @@ namespace sim
 		}
 		static Str Base64Encode(const Str& base64)
 		{
+			SIM_FUNC_DEBUG();
 			static const char table64[] =
 				"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -2875,6 +3038,7 @@ namespace sim
 		//压缩 out_len 输入也是输出 输入最大缓存 输出结果缓存
 		bool Compress(const char*in, uint32_t in_len, char*out, uint32_t &out_len)
 		{
+			SIM_FUNC_DEBUG();
 			//不压缩
 			bool bc = false;
 			if (bc)
@@ -2894,6 +3058,7 @@ namespace sim
 
 		bool UnCompress(const char*in, uint32_t in_len, char*out, uint32_t &out_len)
 		{
+			SIM_FUNC_DEBUG();
 			//不压缩
 			bool bc = false;
 			if (bc)
@@ -2913,19 +3078,31 @@ namespace sim
 
 		bool CheckMac(uint32_t sequence_number, const char*in, uint32_t in_len,const char*mac, uint32_t mac_len)
 		{
-			if(NULL == algo_ctx_.check_mac)
+			SIM_FUNC_DEBUG();
+			if (NULL == algo_ctx_.check_mac)
+			{
+				SIM_LERROR("algo_ctx_.check_mac is NULL");
 				return false;
+			}
 			if (mac_len != algo_ctx_.check_mac->len())
+			{
+				SIM_LERROR("mac_len ["<< mac_len<<"]!= algo_ctx_.check_mac->len()["<< algo_ctx_.check_mac->len()<<"]");
 				return false;
+			}
 			uint32_t check_mac_len= algo_ctx_.check_mac->len();
 			char *check_mac = new char[check_mac_len];
 			if (!algo_ctx_.check_mac->mac(sequence_number, in, in_len, check_mac, check_mac_len))
 			{
+				SIM_LERROR("mac error.sequence_number=" << sequence_number);
 				delete []check_mac;
 				return false;
 			}
 			if (check_mac_len != mac_len || memcmp(mac, check_mac, mac_len) != 0)
 			{
+				SIM_LERROR("check mac error.sequence_number=" << sequence_number
+				<<" check_mac_len="<< check_mac_len<<" mac_len="<< mac_len);
+				SIM_LERROR("DUMP mac:" << DumpHex((const unsigned char*)mac, mac_len));
+				SIM_LERROR("DUMP check_mac:" << DumpHex((const unsigned char*)check_mac, check_mac_len));
 				/*printf("CheckMac fail,mac %s,check_mac %s\n",
 					mac, check_mac);*/
 				delete[]check_mac;
@@ -2937,6 +3114,7 @@ namespace sim
 		}
 		bool Mac(uint32_t sequence_number,const char*in, uint32_t in_len, char*out, uint32_t &out_len)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == algo_ctx_.mac)
 				return false;
 			if (!algo_ctx_.mac->mac(sequence_number, in, in_len, out, out_len))
@@ -2952,6 +3130,7 @@ namespace sim
 		}
 		bool Encrypt(const char*in, uint32_t in_len, char*out, uint32_t &out_len)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == algo_ctx_.evp_ctx_encrypt)
 			{
 				return false;
@@ -2966,6 +3145,7 @@ namespace sim
 		}
 		bool Decrypt(const char*in, uint32_t in_len, char*out, uint32_t &out_len)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == algo_ctx_.evp_ctx_decrypt)
 			{
 				return false;
@@ -2982,6 +3162,7 @@ namespace sim
 		//根据协商算法获取pg
 		bool GetKexPG(Str kex_algorithm, BIGNUM *p, BIGNUM *g)
 		{
+			SIM_FUNC_DEBUG();
 			static const unsigned char p_group1_value[128] = {
 				0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 				0xC9, 0x0F, 0xDA, 0xA2, 0x21, 0x68, 0xC2, 0x34,
@@ -3064,6 +3245,7 @@ namespace sim
 		//子群
 		int GetKexGroupOrder(Str kex_algorithm)
 		{
+			SIM_FUNC_DEBUG();
 			if (kex_algorithm == "diffie-hellman-group1-sha1")
 			{
 				return 128;
@@ -3083,6 +3265,7 @@ namespace sim
 		//服务器也随机选取一个整数 y (0 < y < q)，计算 f = g^y mod p
 		bool GenerateEF(BIGNUM *xy,BIGNUM *ef)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == xy||NULL == ef)
 				return false;
 
@@ -3118,6 +3301,7 @@ namespace sim
 
 		static bool OpensslGenerateRandArray(unsigned char *arrays, unsigned short size)
 		{
+			SIM_FUNC_DEBUG();
 			return BaseParser::GenerateRandArray(arrays, size);
 			//while (1)
 			//{
@@ -3145,6 +3329,7 @@ namespace sim
 		//H = hash(V_C || V_S || I_C || I_S || K_S || e || f || K)
 		Str MakeH()
 		{
+			SIM_FUNC_DEBUG();
 			if (algo_ctx_.V_C.size() == 0
 				|| algo_ctx_.V_S.size() == 0
 				|| algo_ctx_.I_C.size() == 0
@@ -3184,6 +3369,7 @@ namespace sim
 
 		static Str MakeSshRsaPubKey(RSA* rsa)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == rsa)
 				return "";
 			/*
@@ -3207,6 +3393,7 @@ namespace sim
 		}
 		static Str MakeSshDsaPubKey(DSA* dsa)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == dsa)
 				return "";
 			/*
@@ -3236,6 +3423,7 @@ namespace sim
 		//
 		Str MakeHostKey()
 		{
+			SIM_FUNC_DEBUG();
 			if ("ssh-rsa" == algo_ctx_.server_host_key_algorithms && algo_ctx_.rsa)
 			{
 				return MakeSshRsaPubKey(algo_ctx_.rsa);
@@ -3259,6 +3447,7 @@ namespace sim
 		*/
 		Str MakeKey(mpint K,Str H,char X,Str session_id,uint32_t len)
 		{
+			SIM_FUNC_DEBUG();
 			//K1 = HASH(K || H || X || session_id) (X is e.g., "A")
 			Str  data = K + H + X + session_id;
 			Str Key = Sha1(data);
@@ -3273,6 +3462,7 @@ namespace sim
 
 		static Str GetSshPubKeyType(const Str &pubkey)
 		{
+			SIM_FUNC_DEBUG();
 			uint32_t offset = 0;
 			Str ks_name;
 			if (!ParserString(pubkey.c_str(), pubkey.size(), offset, ks_name))
@@ -3282,6 +3472,7 @@ namespace sim
 		//通过SSH-格式的公钥初始化
 		static RSA* InitRsaPubKeyFromSshPubKey(const Str &pubkey)
 		{
+			SIM_FUNC_DEBUG();
 			/*
 					string "ssh-rsa"
 					mpint e
@@ -3322,6 +3513,7 @@ namespace sim
 		}
 		static DSA* InitDsaPubKeyFromSshPubKey(const Str &pubkey)
 		{
+			SIM_FUNC_DEBUG();
 			/*
 					string "ssh-dss"
 					mpint p
@@ -3364,6 +3556,7 @@ namespace sim
 		}
 		static void* InitPubKeyFromSshPubKey(const Str &pubkey, SshPublicKeyType &type)
 		{
+			SIM_FUNC_DEBUG();
 			Str ks_name = GetSshPubKeyType(pubkey);
 			if ("ssh-rsa" == ks_name)
 			{
@@ -3383,6 +3576,7 @@ namespace sim
 		//初始化 服务端发过来的公钥
 		bool InitPubKey(const SSHKexDHReply &dh_reply)
 		{
+			SIM_FUNC_DEBUG();
 			Str ks_name = GetSshPubKeyType(dh_reply.K_S);
 			if (ks_name != algo_ctx_.server_host_key_algorithms)
 				return false;//与协商的算法不一致
@@ -3418,6 +3612,7 @@ namespace sim
 
 		bool SignDHReply(const Str &data, SSHKexDHReply &dh_reply)
 		{
+			SIM_FUNC_DEBUG();
 			//算法名长度+算法名+签名数据长度+签名值。
 			dh_reply.S = PrintString(algo_ctx_.server_host_key_algorithms);
 			Str sign;
@@ -3431,6 +3626,7 @@ namespace sim
 
 		bool VerifyDHReply(const Str &data, const SSHKexDHReply &dh_reply)
 		{
+			SIM_FUNC_DEBUG();
 			//算法名长度+算法名+签名数据长度+签名值。
 			uint32_t offset = 0;
 			Str ks_name, sign;
@@ -3449,6 +3645,7 @@ namespace sim
 		
 		static bool Verify(RSA*rsa, const Str &data, const Str &sign)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == rsa)
 				return false;
 
@@ -3465,6 +3662,7 @@ namespace sim
 		}
 		static bool Verify(DSA*dsa, const Str &data, const Str &sign)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == dsa)
 				return false;
 			//hash
@@ -3480,6 +3678,7 @@ namespace sim
 		}
 		bool Verify(const Str &data, const Str &sign)
 		{
+			SIM_FUNC_DEBUG();
 			if ("ssh-rsa" == algo_ctx_.server_host_key_algorithms&&algo_ctx_.rsa)
 			{
 				return Verify(algo_ctx_.rsa,data, sign);
@@ -3497,6 +3696,7 @@ namespace sim
 
 		static bool Sign(RSA*rsa, const Str &data, Str &sign)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == rsa)
 				return false;
 
@@ -3518,6 +3718,7 @@ namespace sim
 		}
 		static bool Sign(DSA*dsa, const Str &data, Str &sign)
 		{
+			SIM_FUNC_DEBUG();
 			if (NULL == dsa)
 				return false;
 
@@ -3539,6 +3740,7 @@ namespace sim
 		}
 		bool Sign(const Str &data, Str &sign)
 		{
+			SIM_FUNC_DEBUG();
 			if ("ssh-rsa" == algo_ctx_.server_host_key_algorithms&&algo_ctx_.rsa)
 			{
 				return Sign(algo_ctx_.rsa, data, sign);

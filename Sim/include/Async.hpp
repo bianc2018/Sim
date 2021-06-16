@@ -1098,7 +1098,7 @@ namespace sim
 		//事件循环 wait_ms最大等待时间
 		virtual int Poll(unsigned wait_ms)
 		{
-			SIM_FUNC_DEBUG();
+			//SIM_FUNC_DEBUG();
 			//传输数据长度
 			DWORD               bytes_transfered = 0;
 			//iocp ctx
@@ -1112,9 +1112,9 @@ namespace sim
 				&over_lapped, wait_ms);
 
 			//调试打印
-			SIM_LDEBUG("GetQueuedCompletionStatus res=" << res
+			/*SIM_LDEBUG("GetQueuedCompletionStatus res=" << res
 				<< " socket " << socket << " bytes_transfered " << bytes_transfered
-				<< " over_lapped=0x" << SIM_HEX(over_lapped))
+				<< " over_lapped=0x" << SIM_HEX(over_lapped))*/
 
 				if (over_lapped)
 				{
