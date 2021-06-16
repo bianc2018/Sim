@@ -37,6 +37,7 @@ namespace sim
 
 		virtual void OnResponse(SshChannel* channel, bool success) { return; }
 	};
+	
 	enum SSH_CHANNEL_STATUS
 	{
 		SSH_CHANNEL_INIT,
@@ -46,6 +47,7 @@ namespace sim
 		SSH_CHANNEL_CLOSEING,
 		SSH_CHANNEL_CLOSED,
 	};
+	
 	//channel
 	class SshChannel
 	{
@@ -73,7 +75,7 @@ namespace sim
 		bool Open(const Str& channel_type,
 			uint32_t initial_window_size = SSH_CHANNEL_WINDOW_DEFAULT,
 			uint32_t maximum_packet_size = SSH_CHANNEL_PACKET_DEFAULT);
-		bool Close();
+		bool Close(bool forced = false);
 		bool Send(const Str& data);
 		bool SendExt(uint32_t data_type_code, const Str& data);
 		bool SendEof();
@@ -96,7 +98,9 @@ namespace sim
 		RefObject<SshChannel> GetRef();
 	public:
 		uint32_t GetId();
-	
+		SshSession&GetSession();
+	private:
+		void OnRelease();
 	private:
 		void OnOpenConfirmation(const SshOpenChannelConfirmation &req);
 		void OnOpenFailure(const SshOpenChannelFailure &req);
@@ -156,8 +160,9 @@ namespace sim
 		SSH_HANDSHAKE,
 		SSH_AUTH,
 		SSH_SESSION,
-		SSH_CLOSE,
+		SSH_CLOSED,
 	};
+	
 	class SshSession
 	{
 		friend class AsyncSsh;
@@ -325,10 +330,14 @@ namespace sim
 		{
 			return ssh_conn_;
 		}
+
+		static bool CloseChannelTreeTraverseFunc(sim::RbTreeNode<RefObject<SshChannel>>* Now, void*pdata);
 	private:
 		//网络回调接口
 		void OnNetClose(AsyncCloseReason reason, int error)
 		{
+			Close();
+
 			if (phandlers_)
 				phandlers_->OnConnectClosed(this);
 		}
@@ -1354,6 +1363,22 @@ namespace sim
 			AutoMutex lk(channel_id_lock_);
 			return channel_id_++;
 		}
+
+		//static bool MyTreeTraverseFunc(sim::RbTreeNode<RefObject<SshChannel>>* Now, void*pdata)
+		//{
+		//	if (Now&&Now->Data)
+		//	{
+		//		//RefObject<SshChannel> ref = Now->Data;
+		//		Now->Data.reset();
+		//	}
+		//}
+		//bool DelAllSshChannel()
+		//{
+		//	AutoMutex lk(channel_map_lock_);
+		//	channel_map_.TraverseTree(MyTreeTraverseFunc, NULL, sim::TraverseTypeLDR);
+		//	channel_map_.Clear();
+		//	return true;
+		//}
 	private:
 		Str login_key_file_;
 		SshAuthRequest auth_req_;
@@ -1516,6 +1541,7 @@ namespace sim
 			}
 			return ref;
 		}
+	
 	private:
 		Mutex session_map_lock_;
 		RbTree< RefObject<SshSession> > session_map_;
@@ -1525,7 +1551,7 @@ namespace sim
 	SshChannel::~SshChannel()
 	{
 		status_ = SSH_CHANNEL_CLOSEING;
-		Close();
+		//Close();
 	}
 	void SshChannel::SetHandlers(RefObject<SshChannelHandler> phandlers)
 	{
@@ -1573,8 +1599,13 @@ namespace sim
 			return false;
 		}
 	}
-	bool SshChannel::Close()
+	bool SshChannel::Close(bool forced)
 	{
+		if (forced&&status_!= SSH_CHANNEL_CLOSED)
+		{
+			status_ = SSH_CHANNEL_CLOSEING;
+		}
+
 		/*
 		SSH_CHANNEL_OPENED,
 		SSH_CHANNEL_EOF,
@@ -1582,7 +1613,8 @@ namespace sim
 		*/
 		if (SSH_CHANNEL_OPENED == status_ || SSH_CHANNEL_EOF == status_)
 		{
-			SendEof();
+			if(status_ == SSH_CHANNEL_OPENED)
+				SendEof();
 			status_ = SSH_CHANNEL_CLOSEING;
 			//发送关闭请求
 			RefObject<SshConnection>ssh_conn = session_.GetSSHv2();
@@ -1602,22 +1634,15 @@ namespace sim
 				SIM_LERROR("GetSSHv2 return NULL");
 				return false;
 			}
-
+			return true;
 		}
 		else
 		{
-			if (status_ != SSH_CHANNEL_CLOSED)
-			{
-				status_ = SSH_CHANNEL_CLOSED;
-
-				//直接释放
-				session_.DelSshChannel(local_channel_.channel_id);
-				if (phandlers_)
-					phandlers_->OnClosed(this);
-				phandlers_.reset();
-			}
-			return true;
+			//直接释放
+			session_.DelSshChannel(local_channel_.channel_id);
 		}
+		return true;
+
 	}
 	bool SshChannel::Send(const Str& data)
 	{
@@ -1733,6 +1758,17 @@ namespace sim
 		}
 	}
 
+	void SshChannel::OnRelease()
+	{
+		//调用一次
+		if (status_ != SSH_CHANNEL_CLOSED)
+		{
+			status_ = SSH_CHANNEL_CLOSED;
+			if (phandlers_)
+				phandlers_->OnClosed(this);
+			phandlers_.reset();
+		}
+	}
 	//channel request
 	bool SshChannel::SendRequest(const SshChannelRequest&req)
 	{
@@ -1884,6 +1920,11 @@ namespace sim
 	{
 		return session_.GetChannel(local_channel_.channel_id);
 	}
+	SshSession&SshChannel::GetSession()
+	{
+		return session_;
+	}
+
 	//SshSession 实现
 	//客户端
 	bool SshSession::Connect(const Str& host, unsigned port)
@@ -1923,9 +1964,27 @@ namespace sim
 		return true;
 	}
 
+	bool SshSession::CloseChannelTreeTraverseFunc(sim::RbTreeNode<RefObject<SshChannel> >* Now, void*pdata)
+	{
+		Now->Data->OnRelease();
+		return true;
+	}
+
 	bool SshSession::Close()
 	{
-		return SOCK_SUCCESS == async_.Close(handle_);
+		if (status_ != SSH_CLOSED)
+		{
+			status_ = SSH_CLOSED;
+			{
+				AutoMutex lk(channel_map_lock_);
+				channel_map_.TraverseTree(CloseChannelTreeTraverseFunc,this);
+				channel_map_.Clear();
+			}
+			return SOCK_SUCCESS == async_.Close(handle_);
+		}
+		//关闭
+
+		
 	}
 
 	void SshSession::OnNetAccept(RefObject<SshSession> cli_ref)
