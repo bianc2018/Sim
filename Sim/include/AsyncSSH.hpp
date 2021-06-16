@@ -331,7 +331,7 @@ namespace sim
 			return ssh_conn_;
 		}
 
-		static bool CloseChannelTreeTraverseFunc(sim::RbTreeNode<RefObject<SshChannel>>* Now, void*pdata);
+		static bool CloseChannelTreeTraverseFunc(sim::RbTreeNode<RefObject<SshChannel> >* Now, void*pdata);
 	private:
 		//网络回调接口
 		void OnNetClose(AsyncCloseReason reason, int error)
