@@ -3,7 +3,7 @@
 #include "CmdLineParser.hpp"
 #include <iostream>
 sim::CmdLineParser cmd;
-#define MY_THREAD 3
+#define MY_THREAD 1
 //异步服务对象基类
 class AsyncInput
 {
@@ -70,13 +70,18 @@ class SshellChannelHandler :public sim::SshChannelHandler
 	virtual void OnData(sim::SshChannel* channel, const sim::Str&data)
 	{
 		//printf("channel[%u]OnData:%s\n", channel->GetId(),data.c_str());
-		printf("%s", data.c_str());
+		//printf("%s", data.c_str());
+		if(data.size()>2*1024)
+			printf("%u\n", data.size());
+		else
+			printf("%s", data.c_str());
 	}
 
 	virtual void OnExtData(sim::SshChannel* channel, sim::uint32_t data_type_code, const sim::Str& data)
 	{
 		//printf("channel[%u]OnExtData %u:%s\n", channel->GetId(), data_type_code, data.c_str());
 		printf("%s", data.c_str());
+		//printf("%u\n", data.size());
 	}
 
 	virtual void OnRequest(sim::SshChannel* channel, const sim::SshChannelRequest&req)
@@ -272,7 +277,7 @@ int main(int argc, char*argv[])
 #if 1
 	cmd.InitCmdLineParams("h", "49.234.220.213");
 	cmd.InitCmdLineParams("password", "q1051576073@");
-	cmd.InitCmdLineParams("log", "DEBUG");
+	cmd.InitCmdLineParams("log", "ERROR");
 	cmd.InitCmdLineParams("output", "./log/");
 #endif
 

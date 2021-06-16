@@ -2412,7 +2412,7 @@ namespace sim
 					{
 						//uint8_t block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);
 						//EVP_CIPHER_CTX_iv_length
-						uint8_t block_size = EVP_CIPHER_CTX_iv_length(algo_ctx_.evp_ctx_decrypt);
+						uint8_t block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);// EVP_CIPHER_CTX_iv_length(algo_ctx_.evp_ctx_decrypt);
 						const uint32_t decrypt_buff_size = 1024;
 						char decrypt_buff[decrypt_buff_size] = { 0 };
 						for (; offset < temp_.size(); offset += block_size)
@@ -2425,6 +2425,7 @@ namespace sim
 							}
 							if (out_len > 0)
 							{
+								SIM_LDEBUG("Decrypt["<< offset<<"] :" << DumpHex((const unsigned char*)decrypt_buff, out_len));
 								uint32_t s_offset = 0;
 								bool ret = SplitPacket(decrypt_buff, out_len, s_offset);
 								if (false == ret)
@@ -2440,7 +2441,7 @@ namespace sim
 								if (status_ == SshTransportStatus_Mac)
 								{
 									offset += block_size;
-									SIM_LDEBUG("Find Mac now offset=" << offset);
+									SIM_LDEBUG("Find Mac now offset=" << offset<<"temp_.size[" << temp_.size() << "]");
 									break;
 								}
 							}
@@ -3150,7 +3151,8 @@ namespace sim
 			{
 				return false;
 			}
-			if (out_len < EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt))
+			int block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);
+			if (out_len < block_size)
 				return false;
 
 			int outl = 0;
