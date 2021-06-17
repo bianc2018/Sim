@@ -677,6 +677,7 @@ namespace sim
 		enum SshTransportStatus
 		{
 			SshTransportStatus_VersionLF,
+			SshTransportStatus_Lenght,
 			SshTransportStatus_Packet,
 			SshTransportStatus_Mac,
 		};
@@ -793,11 +794,13 @@ namespace sim
 						temp_ += "\n";
 						//回调
 						OnHandler(SSH_MSG_VERSION, temp_.c_str(), temp_.size());
-						status_ = SshTransportStatus_Packet;
+						status_ = SshTransportStatus_Lenght;
 						temp_ = "";
 					}
 				}
-				else if (status_ == SshTransportStatus_Packet|| status_ == SshTransportStatus_Mac)
+				else if (status_ == SshTransportStatus_Lenght 
+					||status_ == SshTransportStatus_Packet
+					|| status_ == SshTransportStatus_Mac)
 				{
 					/*bool ret = ReadPacket(data, len, offset);
 					if (false == ret)
@@ -807,9 +810,8 @@ namespace sim
 					SIM_LDEBUG("temp_.size=" << temp_.size()<<" offset="<<offset<<" len="<<len);
 					offset = len;
 					//分割报文
-					bool ret = ReadPacket();
-					if (false == ret)
-						return ret;
+					if (false == ReadPacketEx())
+						return false;
 				}
 				else
 				{
@@ -1303,7 +1305,7 @@ namespace sim
 			uint8_t block_size = 8;
 			if (algo_ctx_.evp_ctx_encrypt)
 			{
-				//block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_encrypt);
+				//block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_encrypt)*8;
 				block_size = EVP_CIPHER_CTX_iv_length(algo_ctx_.evp_ctx_encrypt);
 			}
 			uint8_t padding_len = block_size - total % block_size;
@@ -1329,19 +1331,28 @@ namespace sim
 				//加密
 				//需要加密的报文长度
 				char msg[SSH_TRANS_PACKET_MAX_SIZE] = { 0 };
-				uint32_t msg_len = 0;
+				uint32_t msg_len = SSH_TRANS_PACKET_MAX_SIZE;
 				uint32_t encrypt_size = 4 + 1 + payload_len + padding_len;
-				uint32_t out_len = SSH_TRANS_PACKET_MAX_SIZE - msg_len;
-				for (int i = 0; i < encrypt_size; i += block_size)//保证一次完成
+				/*uint32_t out_len = SSH_TRANS_PACKET_MAX_SIZE - msg_len;*/
+				//for (int i = 0; i < encrypt_size; i += block_size)//保证一次完成
+				//{
+				//	out_len = SSH_TRANS_PACKET_MAX_SIZE - msg_len;
+				//	if (!Encrypt(tmp + i, block_size, msg + msg_len, out_len))
+				//		return "";
+				//	msg_len += out_len;
+				//}
+				if (!Encrypt(tmp, encrypt_size, msg, msg_len))
 				{
-					out_len = SSH_TRANS_PACKET_MAX_SIZE - msg_len;
-					if (!Encrypt(tmp + i, block_size, msg + msg_len, out_len))
-						return "";
-					msg_len += out_len;
+					return "";
+				}
+				if (encrypt_size != msg_len)
+				{
+					SIM_LERROR("Encrypt fail");
+					return "";
 				}
 				if (algo_ctx_.mac)
 				{
-					out_len = SSH_TRANS_PACKET_MAX_SIZE - msg_len;
+					uint32_t out_len = SSH_TRANS_PACKET_MAX_SIZE - msg_len;
 					//计算mac
 					if (!Mac(send_sequence_number_, tmp, encrypt_size, msg + msg_len, out_len))
 					{
@@ -2321,174 +2332,330 @@ namespace sim
 			}
 		}*/
 
-		bool SplitPacket(const char*data, unsigned int len, uint32_t &offset)
+		//bool SplitPacket(const char*data, unsigned int len, uint32_t &offset)
+		//{
+		//	SIM_FUNC_DEBUG();
+		//	while (offset < len)
+		//	{
+		//		if (t_msg_.size() > SSH_TRANS_PACKET_MAX_SIZE)
+		//		{
+		//			SIM_LERROR("cache t_msg_ size["<< t_msg_.size()
+		//				<<"] is out of :"<<SSH_TRANS_PACKET_MAX_SIZE);
+		//			return false;
+		//		}
+		//		if (packet_lenght_ == 0)
+		//		{
+		//			while (offset < len)
+		//			{
+		//				if (t_msg_.size() >= 4)
+		//				{
+		//					packet_lenght_ = ntohl(*((uint32_t*)(t_msg_.c_str())));
+		//					//printf("packet_lenght_=%u\n", packet_lenght_);
+		//					SIM_LDEBUG("Get the packet_lenght_=" << packet_lenght_);
+		//					break;
+		//				}
+		//				t_msg_ += data[offset++];
+		//			}
+		//		}
+		//		else
+		//		{
+		//			uint32_t need_bytes = (packet_lenght_ + 4) - t_msg_.size();
+		//			SIM_LDEBUG("need_bytes=" << need_bytes << " packet_lenght_=" << packet_lenght_
+		//				<< " t_msg_ size=" << t_msg_.size());
+		//			if (need_bytes == 0)
+		//			{
+		//				/*bool ret = OnMessage();
+		//				if (false == ret)
+		//					return false;*/
+		//				status_ = SshTransportStatus_Mac;
+		//				SIM_LDEBUG("try find mac");
+		//				break;
+		//			}
+		//			else
+		//			{
+		//				uint32_t has_bytes = len - offset;
+		//				uint32_t copy_bytes = need_bytes>has_bytes? has_bytes: need_bytes;
+		//				SIM_LDEBUG("copy_bytes " << copy_bytes);
+		//				t_msg_ += Str(data + offset, copy_bytes);
+		//				offset += copy_bytes;
+		//				need_bytes = (packet_lenght_ + 4) - t_msg_.size();
+		//				SIM_LDEBUG("need_bytes=" << need_bytes << " packet_lenght_=" << packet_lenght_
+		//					<< " t_msg_ size=" << t_msg_.size());
+		//				if (need_bytes == 0)
+		//				{
+		//					/*bool ret = OnMessage();
+		//					if (false == ret)
+		//						return false;*/
+		//					status_ = SshTransportStatus_Mac;
+		//					SIM_LDEBUG("try find mac");
+		//					break;
+		//				}
+		//			}
+		//		}
+		//	}
+		//	if (status_ == SshTransportStatus_Mac)
+		//	{
+		//		if (algo_ctx_.check_mac == NULL)
+		//		{
+		//			SIM_LDEBUG("no check_mac");
+		//			bool ret = OnMessage();
+		//			if (false == ret)
+		//				return ret;
+		//			status_ = SshTransportStatus_Packet;
+		//		}
+		//	}
+		//	/*if(offset>=len)
+		//		return true;
+		//	return false;*/
+		//	return true;
+		//}
+		//bool ReadPacket()
+		//{
+		//	SIM_FUNC_DEBUG();
+		//	uint32_t offset = 0;
+		//	while (offset < temp_.size())
+		//	{
+		//		if (status_ == SshTransportStatus_Packet)
+		//		{
+		//			if (algo_ctx_.evp_ctx_decrypt)
+		//			{
+		//				//uint8_t block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);
+		//				//EVP_CIPHER_CTX_iv_length
+		//				uint8_t block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);// EVP_CIPHER_CTX_iv_length(algo_ctx_.evp_ctx_decrypt);
+		//				const uint32_t decrypt_buff_size = 1024;
+		//				char decrypt_buff[decrypt_buff_size] = { 0 };
+		//				for (; offset < temp_.size(); offset += block_size)
+		//				{
+		//					uint32_t out_len = decrypt_buff_size;
+		//					if (!Decrypt(temp_.c_str() + offset, block_size, decrypt_buff, out_len))
+		//					{
+		//						SIM_LERROR("Decrypt Fail block_size=" << block_size);
+		//						return false;
+		//					}
+		//					if (out_len > 0)
+		//					{
+		//						SIM_LDEBUG("Decrypt[" << offset << "] :" << DumpHex((const unsigned char*)decrypt_buff, out_len));
+		//						uint32_t s_offset = 0;
+		//						bool ret = SplitPacket(decrypt_buff, out_len, s_offset);
+		//						if (false == ret)
+		//						{
+		//							return false;
+		//						}
+		//						if (s_offset != out_len)
+		//						{
+		//							SIM_LERROR("SplitPacket Fail s_offset[" << s_offset
+		//								<< "] != out_len[" << out_len << "]");
+		//							return false;
+		//						}
+		//						if (status_ == SshTransportStatus_Mac)
+		//						{
+		//							offset += block_size;
+		//							SIM_LDEBUG("Find Mac now offset=" << offset << "temp_.size[" << temp_.size() << "]");
+		//							break;
+		//						}
+		//					}
+		//				}
+		//				if (offset > temp_.size())
+		//				{
+		//					SIM_LDEBUG("offset[" << offset << "] > temp_.size[" << temp_.size() << "] block_size=" << (int)block_size);
+		//					offset -= block_size;//多了
+		//					break;
+		//				}
+		//			}
+		//			else
+		//			{
+		//				SIM_LDEBUG("no evp_ctx_decrypt offset=" << offset);
+		//				bool ret = SplitPacket(temp_.c_str(), temp_.size(), offset);
+		//				if (false == ret)
+		//					return false;
+		//			}
+		//		}
+		//		else if (status_ == SshTransportStatus_Mac)
+		//		{
+		//			if (algo_ctx_.check_mac)
+		//			{
+		//				t_msg_ += temp_[offset++];
+		//				if (t_msg_.size() >= packet_lenght_ + 4 + algo_ctx_.check_mac->len())
+		//				{
+		//					SIM_LDEBUG("Find Mac Ok :" << offset);
+		//					bool ret = OnMessage();
+		//					if (false == ret)
+		//						return ret;
+		//				}
+		//
+		//			}
+		//			else
+		//			{
+		//				SIM_LDEBUG("no check_mac :" << offset);
+		//				bool ret = OnMessage();
+		//				if (false == ret)
+		//					return ret;
+		//			}
+		//		}
+		//		else
+		//		{
+		//			return false;
+		//		}
+		//	}
+		//	SIM_LDEBUG("reset temp_,size=" << temp_.size() << " offset=" << offset);
+		//	if (offset >= temp_.size())
+		//		temp_ = "";
+		//	else
+		//		temp_ = temp_.substr(offset);
+		//	SIM_LDEBUG("temp_,size=" << temp_.size());
+		//	return true;
+		//}
+
+		bool ReadPacketLenght(const char*data, unsigned int len, uint32_t &offset)
 		{
-			SIM_FUNC_DEBUG();
-			while (offset < len)
+			uint32_t has_bytes = len - offset;
+			uint32_t need_bytes = 4;
+
+			if (algo_ctx_.evp_ctx_decrypt)
 			{
-				if (t_msg_.size() > SSH_TRANS_PACKET_MAX_SIZE)
+				int block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);
+				if (block_size > 4)
+					need_bytes = block_size;//至少需要一个block_size，或者整倍数
+				else
+					need_bytes = 4 + block_size - 4 % block_size;
+
+				if (has_bytes < need_bytes)
 				{
-					SIM_LERROR("cache t_msg_ size["<< t_msg_.size()
-						<<"] is out of :"<<SSH_TRANS_PACKET_MAX_SIZE);
+					SIM_LDEBUG("need_bytes=" << need_bytes << ",BUT has_bytes=" << has_bytes);
+					return true;
+				}
+
+				const uint32_t decrypt_buff_size = 128;
+				char decrypt_buff[decrypt_buff_size] = { 0 };
+				uint32_t out_len = decrypt_buff_size;
+				if (!Decrypt(data + offset, need_bytes, decrypt_buff, out_len))
+				{
+					SIM_LERROR("Decrypt Fail need_bytes=" << need_bytes);
 					return false;
 				}
-
-				if (packet_lenght_ == 0)
+				if (out_len != need_bytes)
 				{
-					while (offset < len)
-					{
-						if (t_msg_.size() >= 4)
-						{
-							packet_lenght_ = ntohl(*((uint32_t*)(t_msg_.c_str())));
-							//printf("packet_lenght_=%u\n", packet_lenght_);
-							SIM_LDEBUG("Get the packet_lenght_=" << packet_lenght_);
-							break;
-						}
-						t_msg_ += data[offset++];
-					}
+					SIM_LERROR("Decrypt Fail need_bytes=" << need_bytes<<" out_len="<< out_len);
+					return false;
 				}
-				else
-				{
-					uint32_t need_bytes = (packet_lenght_ + 4) - t_msg_.size();
-					SIM_LDEBUG("need_bytes=" << need_bytes << " packet_lenght_=" << packet_lenght_
-						<< " t_msg_ size=" << t_msg_.size());
-					if (need_bytes == 0)
-					{
-						/*bool ret = OnMessage();
-						if (false == ret)
-							return false;*/
-						status_ = SshTransportStatus_Mac;
-						SIM_LDEBUG("try find mac");
-						break;
-					}
-					else
-					{
-						uint32_t has_bytes = len - offset;
-						uint32_t copy_bytes = need_bytes>has_bytes? has_bytes: need_bytes;
-						SIM_LDEBUG("copy_bytes " << copy_bytes);
-						t_msg_ += Str(data + offset, copy_bytes);
-						offset += copy_bytes;
-						need_bytes = (packet_lenght_ + 4) - t_msg_.size();
-						SIM_LDEBUG("need_bytes=" << need_bytes << " packet_lenght_=" << packet_lenght_
-							<< " t_msg_ size=" << t_msg_.size());
-						if (need_bytes == 0)
-						{
-							/*bool ret = OnMessage();
-							if (false == ret)
-								return false;*/
-							status_ = SshTransportStatus_Mac;
-							SIM_LDEBUG("try find mac");
-							break;
-						}
-					}
-				}
+				t_msg_ = Str(decrypt_buff, out_len);
 			}
-			if (status_ == SshTransportStatus_Mac)
+			else
 			{
-				if (algo_ctx_.check_mac == NULL)
+				need_bytes = 4;
+				if (has_bytes < need_bytes)
 				{
-					SIM_LDEBUG("no check_mac");
-					bool ret = OnMessage();
-					if (false == ret)
-						return ret;
-					status_ = SshTransportStatus_Packet;
+					SIM_LDEBUG("need_bytes="<< need_bytes<<",BUT has_bytes=" << has_bytes);
+					return true;
 				}
+				t_msg_ = Str(data + offset, need_bytes);
 			}
-			/*if(offset>=len)
-				return true;
-			return false;*/
+			packet_lenght_ = ntohl(*((uint32_t*)(t_msg_.c_str())));
+			SIM_LDEBUG("Get the packet_lenght_=" << packet_lenght_);
+			offset += need_bytes;
+			status_ = SshTransportStatus_Packet;
 			return true;
 		}
+		bool ReadPacketData(const char*data, unsigned int len, uint32_t &offset)
+		{
+			uint32_t has_bytes = len - offset;
+			uint32_t need_bytes = (4+ packet_lenght_)-t_msg_.size();//数据包总大小 减去 已经获取的数据大小
+			if (has_bytes < need_bytes)
+			{
+				SIM_LDEBUG("need_bytes=" << need_bytes << ",BUT has_bytes=" << has_bytes);
+				return true;
+			}
+			if (algo_ctx_.evp_ctx_decrypt)
+			{
+				uint32_t out_len = need_bytes*2;
+				char* decrypt_buff = new char[out_len];
+				if (!Decrypt(data + offset, need_bytes, decrypt_buff, out_len))
+				{
+					SIM_LERROR("Decrypt Fail need_bytes=" << need_bytes);
+					delete[]decrypt_buff;
+					return false;
+				}
+				if (out_len != need_bytes)
+				{
+					SIM_LERROR("Decrypt Fail need_bytes=" << need_bytes << " out_len=" << out_len);
+					delete[]decrypt_buff;
+					return false;
+				}
+				t_msg_ += Str(decrypt_buff, out_len);
+				delete[]decrypt_buff;
+			}
+			else
+			{
+				t_msg_ += Str(data + offset, need_bytes);
+			}
+			offset += need_bytes;
+			if (algo_ctx_.check_mac)
+			{
+				status_ = SshTransportStatus_Mac;
+			}
+			else
+			{
+				if (!OnMessage())
+					return false;
+				status_ = SshTransportStatus_Lenght;
+			}
+			return true;
+		}
+		bool ReadPacketMac(const char*data, unsigned int len, uint32_t &offset)
+		{
+			uint32_t has_bytes = len - offset;
+			uint32_t need_bytes = 0;
+			if (algo_ctx_.check_mac)
+			{
+				need_bytes = algo_ctx_.check_mac->len();//数据包总大小 减去 已经获取的数据大小
+				if (has_bytes < need_bytes)
+				{
+					SIM_LDEBUG("ReadPacketMac need_bytes=" << need_bytes << ",BUT has_bytes=" << has_bytes);
+					return true;
+				}
+				t_msg_ += Str(data + offset, need_bytes);
+			}
+			if (!OnMessage())
+				return false;
+			offset += need_bytes;
+			status_ = SshTransportStatus_Lenght;
+			return true;
 
-		bool ReadPacket()
+		}
+		bool ReadPacketEx()
 		{
 			SIM_FUNC_DEBUG();
 			uint32_t offset = 0;
 			while (offset < temp_.size())
 			{
-				if (status_ == SshTransportStatus_Packet)
+				if (status_ == SshTransportStatus_Lenght)
 				{
-					if (algo_ctx_.evp_ctx_decrypt)
-					{
-						//uint8_t block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);
-						//EVP_CIPHER_CTX_iv_length
-						uint8_t block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);// EVP_CIPHER_CTX_iv_length(algo_ctx_.evp_ctx_decrypt);
-						const uint32_t decrypt_buff_size = 1024;
-						char decrypt_buff[decrypt_buff_size] = { 0 };
-						for (; offset < temp_.size(); offset += block_size)
-						{
-							uint32_t out_len = decrypt_buff_size;
-							if (!Decrypt(temp_.c_str() + offset, block_size, decrypt_buff, out_len))
-							{
-								SIM_LERROR("Decrypt Fail block_size=" << block_size);
-								return false;
-							}
-							if (out_len > 0)
-							{
-								SIM_LDEBUG("Decrypt["<< offset<<"] :" << DumpHex((const unsigned char*)decrypt_buff, out_len));
-								uint32_t s_offset = 0;
-								bool ret = SplitPacket(decrypt_buff, out_len, s_offset);
-								if (false == ret)
-								{
-									return false;
-								}
-								if (s_offset != out_len)
-								{
-									SIM_LERROR("SplitPacket Fail s_offset["<<s_offset
-										<<"] != out_len["<<out_len<<"]");
-									return false;
-								}
-								if (status_ == SshTransportStatus_Mac)
-								{
-									offset += block_size;
-									SIM_LDEBUG("Find Mac now offset=" << offset<<"temp_.size[" << temp_.size() << "]");
-									break;
-								}
-							}
-						}
-						if (offset > temp_.size())
-						{
-							SIM_LDEBUG("offset["<<offset<<"] > temp_.size["<< temp_.size()<<"] block_size="<<(int) block_size);
-							offset -= block_size;//多了
-							break;
-						}
-					}
-					else
-					{
-						SIM_LDEBUG("no evp_ctx_decrypt offset=" << offset);
-						bool ret = SplitPacket(temp_.c_str(), temp_.size(), offset);
-						if (false == ret)
-							return false;
-					}
+					if (!ReadPacketLenght(temp_.c_str(), temp_.size(), offset))
+						return false;
+					if (status_ == SshTransportStatus_Lenght)//状态不变表示 内容不够
+						break;
+				}
+				else if (status_ == SshTransportStatus_Packet)
+				{
+					if (!ReadPacketData(temp_.c_str(), temp_.size() , offset))
+						return false;
+					if (status_ == SshTransportStatus_Packet)//状态不变表示 内容不够
+						break;
 				}
 				else if (status_ == SshTransportStatus_Mac)
 				{
-					if (algo_ctx_.check_mac)
-					{
-						t_msg_ += temp_[offset++];
-						if (t_msg_.size() >= packet_lenght_ + 4 + algo_ctx_.check_mac->len())
-						{
-							SIM_LDEBUG("Find Mac Ok :" << offset);
-							bool ret = OnMessage();
-							if (false == ret)
-								return ret;
-						}
-						
-					}
-					else
-					{
-						SIM_LDEBUG("no check_mac :" << offset);
-						bool ret = OnMessage();
-						if (false == ret)
-							return ret;
-					}
+					if (!ReadPacketMac(temp_.c_str(), temp_.size(), offset))
+						return false;
+					if (status_ == SshTransportStatus_Mac)//状态不变表示 内容不够
+						break;
 				}
 				else
 				{
+					SIM_LERROR("unknow status_=" << status_);
 					return false;
 				}
 			}
-			SIM_LDEBUG("reset temp_,size=" << temp_.size()<<" offset="<< offset);
+			SIM_LDEBUG("reset temp_,size=" << temp_.size() << " offset=" << offset);
 			if (offset >= temp_.size())
 				temp_ = "";
 			else
@@ -2609,7 +2776,7 @@ namespace sim
 			//clear清理状态
 			t_msg_ = "";
 			packet_lenght_ = 0;
-			status_ = SshTransportStatus_Packet;
+			status_ = SshTransportStatus_Lenght;
 			return true;
 		}
 		
@@ -3136,8 +3303,8 @@ namespace sim
 			{
 				return false;
 			}
-			if (out_len < EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_encrypt))
-				return false;
+			/*if (out_len < EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_encrypt))
+				return false;*/
 
 			int outl = 0;
 			EVP_CipherUpdate(algo_ctx_.evp_ctx_encrypt, (unsigned char*)out, &outl, (const unsigned char*)in, in_len);
@@ -3151,9 +3318,9 @@ namespace sim
 			{
 				return false;
 			}
-			int block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);
+			/*int block_size = EVP_CIPHER_CTX_block_size(algo_ctx_.evp_ctx_decrypt);
 			if (out_len < block_size)
-				return false;
+				return false;*/
 
 			int outl = 0;
 			EVP_CipherUpdate(algo_ctx_.evp_ctx_decrypt, (unsigned char*)out, &outl, (const unsigned char*)in, in_len);

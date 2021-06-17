@@ -70,11 +70,11 @@ class SshellChannelHandler :public sim::SshChannelHandler
 	virtual void OnData(sim::SshChannel* channel, const sim::Str&data)
 	{
 		//printf("channel[%u]OnData:%s\n", channel->GetId(),data.c_str());
-		//printf("%s", data.c_str());
-		if(data.size()>2*1024)
+		printf("%s", data.c_str());
+		/*if(data.size()>2*1024)
 			printf("%u\n", data.size());
 		else
-			printf("%s", data.c_str());
+			printf("%s", data.c_str());*/
 	}
 
 	virtual void OnExtData(sim::SshChannel* channel, sim::uint32_t data_type_code, const sim::Str& data)
@@ -280,7 +280,7 @@ int main(int argc, char*argv[])
 	cmd.InitCmdLineParams("log", "ERROR");
 	cmd.InitCmdLineParams("output", "./log/");
 #endif
-
+	int p = 4 % 2;
 	//test
 	/*FILE*fp = fopen("./0.d", "w");
 	const int size = 1 * 1024 * 1024;

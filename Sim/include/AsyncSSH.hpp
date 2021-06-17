@@ -1650,6 +1650,17 @@ namespace sim
 			return false;
 
 		//窗口
+		if (data.size() > local_channel_.maximum_packet_size)
+		{
+			SIM_LERROR("data size=" << data.size() << " > maximum_packet_size=" << local_channel_.maximum_packet_size);
+			return false;
+		}
+		if (data.size() > local_channel_.initial_window_size)
+		{
+			SIM_LERROR("data size=" << data.size() << " out of window_size=" << local_channel_.initial_window_size);
+			return false;
+		}
+		local_channel_.initial_window_size -= data.size();
 
 		//发送请求
 		RefObject<SshConnection>ssh_conn = session_.GetSSHv2();
@@ -1678,6 +1689,17 @@ namespace sim
 			return false;
 
 		//窗口
+		if (data.size() > local_channel_.maximum_packet_size)
+		{
+			SIM_LERROR("data size=" << data.size() << " > maximum_packet_size=" << local_channel_.maximum_packet_size);
+			return false;
+		}
+		if (data.size() > local_channel_.initial_window_size)
+		{
+			SIM_LERROR("data size=" << data.size() << " out of window_size=" << local_channel_.initial_window_size);
+			return false;
+		}
+		local_channel_.initial_window_size -= data.size();
 
 		//发送请求
 		RefObject<SshConnection>ssh_conn = session_.GetSSHv2();
@@ -1749,6 +1771,7 @@ namespace sim
 				SIM_LERROR("PrintChannelWindowAdjust error");
 				return false;
 			}
+			remote_channel_.initial_window_size += bytes_to_add;
 			return session_.SendRawStr(data);
 		}
 		else
@@ -1884,11 +1907,31 @@ namespace sim
 	{
 		if (phandlers_)
 			phandlers_->OnData(this, data);
+
+		if (data.size() >= remote_channel_.initial_window_size)
+		{
+			remote_channel_.initial_window_size = 0;
+			WindowAdjust(SSH_CHANNEL_WINDOW_DEFAULT);
+		}
+		else
+		{
+			remote_channel_.initial_window_size -= data.size();
+		}
+		//printf("remote_channel_.initial_window_size %u\n", remote_channel_.initial_window_size);
 	}
 	void SshChannel::OnExtData(uint32_t data_type_code, const Str& data)
 	{
 		if (phandlers_)
 			phandlers_->OnExtData(this, data_type_code, data);
+		if (data.size() >= remote_channel_.initial_window_size)
+		{
+			remote_channel_.initial_window_size = 0;
+			WindowAdjust(SSH_CHANNEL_WINDOW_DEFAULT);
+		}
+		else
+		{
+			remote_channel_.initial_window_size -= data.size();
+		}
 	}
 	void SshChannel::OnClose()
 	{
@@ -1913,8 +1956,8 @@ namespace sim
 	}
 	void SshChannel::OnWindowAdjust(const uint32_t &bytes_to_add)
 	{
-		//
-		remote_channel_.initial_window_size += bytes_to_add;
+		//WindowAdjust
+		local_channel_.initial_window_size += bytes_to_add;
 	}
 	RefObject<SshChannel> SshChannel::GetRef()
 	{
