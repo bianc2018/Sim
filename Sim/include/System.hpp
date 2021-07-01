@@ -17,9 +17,15 @@
 #ifndef OS_LINUX
 	#define OS_LINUX
 #endif
+    #include <unistd.h>  
+    #include <stdio.h>
+	#include <string.h>
+	#include <sys/types.h>
+	#include <wait.h>
 #else
 	#error "不支持的平台"
 #endif
+#include <stdlib.h>
 namespace sim
 {
 	//标准输出
@@ -41,6 +47,7 @@ namespace sim
 		{
 			Stop(true);
 		}
+
 		bool Start(const char*username, const char*password
 		,const char*shell=NULL, const char*command=NULL)
 		{
@@ -91,7 +98,7 @@ namespace sim
 		{
 			return exit_code_;
 		}
-#ifdef OS_WINDOWS
+#if defined(OS_WINDOWS)
 	private:
 		bool _Start(const char*username, const char*password, const char*shell, const char*command)
 		{
@@ -318,6 +325,228 @@ namespace sim
 		HANDLE token_;
 
 		PROCESS_INFORMATION  pi;
+#elif defined(OS_LINUX)
+	private:
+		bool _Start(const char*username, const char*password, const char*shell, const char*command)
+		{
+			//初始化
+			memset(write_pipe_, 0, sizeof(write_pipe_));
+			memset(read_pipe_, 0, sizeof(read_pipe_));
+			//error_pipe_
+			memset(error_pipe_, 0, sizeof(error_pipe_));
+			pid_ = 0;
+
+			if( pipe(write_pipe_) ==-1|| pipe(read_pipe_) == -1
+				|| pipe(error_pipe_) == -1)
+			{
+				CloseAllPipe();
+				return false;
+			}
+			//失败返回-1；成功返回：① 父进程返回子进程的ID(非负) ②子进程返回 0
+			
+			pid_ = fork();
+			if (pid_ == -1)
+			{
+				return false;
+			}
+			//子进程
+			else if (pid_ == 0)
+			{	
+				//获得Cmd FullPath
+				char  strShellPath[] = "/usr/bin/bash";
+				if (NULL == shell)
+				{
+					shell = strShellPath;
+				}
+				printf("shell %s\n", shell);
+
+				char  strCmd[] = "sh";
+				if (NULL == command)
+				{
+					command = strCmd;
+				}
+				printf("command %s\n", command);
+
+				/*char buff[100];
+				scanf("%s", buff);
+				printf("buff:%s\n", buff);*/
+
+				//重定向句柄
+				dup2(write_pipe_[0], STDIN_FILENO);
+				dup2(read_pipe_[1], STDOUT_FILENO);
+				dup2(error_pipe_[1], STDERR_FILENO);
+				
+				close(write_pipe_[1]);
+				close(read_pipe_[0]);
+				close(error_pipe_[0]);
+				write_pipe_[1] = 0;
+				read_pipe_[0] = 0;
+				error_pipe_[0] = 0;
+				//printf("shell %s\n", shell);
+				//popen
+				//子进程里加载ls程序
+				//dup2(fd,STDOUT_FILENO);//重定向stdout到fd指向的文件
+
+				char* argvv[] = { "", "-c","", NULL };
+				argvv[0] = (char*)shell;
+				argvv[2] = (char*)command;
+				//printf("1 shell %s\n", shell);
+				//execve(shell, argvv,NULL);
+				//execvp(shell, argvv);
+				execlp("sh","-c","ls -l", NULL);
+				//printf("2 shell %s\n", shell);
+				perror("execve");   
+				//只有execl函数执行失败的情况下才有机会执行这两句代码，执行的成功话就有去无回了。
+				exit(127);	
+			}
+			//父进程
+			else
+			{
+				close(write_pipe_[0]);
+				write_pipe_[0] = 0;
+				close(read_pipe_[1]);
+				read_pipe_[1] = 0;
+				close(error_pipe_[1]);
+				error_pipe_[1] = 0;
+				
+				return true;
+			}
+		}
+		bool _Stop(bool forced)
+		{
+			if (forced)
+			{
+				////强制关闭
+				//if (pid_)
+				//{
+				//	StdIn("exit", strlen("exit"));//指令退出
+				//}
+				return _Stop(false);
+			}
+			else
+			{
+				if (pid_)
+				{
+					StdIn("exit", strlen("exit"));//指令退出
+				}
+				//返回码
+				if (pid_)
+				{
+					int exitcode = 0;
+					waitpid(pid_, &exitcode,0);
+					exit_code_ = exitcode;
+				}
+				CloseAllPipe();
+				return true;
+			}
+		}
+		//标准输入
+		bool _StdIn(const char*data, unsigned int len)
+		{
+			if (NULL == data || len == 0)
+			{
+				//参数异常
+				return false;
+			}
+			if (!WaitTimeOut(write_pipe_[1], 10, true))
+			{
+				//没有可读的数据
+				//return false;
+			}
+			return write(write_pipe_[1], data, len)!=-1;
+		}
+		int _ReadStdError(char*buff, unsigned int buff_len)
+		{
+			return _ReadPipe(error_pipe_[0], buff, buff_len);
+		}
+		int _ReadStdOut(char*buff, unsigned int buff_len)
+		{
+			return _ReadPipe(read_pipe_[0], buff, buff_len);
+		}
+
+		int _ReadPipe(int fd, char* buff, unsigned int buff_len)
+		{
+			if (fd <= 0 || NULL == buff || buff_len == 0)
+			{
+				//参数异常
+				return 0;
+			}
+			if (!WaitTimeOut(fd, 10, true))
+			{
+				//没有可读的数据
+				return 0;
+			}
+			return read(fd, buff, buff_len);
+		}
+		void ClosePipe(int pipe[2])
+		{
+			if (pipe[0] > 0)
+				close(pipe[0]);
+			pipe[0] = 0;
+			if (pipe[1] > 0)
+				close(pipe[1]);
+			pipe[1] = 0;
+		}
+		void CloseAllPipe()
+		{
+			ClosePipe(write_pipe_);
+			ClosePipe(read_pipe_);
+			ClosePipe(error_pipe_);
+		}
+
+		//等待 fd 是否有数据
+		//参考 Socket.hpp
+		bool WaitTimeOut(int fd,int wait_ms,bool is_read)
+		{
+		
+			struct timeval tv, * p = NULL;
+			if (wait_ms >= 0)
+			{
+				tv.tv_sec = wait_ms / 1000;
+				tv.tv_usec = (wait_ms % 1000) * 1000;
+				p = &tv;
+			}
+
+			fd_set fds;
+			FD_ZERO(&fds);
+			FD_SET(fd, &fds);
+
+			int ret = -1;
+			if (is_read)
+			{
+				ret = select(fd + 1, &fds, NULL, NULL, p);
+			}
+			else
+			{
+				ret = select(fd + 1, NULL, &fds, NULL, p);
+			}
+
+			if (ret < 0)
+			{
+				return false;
+			}
+			else if (ret == 0)
+			{
+				return false;
+			}
+
+
+			if (FD_ISSET(fd, &fds))  //如果有输入，从stdin中获取输入字符  
+			{
+				//事件完成
+				return true;
+			}
+			//不应该在这里
+			return false;
+		}
+	private:
+		//1->0
+		int write_pipe_[2];
+		int read_pipe_[2];
+		int error_pipe_[2];
+
+		//子进程id
+		pid_t pid_;
 #endif
 	private:
 		bool isStop_;
