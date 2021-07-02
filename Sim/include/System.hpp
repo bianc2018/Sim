@@ -82,6 +82,12 @@ namespace sim
 				return false;
 			return _StdIn(data, len);
 		}
+		bool StdInEnd()
+		{
+			if (IsStoped())
+				return false;
+			return _StdInEnd();
+		}
 		int ReadStdOut(char*buff, unsigned int buff_len)
 		{
 			if (IsStoped())
@@ -225,6 +231,12 @@ namespace sim
 		{
 			unsigned long lBytesWrite=0;//读写数量存放变量
 			return TRUE==WriteFile(this_write_, data, len, &lBytesWrite, NULL);//后续可以加到Async
+		}
+		bool _StdInEnd()
+		{
+			if (IsStoped())
+				return false;
+			return _StdIn("\r\n", 2);
 		}
 		int _ReadStdError(char*buff, unsigned int buff_len)
 		{
@@ -391,9 +403,9 @@ namespace sim
 				argvv[0] = (char*)shell;
 				argvv[2] = (char*)command;
 				//printf("1 shell %s\n", shell);
-				//execve(shell, argvv,NULL);
+				execve(shell, argvv,NULL);
 				//execvp(shell, argvv);
-				execlp("sh","-c","ls -l", NULL);
+				//execl("/usr/bin/sh","sh",/*"-c","echo hello",*/ NULL);
 				//printf("2 shell %s\n", shell);
 				perror("execve");   
 				//只有execl函数执行失败的情况下才有机会执行这两句代码，执行的成功话就有去无回了。
@@ -421,13 +433,15 @@ namespace sim
 				//{
 				//	StdIn("exit", strlen("exit"));//指令退出
 				//}
+				if (pid_)
+					kill(pid_,SIGKILL);//强制关闭
 				return _Stop(false);
 			}
 			else
 			{
 				if (pid_)
 				{
-					StdIn("exit", strlen("exit"));//指令退出
+					StdIn("exit\n", strlen("exit\n"));//指令退出
 				}
 				//返回码
 				if (pid_)
@@ -435,6 +449,7 @@ namespace sim
 					int exitcode = 0;
 					waitpid(pid_, &exitcode,0);
 					exit_code_ = exitcode;
+					pid_ = 0;
 				}
 				CloseAllPipe();
 				return true;
@@ -448,12 +463,18 @@ namespace sim
 				//参数异常
 				return false;
 			}
-			if (!WaitTimeOut(write_pipe_[1], 10, true))
+			if (!WaitTimeOut(write_pipe_[1], 10, false))
 			{
-				//没有可读的数据
-				//return false;
+				//没有可写的数据
+				return false;
 			}
 			return write(write_pipe_[1], data, len)!=-1;
+		}
+		bool _StdInEnd()
+		{
+			if (IsStoped())
+				return false;
+			return _StdIn("\n",1);
 		}
 		int _ReadStdError(char*buff, unsigned int buff_len)
 		{
@@ -539,6 +560,8 @@ namespace sim
 			//不应该在这里
 			return false;
 		}
+
+
 	private:
 		//1->0
 		int write_pipe_[2];

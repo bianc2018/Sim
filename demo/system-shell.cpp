@@ -13,22 +13,35 @@ int main(int argc, char *argv[])
 	while (true)
 	{
 		//Sleep(1000);
-		//shell.StdIn("\r\n", strlen("\r\n"));
 		int read_len = shell.ReadStdOut(buff, buff_size);
+		if(read_len<=0)
+			read_len =shell.ReadStdError(buff, buff_size);
 		if (read_len > 0)
 		{
 			if(read_len< buff_size)
 				buff[read_len] = '\0';
-			printf("-- %s", buff);
+			printf("%s", buff);
 		}
 		else
 		{
 			memset(buff, 0, buff_size);
-			scanf("%s", buff);
+			for(int i=0;i<buff_size;++i)
+			{
+				char c = getchar();
+				//printf("%c\n", c);
+				//channel->Send(input + "\n");
+				if (c == '\n' || c == '\t')
+				{
+					
+					buff[i] = '\0';
+					break;
+				}
+				buff[i] = c;
+			}
 			if (0 == strcmp("stop", buff))
 				break;
 			shell.StdIn(buff, strlen(buff));
-			shell.StdIn("\r\n", strlen("\r\n"));
+			shell.StdInEnd();
 		}
 	}
 
