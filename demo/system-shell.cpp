@@ -3,16 +3,20 @@
 
 int main(int argc, char *argv[])
 {
+	//signal(SIGPIPE, SIG_IGN);
+
 	/*char* argvv[] = { "/usr/bin/bash", "-c","", NULL };
 	execvp("/usr/bin/bash", argvv);
 	getchar();*/
 	sim::SystemShell shell;
-	shell.Start(NULL, NULL/*, NULL, "/c ipconfig"*/);
+	shell.Start(NULL, NULL,NULL,"ls -l");
 	const int buff_size = 4 * 1024;
 	char buff[buff_size] = { 0 };
 	while (true)
 	{
-		//Sleep(1000);
+#ifdef OS_WINDOWS
+		Sleep(1000);
+#endif
 		int read_len = shell.ReadStdOut(buff, buff_size);
 		if(read_len<=0)
 			read_len =shell.ReadStdError(buff, buff_size);

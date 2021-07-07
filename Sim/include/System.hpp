@@ -354,8 +354,12 @@ namespace sim
 				CloseAllPipe();
 				return false;
 			}
+
+			/*struct sigaction sa;
+			sa.sa_handler = SIG_IGN;
+			sigaction(SIGPIPE, &sa, 0);*/
+
 			//失败返回-1；成功返回：① 父进程返回子进程的ID(非负) ②子进程返回 0
-			
 			pid_ = fork();
 			if (pid_ == -1)
 			{
@@ -414,6 +418,8 @@ namespace sim
 			//父进程
 			else
 			{
+				signal(SIGPIPE, SIG_IGN);
+
 				close(write_pipe_[0]);
 				write_pipe_[0] = 0;
 				close(read_pipe_[1]);
@@ -458,7 +464,7 @@ namespace sim
 		//标准输入
 		bool _StdIn(const char*data, unsigned int len)
 		{
-			if (NULL == data || len == 0)
+			if (NULL == data || len == 0||0== write_pipe_[1])
 			{
 				//参数异常
 				return false;
@@ -468,7 +474,12 @@ namespace sim
 				//没有可写的数据
 				return false;
 			}
-			return write(write_pipe_[1], data, len)!=-1;
+			if (-1 == write(write_pipe_[1], data, len))
+			{
+				ClosePipe(write_pipe_);
+				return false;
+			}
+			return true;
 		}
 		bool _StdInEnd()
 		{
