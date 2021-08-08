@@ -4,13 +4,14 @@
 #ifndef SIM_JSON_HPP_
 #define SIM_JSON_HPP_
 #include <string>
-#ifndef NOT_USE_SIM_REF_OBJECT
-#include "RefObject.hpp"
-#endif // !USING_SIM_REF_OBJECT
-
 
 namespace sim
 {
+	//声明前置
+	struct JsonArrayNode;
+	class JsonArray;
+	class JsonObject;
+
     enum JsonObjectType
     {
         JSON_NULL,
@@ -21,38 +22,48 @@ namespace sim
         JSON_OBJECT,
     };
 
-    typedef bool JsonBool;
+	//重命名
     typedef double JsonNumber;
     typedef std::string JsonString;
-
-    class JsonObject;
-
-#ifndef NOT_USE_SIM_REF_OBJECT
-    typedef sim::RefObject<JsonObject> JsonObjectPtr;
-#else
-    typedef JsonObject* JsonObjectPtr;
-#endif // !USING_SIM_REF_OBJECT
+	typedef JsonArrayNode* JsonArrayNodePtr;
+	typedef JsonObject* JsonObjectPtr;
 
     struct JsonArrayNode
     {
         JsonObjectPtr ptr;
         JsonArrayNode* next;
     };
-    typedef JsonArrayNode* JsonArrayNodePtr;
+    
 
     class JsonArray
     {
+	public:
+		JsonArray();
+		~JsonArray();
+
     public:
-        //末尾追加
+        //追加
+		bool AddHead(JsonObjectPtr ptr);
         bool Append(JsonObjectPtr ptr);
-        //指定位置后面插入，找不到返回错误
+        
+		//指定位置后面插入，找不到返回错误
         bool Insert(JsonObjectPtr ptr, const int after_index);
         bool Insert(JsonObjectPtr ptr, const JsonString& after_name);
-        //覆盖
+        
+		//覆盖
         bool Replace(JsonObjectPtr ptr,const int index);
         bool Replace(JsonObjectPtr ptr, const JsonString& name);
+
+		//删除
+		bool Del(const int index);
+		bool Del(const JsonString& name);
+
+		//清空
+		bool Clear();
+
         //遍历接口pre前一个，NULL 返回头节点
         JsonArrayNodePtr Next(JsonArrayNodePtr* pre=NULL);
+
         //返回大小
         unsigned int Size();
 
@@ -69,7 +80,11 @@ namespace sim
             ptr->next = NULL;
             ptr->ptr = NULL;
         }
-
+		//回收节点
+		void DeleteNode(JsonArrayNodePtr ptr)
+		{
+			delete ptr;
+		}
     private:
         JsonArrayNodePtr pbeg_;
     };
@@ -88,14 +103,5 @@ namespace sim
         JsonNumber number_;
         JsonString string_;
     };
-
-    class Json
-    {
-    public:
-        JsonObjectPtr CreateEmpty();//创建一个空的
-        JsonObjectPtr Create(JsonNumber val);//创建一个空的
-        JsonObjectPtr Create(JsonNumber val);//创建一个空的
-    };
-
 }
 #endif
