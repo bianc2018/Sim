@@ -37,6 +37,7 @@ namespace sim
 
 	class JsonArray
 	{
+		friend class JsonObject;
 	public:
 		JsonArray();
 		~JsonArray();
@@ -58,7 +59,7 @@ namespace sim
 		bool Del(const int index);
 		bool Del(const JsonString& name);
 
-		//清空
+		//清空子节点
 		bool Clear();
 
 		//遍历接口pre前一个，NULL 返回头节点
@@ -83,10 +84,11 @@ namespace sim
 
 	class JsonObject
 	{
+		friend class JsonArray;
 		//
-		JsonObject(JsonObjectType t= JSON_NULL) :type(t), number(0.0) {}
+		JsonObject(JsonObjectType t= JSON_NULL) :type_(t), number_(0.0) {}
 	public:
-		~JsonObject() {};
+		~JsonObject();
 	public:
 		//API
 		//新建一个空的对象
@@ -104,6 +106,39 @@ namespace sim
 		//从文件中加载
 		static JsonObjectPtr ReadFile(const JsonString&filename);
 		bool SaveFile(const JsonString & filename,bool f = true);
+	public:
+		//重置对象
+		bool Reset();
+		//重置值为空
+		bool ResetValue();
+		//数据接口
+		JsonString GetName();
+		void SetName(const JsonString&str);
+
+		//获取数值，会自动转换类型
+		/*template<typename T>
+		T GetValue();
+		template<typename T>
+		void SetValue(const T&t);*/
+
+		//对象类型 
+		JsonObjectType GetType();
+		//设置类型 if type!=JSON_NULL&&reset=false return false
+		bool SetType(JsonObjectType t, bool reset = false);
+
+		//获取字符串 if type == JSON_STRING
+		JsonString GetString();
+		// if type!=JSON_STRING&&reset=false return false
+		bool SetString(const JsonString& str, bool reset = false);
+
+		JsonNumber GetNumber();
+		bool SetNumber(const JsonNumber& num, bool reset = false);
+
+		bool GetBoolen();
+		bool SetBoolen(const bool& b, bool reset = false);
+
+		//判断是否为 NULL
+		bool IsNull();
 	public:
 		bool ArrayAddItem(JsonObjectPtr ptr);
 		bool ArrayAddString(const JsonString&str);
@@ -127,14 +162,15 @@ namespace sim
 		bool Del(const int index);
 		bool Del(const JsonString& name);
 
-		//清空
-		bool Clear();
+		//清空子节点
+		bool ClearChilds();
 
 		//返回大小
 		unsigned int Size();
 
 		JsonObjectPtr operator[](const int index);
 		JsonObjectPtr operator[](const JsonString& name);
+
 	private:
 		bool Parser(const char*pdata, unsigned int len, unsigned int &offset);
 		bool ParserName(const char*pdata, unsigned int len, unsigned int &offset);
@@ -160,17 +196,17 @@ namespace sim
 					res += s[i];
 			return res;
 		}
-	public:
+	private:
 		//名称
-		JsonString name;
+		JsonString name_;
 		//子项
-		JsonArray childs;
+		JsonArray childs_;
 		//类型
-		JsonObjectType type;
+		JsonObjectType type_;
 		//JSON_BOOL,JSON_NUMBER,
-		JsonNumber number;
+		JsonNumber number_;
 		//JSON_STRING
-		JsonString str;
+		JsonString string_;
 	};
 
 	//JsonArray
@@ -295,7 +331,7 @@ namespace sim
 		JsonArrayNodePtr iter = Next(pre);
 		while (iter != NULL)
 		{
-			if (iter->ptr && name == iter->ptr->name)
+			if (iter->ptr && name == iter->ptr->name_)
 			{
 				if (pre)
 				{
@@ -323,6 +359,7 @@ namespace sim
 			iter = Next(temp);
 			DeleteNode(temp);
 		}
+		pbeg_ = NULL;
 		return true;
 	}
 
@@ -382,7 +419,7 @@ namespace sim
 		JsonArrayNodePtr iter = Next(NULL);
 		while (iter != NULL)
 		{
-			if (iter->ptr&&name == iter->ptr->name)
+			if (iter->ptr&&name == iter->ptr->name_)
 				return iter;
 			iter = Next(iter);
 		}
@@ -403,8 +440,13 @@ namespace sim
 		if (ptr && ptr->ptr)
 		{
 			JsonObject::Free(ptr->ptr);
-			delete ptr;
+			//delete ptr;
 		}
+	}
+
+	inline JsonObject::~JsonObject()
+	{
+		Reset();
 	}
 
 	//JsonObject
@@ -419,22 +461,22 @@ namespace sim
 	inline JsonObjectPtr JsonObject::NewString(const JsonString & str)
 	{
 		JsonObjectPtr p= new JsonObject(JSON_STRING);
-		p->str = str;
+		p->string_ = str;
 		return p;
 	}
 	inline JsonObjectPtr JsonObject::NewNumber(const JsonNumber & number)
 	{
 		JsonObjectPtr p = new JsonObject(JSON_NUMBER);
-		p->number = number;
+		p->number_ = number;
 		return p;
 	}
 	inline JsonObjectPtr JsonObject::NewBoolen(bool b)
 	{
 		JsonObjectPtr p = new JsonObject(JSON_BOOL);
 		if(b)
-			p->number = 1;
+			p->number_ = 1;
 		else
-			p->number = 0;
+			p->number_ = 0;
 		return p;
 	}
 	inline void JsonObject::Free(JsonObjectPtr ptr)
@@ -468,16 +510,16 @@ namespace sim
 				start += tab;
 		}
 		JsonString json= start;
-		if (!name.empty())
-			json += "\"" + name + "\""+ space +":"+ space;
+		if (!name_.empty())
+			json += "\"" + name_ + "\""+ space +":"+ space;
 
-		switch (type)
+		switch (type_)
 		{
 		case sim::JSON_NULL:
 			break;
 		case sim::JSON_BOOL:
 		{
-			if (number == 0)
+			if (number_ == 0)
 				json += "false";
 			else
 				json += "true";
@@ -487,38 +529,38 @@ namespace sim
 		{
 			const int buff_size = 256;
 			char buff[buff_size] = { 0 };
-			if (floor(number + 0.5) == number)
+			if (floor(number_ + 0.5) == number_)
 			{
 				//整数
-				snprintf(buff, buff_size, "%lld", static_cast<long long>(number));
+				snprintf(buff, buff_size, "%lld", static_cast<long long>(number_));
 
 			}
 			else
 			{
 				//浮点数
-				snprintf(buff, buff_size, "%lf", number);
+				snprintf(buff, buff_size, "%lf", number_);
 			}
 			json += buff;
 			break;
 		}
 		case sim::JSON_STRING:
 		{
-			json += "\""+str+"\"";
+			json += "\""+string_+"\"";
 			break;
 		}
 		case sim::JSON_ARRAY:
 		case sim::JSON_OBJECT:
 		{
-			if (!name.empty())
+			if (!name_.empty())
 				json += crlf;
 
 			bool isFirst = true;
-			if (type == JSON_ARRAY)
+			if (type_ == JSON_ARRAY)
 				json += start+ "[" + crlf;
 			else
 				json += start+ "{" + crlf;
 
-			JsonArrayNodePtr iter = childs.Next(NULL);
+			JsonArrayNodePtr iter = childs_.Next(NULL);
 			while (iter != NULL)
 			{
 				if (isFirst)
@@ -530,9 +572,9 @@ namespace sim
 				{
 					json +=","+ crlf +iter->ptr->Print(f, w+1);
 				}
-				iter = childs.Next(iter);
+				iter = childs_.Next(iter);
 			}
-			if (type == JSON_ARRAY)
+			if (type_ == JSON_ARRAY)
 				json += crlf+start+"]";
 			else
 				json += crlf + start +"}";
@@ -582,6 +624,137 @@ namespace sim
 		return true;
 	}
 
+	inline bool JsonObject::Reset()
+	{
+		name_ = "";
+		return ResetValue();
+	}
+
+	inline bool JsonObject::ResetValue()
+	{
+		//类型
+		type_ = JSON_NULL;
+		//JSON_BOOL,JSON_NUMBER,
+		number_ = 0.0;
+		string_ = "";
+		return ClearChilds();
+	}
+
+	inline JsonString JsonObject::GetName()
+	{
+		return name_;
+	}
+
+	inline void JsonObject::SetName(const JsonString& str)
+	{
+		name_ = str;
+	}
+
+	inline JsonObjectType JsonObject::GetType()
+	{
+		return type_;
+	}
+
+	inline bool JsonObject::SetType(JsonObjectType t, bool reset)
+	{
+		if (t == type_)
+			return true;
+		if (!IsNull())
+		{
+			if (reset)
+			{
+				ResetValue();
+			}
+			return false;
+		}
+		else
+		{
+			type_ = t;
+			return true;
+		}
+		
+	}
+
+	inline JsonString JsonObject::GetString()
+	{
+		if(type_ !=JSON_STRING)
+			return JsonString();
+		return string_;
+	}
+
+	inline bool JsonObject::SetString(const JsonString& str, bool reset)
+	{
+		if (type_ == JSON_NULL)
+			type_ = JSON_STRING;
+		if (type_ != JSON_STRING)
+		{
+			if (reset)
+			{
+				ResetValue();
+				return SetString(str, false);
+			}
+			return false;
+		}
+		string_ = str;
+		return true;
+	}
+
+	inline JsonNumber JsonObject::GetNumber()
+	{
+		if (type_ != JSON_NUMBER)
+			return 0.0;
+		return number_;
+	}
+
+	inline bool JsonObject::SetNumber(const JsonNumber& num, bool reset)
+	{
+		if (type_ == JSON_NULL)
+			type_ = JSON_NUMBER;
+		if (type_ != JSON_NUMBER)
+		{
+			if (reset)
+			{
+				ResetValue();
+				return SetNumber(num, false);
+			}
+			return false;
+		}
+		number_ = num;
+		return true;
+	}
+
+	inline bool JsonObject::GetBoolen()
+	{
+		if (type_ != JSON_BOOL)
+			return false;
+		return number_!=0.0;//非0为true
+	}
+
+	inline bool JsonObject::SetBoolen(const bool& b, bool reset)
+	{
+		if (type_ == JSON_NULL)
+			type_ = JSON_BOOL;
+		if (type_ != JSON_BOOL)
+		{
+			if (reset)
+			{
+				ResetValue();
+				return SetBoolen(b, false);
+			}
+			return false;
+		}
+		if (b)
+			number_ = 1;
+		else
+			number_ = 0.0;
+		return true;
+	}
+
+	inline bool JsonObject::IsNull()
+	{
+		return type_ == JSON_NULL;
+	}
+
 	inline bool JsonObject::ArrayAddItem(JsonObjectPtr ptr)
 	{
 		return ObjectAddObject("",ptr);
@@ -604,17 +777,17 @@ namespace sim
 
 	inline bool JsonObject::ObjectAddObject(const JsonString&name, JsonObjectPtr ptr)
 	{
-		if (type == JSON_ARRAY)
+		if (type_ == JSON_ARRAY)
 		{
-			ptr->name = "";
-			return childs.Append(ptr);
+			ptr->name_ = "";
+			return childs_.Append(ptr);
 		}
-		else if (type == JSON_OBJECT)
+		else if (type_ == JSON_OBJECT)
 		{
 			if (name.empty())
 				return false;
-			ptr->name = name;
-			return childs.Append(ptr);
+			ptr->name_ = name;
+			return childs_.Append(ptr);
 		}
 		else
 		{
@@ -631,65 +804,65 @@ namespace sim
 	inline bool JsonObject::ObjectAddNumber(const JsonString & name, const JsonNumber & number)
 	{
 		JsonObjectPtr ptr = NewNumber(number);
-		ptr->name = name;
+		ptr->name_ = name;
 		return ObjectAddObject(name, ptr);
 	}
 
 	inline bool JsonObject::ObjectAddBoolen(const JsonString & name, bool b)
 	{
 		JsonObjectPtr ptr = NewBoolen(b);
-		ptr->name = name;
+		ptr->name_ = name;
 		return ObjectAddObject(name, ptr);
 	}
 
 	inline bool JsonObject::AddHead(JsonObjectPtr ptr)
 	{
-		return childs.AddHead(ptr);
+		return childs_.AddHead(ptr);
 	}
 
 	inline bool JsonObject::Append(JsonObjectPtr ptr)
 	{
-		return childs.Append(ptr);
+		return childs_.Append(ptr);
 	}
 
 	inline bool JsonObject::Replace(JsonObjectPtr ptr, const int index)
 	{
-		return childs.Replace(ptr, index);
+		return childs_.Replace(ptr, index);
 	}
 
 	inline bool JsonObject::Replace(JsonObjectPtr ptr, const JsonString & name)
 	{
-		return childs.Replace(ptr, name);
+		return childs_.Replace(ptr, name);
 	}
 
 	inline bool JsonObject::Del(const int index)
 	{
-		return childs.Del(index);
+		return childs_.Del(index);
 	}
 
 	inline bool JsonObject::Del(const JsonString & name)
 	{
-		return childs.Del(name);
+		return childs_.Del(name);
 	}
 
-	inline bool JsonObject::Clear()
+	inline bool JsonObject::ClearChilds()
 	{
-		return childs.Clear();
+		return childs_.Clear();
 	}
 
 	inline unsigned int JsonObject::Size()
 	{
-		return childs.Size();
+		return childs_.Size();
 	}
 
 	inline JsonObjectPtr JsonObject::operator[](const int index)
 	{
-		return childs[index];
+		return childs_[index];
 	}
 
 	inline JsonObjectPtr JsonObject::operator[](const JsonString & name)
 	{
-		return childs[name];
+		return childs_[name];
 	}
 
 	inline bool JsonObject::Parser(const char * pdata, unsigned int len, unsigned int & offset)
@@ -712,7 +885,7 @@ namespace sim
 			//结束了，是空的
 			if (pdata[offset] == ',' || pdata[offset] == '}' || pdata[offset] == ']')
 			{
-				type = JSON_NULL;
+				type_ = JSON_NULL;
 				return true;
 			}
 			return ParserValue(pdata, len, offset);
@@ -725,7 +898,7 @@ namespace sim
 
 	inline bool JsonObject::ParserName(const char * pdata, unsigned int len, unsigned int & offset)
 	{
-		return FindStringEnd(pdata, len, offset, '"', name);
+		return FindStringEnd(pdata, len, offset, '"', name_);
 	}
 
 	inline bool JsonObject::ParserValue(const char * pdata, unsigned int len, unsigned int & offset)
@@ -738,34 +911,34 @@ namespace sim
 		if (start == '{')
 		{
 			offset++;
-			type = JSON_OBJECT;
+			type_ = JSON_OBJECT;
 			return ParserChilds(pdata, len, offset, false);
 		}
 		else if (start == '[')
 		{
 			offset++;
-			type = JSON_ARRAY;
+			type_ = JSON_ARRAY;
 			return  ParserChilds(pdata, len, offset, true);
 		}
 		else if (start == '"')
 		{
 			offset++;
-			type = JSON_STRING;
-			return  FindStringEnd(pdata, len, offset, '"', str);
+			type_ = JSON_STRING;
+			return  FindStringEnd(pdata, len, offset, '"', string_);
 		}
 		else if ((start >= '0'&&start <= '9') || start == '-' || start == '+')//数值
 		{
-			type = JSON_NUMBER;
-			return  ParserNumber(pdata, len, offset, number);
+			type_ = JSON_NUMBER;
+			return  ParserNumber(pdata, len, offset, number_);
 		}
 		else if (start == 'T' || start == 't' || start == 'F' || start == 'f')//数值
 		{
-			type = JSON_BOOL;
-			return  ParserBoolen(pdata, len, offset, number);
+			type_ = JSON_BOOL;
+			return  ParserBoolen(pdata, len, offset, number_);
 		}
 		else if (start == 'N' || start == 'n')//数值
 		{
-			type = JSON_NULL;
+			type_ = JSON_NULL;
 			return  ParserNull(pdata, len, offset);
 		}
 		return false;
@@ -787,7 +960,7 @@ namespace sim
 			{
 				++offset;
 				JsonObjectPtr child = NewObject();
-				childs.Append(child);
+				childs_.Append(child);
 				if (false == child->Parser(pdata, len, offset))
 					return false;
 			}

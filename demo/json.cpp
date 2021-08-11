@@ -4,6 +4,7 @@ int main(int argc, char *argv[])
 {
 	sim::JsonObjectPtr ptr=sim::JsonObject::NewObject();
 
+	//ptr->ObjectAddString("string", "value");
 	ptr->ObjectAddString("string", "value");
 	ptr->ObjectAddNumber("double", 0.0000001);
 	ptr->ObjectAddNumber("int", 1);
@@ -22,6 +23,7 @@ int main(int argc, char *argv[])
 	child2->ArrayAddNumber(2);
 	child2->ArrayAddNumber(2.2);
 	child2->ArrayAddNumber(23);
+	child2->SetString("child2", true);
 
 	ptr->SaveFile("test.json", true);
 
