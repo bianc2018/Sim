@@ -1,34 +1,55 @@
 #include "Json.hpp"
+struct MyStruct
+{
+public:
+	double num;
+	std::string  helloword;
+public:
+	//序列化函数
+	template<typename archive>
+	bool JsonSerializeFunc(archive& ar, bool isSerialize)
+	{
+		if (false == ar.Serialize("num", num, isSerialize, true))
+			return false;
+		if (false == ar.Serialize("helloword", helloword, isSerialize, true))
+			return false;
+		return true;
+	}
+};
 
+struct MyStruct2
+{
+public:
+	int num;
+	std::string  helloword;
+	MyStruct mystruct;
+public:
+	//序列化函数
+	template<typename archive>
+	bool JsonSerializeFunc(archive& ar, bool isSerialize)
+	{
+		if (false == ar.Serialize("num", num, isSerialize, true))
+			return false;
+		if (false == ar.Serialize("helloword", helloword, isSerialize, true))
+			return false;
+		if (false == ar.Serialize("mystruct", mystruct, isSerialize, true))
+			return false;
+		return true;
+	}
+};
 int main(int argc, char *argv[])
 {
 	sim::JsonObjectPtr ptr=sim::JsonObject::NewObject();
-
-	//ptr->ObjectAddString("string", "value");
-	ptr->ObjectAddString("string", "value");
-	ptr->ObjectAddNumber("double", 0.0000001);
-	ptr->ObjectAddNumber("int", 1);
-	ptr->ObjectAddBoolen("bool", true);
-	
-	sim::JsonObjectPtr child1 = sim::JsonObject::NewObject();
-	ptr->ObjectAddObject("child1", child1);
-	child1->ObjectAddString("string", "value");
-	child1->ObjectAddNumber("double", 0.0000001);
-	child1->ObjectAddNumber("int", 1);
-	child1->ObjectAddBoolen("bool", true);
-
-	sim::JsonObjectPtr child2 = sim::JsonObject::NewArray();
-	ptr->ObjectAddObject("child2", child2);
-	child2->ArrayAddNumber(1);
-	child2->ArrayAddNumber(2);
-	child2->ArrayAddNumber(2.2);
-	child2->ArrayAddNumber(23);
-	child2->SetString("child2", true);
-
+	MyStruct2 t;
+	t.helloword = "aaa";
+	t.num = 100;
+	t.mystruct.helloword = "hellow";
+	t.mystruct.num = 20.1234567;
+	ptr->Serialize(t);
 	ptr->SaveFile("test.json", true);
 
 	sim::JsonObject::Free(ptr);
-	ptr = sim::JsonObject::ReadFile("test.json");
+	
 	return 0;
 }
 
