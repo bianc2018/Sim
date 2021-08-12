@@ -4,7 +4,7 @@
 #ifndef SIM_JSON_HPP_
 #define SIM_JSON_HPP_
 #include <string>
-
+#include <vector>
 namespace sim
 {
 	//声明前置
@@ -92,6 +92,7 @@ namespace sim
 	public:
 		//API
 		//新建一个空的对象
+		static JsonObjectPtr NewNull();
 		static JsonObjectPtr NewObject();
 		static JsonObjectPtr NewArray();
 		static JsonObjectPtr NewString(const JsonString&json);
@@ -106,6 +107,14 @@ namespace sim
 		//从文件中加载
 		static JsonObjectPtr ReadFile(const JsonString&filename);
 		bool SaveFile(const JsonString & filename,bool f = true);
+
+		//结构到JSON
+		template<typename T>
+		bool Serialize(T&t);
+
+		//JSON到结构
+		template<typename T>
+		bool DeSerialize(T&t);
 	public:
 		//重置对象
 		bool Reset();
@@ -208,6 +217,229 @@ namespace sim
 		//JSON_STRING
 		JsonString string_;
 	};
+
+	//序列化
+	namespace serialize
+	{
+		template<typename T>
+		bool SerializeValueFormJson(JsonObjectPtr pjson, T& t, bool isSerialize);
+
+		template<typename T>
+		bool SerializeValueFormJsonNum(JsonObjectPtr pjson, T& t, bool isSerialize);
+
+		bool SerializeValueFormJson(JsonObjectPtr pjson, bool& t, bool isSerialize);
+		bool SerializeValueFormJson(JsonObjectPtr pjson, int& t, bool isSerialize);
+		bool SerializeValueFormJson(JsonObjectPtr pjson, unsigned& t, bool isSerialize);
+		bool SerializeValueFormJson(JsonObjectPtr pjson, long& t, bool isSerialize);
+		bool SerializeValueFormJson(JsonObjectPtr pjson, unsigned long& t, bool isSerialize);
+		bool SerializeValueFormJson(JsonObjectPtr pjson, float& t, bool isSerialize);
+		bool SerializeValueFormJson(JsonObjectPtr pjson, double& t, bool isSerialize);
+		bool SerializeValueFormJson(JsonObjectPtr pjson, std::string& t, bool isSerialize);
+		template<typename T>
+		bool SerializeValueFormJson(JsonObjectPtr pjson, std::vector<T>& arrs, bool isSerialize);
+		//序列化函数
+		template<typename archive, typename T>
+		bool JsonSerializeFunc(archive& ar, T& t, bool isSerialize);
+
+		//序列化
+		class JsonSerialize
+		{
+		public:
+			JsonSerialize(JsonObjectPtr ref) :ptr_(ref), json_object_is_release_(false) {};
+			JsonSerialize() :ptr_(JsonObject::NewObject()), json_object_is_release_(true) {};
+			~JsonSerialize() { if (ptr_&&json_object_is_release_)JsonObject::Free(ptr_); }
+			//序列化接口
+			template<typename T>
+			bool& Serialize(const JsonString&key,T&t, bool isSerialize, bool isMust);
+			template<typename T>
+			bool& Serialize(T&t, bool isSerialize);
+		private:
+			JsonObjectPtr ptr_;
+			bool json_object_is_release_;
+		};
+		
+		template<typename T>
+		inline bool & JsonSerialize::Serialize(const JsonString & key, T & t, bool isSerialize,bool isMust)
+		{
+			// TODO: 在此处插入 return 语句
+			if (NULL == ptr_)
+				return false;
+			JsonObjectPtr childs = NULL;
+			if (isSerialize)
+			{
+				//转换为字符串
+				childs = JsonObject::NewNull();
+				if (NULL == childs)
+					return false;
+				ptr_->ObjectAddObject(childs);
+				childs->SetName(key);
+				
+			}
+			else
+			{
+				childs = ptr_[key];
+				if (NULL == childs)
+				{
+					if (isMust)
+						return false;
+					else
+						return true;
+				}
+			}
+			
+			return SerializeValueFormJson(childs, t, isSerialize);
+		}
+
+		template<typename T>
+		inline bool & JsonSerialize::Serialize(T & t, bool isSerialize)
+		{
+			// TODO: 在此处插入 return 语句
+			return JsonSerializeFunc(*this, t, isSerialize);
+		}
+
+		template<typename T>
+		bool SerializeValueFormJson(JsonObjectPtr pjson, T & t, bool isSerialize)
+		{
+			JsonSerialize ar(pjson);
+			return ar.Serialize(t,isSerialize);
+		}
+
+		template<typename T>
+		bool SerializeValueFormJsonNum(JsonObjectPtr pjson, T & t, bool isSerialize)
+		{
+			if (isSerialize)
+			{
+				pjson->SetType(JSON_NUMBER, true);
+				pjson->SetNumber(static_cast<double>(t));
+				return true;
+			}
+			else
+			{
+				if (pjson->GetType() == JSON_NUMBER)
+				{
+					t = static_cast<T>(pjson->GetNumber());
+					return true;
+				}
+			}
+			return false;
+		}
+
+		bool SerializeValueFormJson(JsonObjectPtr pjson, bool & t, bool isSerialize)
+		{
+			if (isSerialize)
+			{
+				pjson->SetType(JSON_BOOL, true);
+				pjson->SetBoolen(t);
+				return true;
+			}
+			else
+			{
+				if (pjson->GetType() == JSON_BOOL)
+				{
+					t = pjson->GetBoolen();
+					return true;
+				}
+			}
+			return false;
+		}
+
+		bool SerializeValueFormJson(JsonObjectPtr pjson, int & t, bool isSerialize)
+		{
+			return SerializeValueFormJsonNum(pjson, t, isSerialize);
+		}
+
+		bool sim::serialize::SerializeValueFormJson(JsonObjectPtr pjson, unsigned & t, bool isSerialize)
+		{
+			return SerializeValueFormJsonNum(pjson, t, isSerialize);
+		}
+
+		bool sim::serialize::SerializeValueFormJson(JsonObjectPtr pjson, long & t, bool isSerialize)
+		{
+			return SerializeValueFormJsonNum(pjson, t, isSerialize);
+		}
+
+		bool sim::serialize::SerializeValueFormJson(JsonObjectPtr pjson, unsigned long & t, bool isSerialize)
+		{
+			return SerializeValueFormJsonNum(pjson, t, isSerialize);
+		}
+
+		bool sim::serialize::SerializeValueFormJson(JsonObjectPtr pjson, float & t, bool isSerialize)
+		{
+			return SerializeValueFormJsonNum(pjson, t, isSerialize);
+		}
+
+		bool sim::serialize::SerializeValueFormJson(JsonObjectPtr pjson, double & t, bool isSerialize)
+		{
+			return SerializeValueFormJsonNum(pjson, t, isSerialize);
+		}
+
+		bool sim::serialize::SerializeValueFormJson(JsonObjectPtr pjson, std::string & t, bool isSerialize)
+		{
+			if (isSerialize)
+			{
+				pjson->SetType(JSON_STRING, true);
+				pjson->SetString(t);
+				return true;
+			}
+			else
+			{
+				if (pjson->GetType() == JSON_NUMBER)
+				{
+					t = pjson->GetString();
+					return true;
+				}
+			}
+			return false;
+		}
+
+		template<typename T>
+		bool SerializeValueFormJson(JsonObjectPtr pjson, std::vector<T>& arrs, bool isSerialize)
+		{
+			if (isSerialize)
+			{
+				pjson->SetType(JSON_ARRAY, true);
+				size_t size = arrs.size();
+				for (int i = 0; i < size; ++i)
+				{
+					JsonObjectPtr item = JsonObject::NewNull();
+					if (false == SerializeValueFormJson(item, arrs[i], isSerialize))
+					{
+						JsonObject::Free(item);
+						return false;
+					}
+					pjson->ArrayAddItem(item);
+				}
+				return true;
+			}
+			else
+			{
+				if (pjson->GetType() == JSON_ARRAY)
+				{
+					size_t size = pjson->Size();
+					for (int i = 0; i < size; ++i)
+					{
+						T temp;
+						if (false == SerializeValueFormJson(pjson->operator[](i), temp, isSerialize))
+						{
+							return false;
+						}
+						arrs.push_back(temp);
+					}
+					return true;
+				}
+			}
+			return false;
+		}
+
+		template<typename archive, typename T>
+		bool JsonSerializeFunc(archive & ar, T & t, bool isSerialize)
+		{
+			return t.JsonSerializeFunc(ar, isSerialize);
+		}
+
+
+		//定义通用接口
+	}
 
 	//JsonArray
 	inline JsonArray::JsonArray() :pbeg_(NULL)
@@ -447,6 +679,11 @@ namespace sim
 	inline JsonObject::~JsonObject()
 	{
 		Reset();
+	}
+
+	inline JsonObjectPtr JsonObject::NewNull()
+	{
+		return new JsonObject(JSON_NULL);
 	}
 
 	//JsonObject
@@ -1068,5 +1305,21 @@ namespace sim
 		return false;
 	}
 	
+	template<typename T>
+	inline bool JsonObject::Serialize(T & t)
+	{
+		Reset();
+
+		serialize::JsonSerialize ar(this);
+		return ar.Serialize(t, true);
+	}
+
+	template<typename T>
+	inline bool JsonObject::DeSerialize(T & t)
+	{
+		serialize::JsonSerialize ar(this);
+		return ar.Serialize(t, false);
+	}
+
 }
 #endif
