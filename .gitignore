@@ -15,3 +15,10 @@ _deps
 /CMakeSettings.json
 /Sim/include/HttpParser.h
 /Sim/include/openssl
+/doc/libssh2-master-0525
+/doc/win-sshd-master
+/doc/libssh2-master-0525.zip
+/doc/ssh-rfc.rar
+/doc/win-sshd-master(1).zip
+/res/WWW
+/res/CMakeLists.txt
