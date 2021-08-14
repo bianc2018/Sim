@@ -11,6 +11,7 @@ public:
 	double num;
 	std::string  helloword;
 	MyEnum enums;
+	std::vector<std::string> strs;
 public:
 };
 
@@ -18,6 +19,7 @@ SIM_DEF_JSON_SERIALIZE_STRUCT(MyStruct)
     SIM_JSON_SERIALIZE_VALUE_2(num)
 	SIM_JSON_SERIALIZE_VALUE_2(helloword)
 	SIM_JSON_SERIALIZE_VALUE_2(enums)
+	SIM_JSON_SERIALIZE_VALUE_2(strs)
 SIM_DEF_JSON_SERIALIZE_STRUCT_END(MyStruct)
 
 struct MyStruct2
@@ -56,7 +58,7 @@ int main(int argc, char *argv[])
 	ptr->DeSerialize(t);
 
 	t.num += 1000;
-
+	t.mystruct.strs = { "11", "22", "33" };
 	ptr->Serialize(t);
 
 	ptr->SaveFile("test.json", true);

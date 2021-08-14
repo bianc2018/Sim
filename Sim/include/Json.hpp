@@ -1465,6 +1465,7 @@ namespace sim
 		return false;
 	}
 	
+	//序列化，结构体到JSON
 	template<typename T>
 	inline bool JsonObject::Serialize(T & t)
 	{
@@ -1474,9 +1475,14 @@ namespace sim
 		return ar.Serialize(t, true);
 	}
 
+	//反序列化，JSON到结构体
 	template<typename T>
 	inline bool JsonObject::DeSerialize(T & t)
 	{
+		//OBJECT才可以反序列化其他不可以。
+		if (type_ != JSON_OBJECT)
+			return false;
+
 		serialize::JsonSerialize ar(this);
 		return ar.Serialize(t, false);
 	}
