@@ -96,11 +96,10 @@ namespace sim
 	class JsonArray
 	{
 		friend class JsonObject;
-	public:
 		JsonArray();
-		~JsonArray();
-
+		~JsonArray();		
 	public:
+		bool CopyTo(JsonArray&arr);
 		//追加
 		bool AddHead(JsonObjectPtr ptr);
 		bool Append(JsonObjectPtr ptr);
@@ -158,6 +157,9 @@ namespace sim
 		static JsonObjectPtr NewBoolen(bool b);
 		static void Free(JsonObjectPtr ptr);
 		
+		//拷贝；
+		static JsonObjectPtr Copy(JsonObjectPtr src);
+
 		//解析json数据字符串，失败返回空
 		static JsonObjectPtr Parser(const JsonString&json);
 		JsonString Print(bool f=true,unsigned w=0);
@@ -174,6 +176,8 @@ namespace sim
 		template<typename T>
 		bool DeSerialize(T&t);
 	public:
+		JsonObjectPtr Copy();
+
 		//重置对象
 		bool Reset();
 		//重置值为空
@@ -839,6 +843,22 @@ namespace sim
 		return new JsonObject(JSON_NULL);
 	}
 
+	inline bool JsonArray::CopyTo(JsonArray& arr)
+	{
+		arr.Clear();
+
+		JsonArrayNodePtr iter = Next(NULL);
+		while (iter != NULL)
+		{
+			JsonObjectPtr newit = iter->ptr->Copy();
+			if (NULL == newit)
+				return false;
+			arr.Append(newit);
+			iter = Next(iter);
+		}
+		return true;
+	}
+
 	//JsonObject
 	inline JsonObjectPtr JsonObject::NewObject()
 	{
@@ -1487,6 +1507,51 @@ namespace sim
 		return ar.Serialize(t, false);
 	}
 
+	inline JsonObjectPtr JsonObject::Copy()
+	{
+		JsonObjectPtr ptr = NewNull();
+		if (NULL == ptr)
+			return NULL;
+		ptr->SetType(type_, true);
+		ptr->SetName(name_);
+
+		switch (type_)
+		{
+		case sim::JSON_NULL:
+			break;
+		case sim::JSON_BOOL:
+		{
+			ptr->SetBoolen(GetBoolen());
+			break;
+		}
+		case sim::JSON_NUMBER:
+		{
+			ptr->SetNumber(GetNumber());
+			break;
+		}
+		case sim::JSON_STRING:
+		{
+			ptr->SetString(GetString());
+			break;
+		}
+		case sim::JSON_ARRAY:
+		case sim::JSON_OBJECT:
+		{
+			if (false == childs_.CopyTo(ptr->childs_))
+			{
+				Free(ptr);
+				return NULL;
+			}
+			break;
+		}
+		default:
+		{
+			Free(ptr);
+			return NULL;
+		}
+		}
+		return ptr;
+	}
 }
 
 

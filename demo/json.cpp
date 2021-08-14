@@ -50,20 +50,25 @@ public:
 
 int main(int argc, char *argv[])
 {
-	//sim::JsonObjectPtr ptr=sim::JsonObject::NewObject();
-	sim::JsonObjectPtr ptr = sim::JsonObject::ReadFile("test.json");
+	sim::JsonObjectPtr ptr=sim::JsonObject::NewObject();
+	//sim::JsonObjectPtr ptr = sim::JsonObject::ReadFile("test.json");
 
 	MyStruct2 t;
-	
-	ptr->DeSerialize(t);
-
-	t.num += 1000;
-	t.mystruct.strs = { "11", "22", "33" };
+	t.helloword = "hhh";
+	t.num =12345;
+	t.mystruct.enums = E1;
+	t.mystruct.helloword = "aaa";
+	t.mystruct.num = 10011;
+	t.mystruct.strs = { "t1","t","t3","t4" };
 	ptr->Serialize(t);
 
-	ptr->SaveFile("test.json", true);
 
+	ptr->SaveFile("test.json", true);
+	sim::JsonObjectPtr ptr1 = ptr->Copy();
 	sim::JsonObject::Free(ptr);
+	ptr1->SaveFile("test1.json", true);
+	sim::JsonObject::Free(ptr1);
+	
 	
 	return 0;
 }
