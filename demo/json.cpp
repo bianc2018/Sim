@@ -59,7 +59,10 @@ int main(int argc, char *argv[])
 	t.mystruct.enums = E1;
 	t.mystruct.helloword = "aaa";
 	t.mystruct.num = 10011;
-	t.mystruct.strs = { "t1","t","t3","t4" };
+	t.mystruct.strs.push_back("t1"); //= std::vector<sim::JsonString>({ "t1","t","t3","t4" });
+	t.mystruct.strs.push_back("t1");
+	t.mystruct.strs.push_back("t1");
+	t.mystruct.strs.push_back("t1");
 	ptr->Serialize(t);
 
 

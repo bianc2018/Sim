@@ -3,6 +3,10 @@
 */
 #ifndef SIM_JSON_HPP_
 #define SIM_JSON_HPP_
+#include <math.h>
+#include <stdio.h> 
+#include <stdlib.h>
+
 #include <string>
 #include <sstream>
 #include <vector>
@@ -24,17 +28,17 @@ bool SerializeValueFormJson(sim::JsonObjectPtr pjson, type & t, bool isSerialize
    SIM_DEF_JSON_SERIALIZE_TYPE(type)\
         int temp=0;\
         if(isSerialize) temp=(int)(t);\
-        bool ret=sim::serialize::SerializeValueFormJson(pjson, temp,sim::JsonObjectType::JSON_NUMBER, isSerialize);\
+        bool ret=sim::serialize::SerializeValueFormJson(pjson, temp,sim::JSON_NUMBER, isSerialize);\
         if(!isSerialize) t=(type)(temp);\
         return ret;\
    SIM_DEF_JSON_SERIALIZE_TYPE_END(type)
 
 #define SIM_DEF_JSON_SERIALIZE_TYPE_AS_NUM(type)\
-   SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JsonObjectType::JSON_NUMBER)
+   SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JSON_NUMBER)
 #define SIM_DEF_JSON_SERIALIZE_TYPE_AS_BOOL(type)\
-   SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JsonObjectType::JSON_BOOL)
+   SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JSON_BOOL)
 #define SIM_DEF_JSON_SERIALIZE_TYPE_AS_STR(type)\
-   SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JsonObjectType::JSON_STRING)
+   SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JSON_STRING)
 
 //定义序列化函数 在结构体外部
 #define SIM_DEF_JSON_SERIALIZE_STRUCT(type) \
