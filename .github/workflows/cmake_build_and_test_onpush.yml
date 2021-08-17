@@ -11,6 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+    - name: run-vcpkg
+      uses: lukka/run-vcpkg@v7.4
+    - run: |
+        $VCPKG_ROOT/vcpkg install openssl
     - name: cmake
       run: cmake .
     - name: make
@@ -22,7 +26,10 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v2
-    - uses: actions/checkout@v2
+    - name: run-vcpkg
+      uses: lukka/run-vcpkg@v7.4
+    - run: |
+        $VCPKG_ROOT/vcpkg install openssl
     - name: cmake
       run: cmake .
     - name: make
