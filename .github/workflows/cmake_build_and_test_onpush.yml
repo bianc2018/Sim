@@ -1,4 +1,4 @@
-name: C/C++ CI
+name: cmake_build_and_test_onpush
 
 on:
   push:
@@ -11,24 +11,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - name: configure
-      run: ./configure
+    - name: cmake
+      run: cmake .
     - name: make
       run: make
-    - name: make check
-      run: make check
-    - name: make distcheck
-      run: make distcheck
+    - name: make test
+      run: make test
   
   build_windows:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v2
-    - name: configure
-      run: ./configure
+    - uses: actions/checkout@v2
+    - name: cmake
+      run: cmake .
     - name: make
       run: make
-    - name: make check
-      run: make check
-    - name: make distcheck
-      run: make distcheck
+    - name: make test
+      run: make test
