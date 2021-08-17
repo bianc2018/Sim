@@ -42,7 +42,7 @@ jobs:
       shell: bash
       # Execute the build.  You can specify a specific target with "--target <NAME>"
       #run: cmake --build . --config $BUILD_TYPE
-      run :make
+      run: make
 
     - name: Test
       working-directory: ${{runner.workspace}}/build
@@ -51,4 +51,4 @@ jobs:
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
 
       #run: ctest -C -V $BUILD_TYPE 
-      run :make test
+      run: make test
