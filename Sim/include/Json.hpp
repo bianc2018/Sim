@@ -899,6 +899,13 @@ namespace sim
 			delete ptr;
 	}
 
+	inline JsonObjectPtr JsonObject::Copy(JsonObjectPtr src)
+	{
+		if (src)
+			return src->Copy();
+		return NULL;
+	}
+
 	inline JsonObjectPtr JsonObject::Parser(const JsonString & json)
 	{
 		JsonObjectPtr ptr = JsonObject::NewObject();
@@ -1366,7 +1373,7 @@ namespace sim
 			if (offset >= len)
 				return false;
 
-			if (pdata[offset] == '}')
+			if (pdata[offset] == '}'|| pdata[offset] == ']')
 			{
 				return true;
 			}
