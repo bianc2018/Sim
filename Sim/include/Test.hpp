@@ -184,7 +184,7 @@ namespace sim
 	inline int UnitTest::run(int argc, char * argv[])
 	{
 		TestCaseNode *pt = pStart;
-		int test_case_size = 0;
+		int test_case_size = 1;
 		while (pt)
 		{
 			if (pt->pCase)
@@ -229,6 +229,7 @@ namespace sim
 	{
 		if (tcase)
 		{
+			++test_case_size_;
 			TestCaseNode *pt = pStart;
 			if (NULL == pt)
 			{
@@ -240,7 +241,6 @@ namespace sim
 				pt = pt->pNext;
 			}
 			pt->pNext = new TestCaseNode(tcase);
-			++test_case_size_;
 			return true;
 		}
 		else
