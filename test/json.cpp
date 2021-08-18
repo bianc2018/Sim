@@ -32,4 +32,10 @@ SIM_TEST(JsonNew)
 	SIM_TEST_IS_EQUAL(JSON_ARRAY, ptr->GetType());
 	JsonObject::Free(ptr);
 }
+
+//½âÎö
+SIM_TEST(JsonParser)
+{
+	sim::JsonString json = "{}";
+}
 SIM_TEST_MAIN(sim::noisy)
