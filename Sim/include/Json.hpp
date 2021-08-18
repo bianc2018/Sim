@@ -246,6 +246,8 @@ namespace sim
 		JsonObjectPtr operator[](const int index);
 		JsonObjectPtr operator[](const JsonString& name);
 
+		JsonObjectPtr FindByIndex(int index);
+		JsonObjectPtr FindByName(const JsonString& name);
 	private:
 		bool Parser(const char*pdata, unsigned int len, unsigned int &offset);
 		bool ParserName(const char*pdata, unsigned int len, unsigned int &offset);
@@ -1286,6 +1288,16 @@ namespace sim
 		return childs_[name];
 	}
 
+	inline JsonObjectPtr JsonObject::FindByIndex(int index)
+	{
+		return childs_[index];
+	}
+
+	inline JsonObjectPtr JsonObject::FindByName(const JsonString & name)
+	{
+		return childs_[name];
+	}
+
 	inline bool JsonObject::Parser(const char * pdata, unsigned int len, unsigned int & offset)
 	{
 		SkipSpace(pdata, len, offset);
@@ -1373,29 +1385,30 @@ namespace sim
 			if (offset >= len)
 				return false;
 
-			if (pdata[offset] == '}'|| pdata[offset] == ']')
-			{
-				return true;
-			}
-			else if (pdata[offset] == ',')
+			if (pdata[offset] == '}')
 			{
 				++offset;
-				JsonObjectPtr child = NewObject();
-				childs_.Append(child);
-				if (false == child->Parser(pdata, len, offset))
-					return false;
+				if(false == isArrays)
+					return true;
 			}
-			else if (pdata[offset] == '\"')
+			else if (pdata[offset] == ']')
 			{
-				JsonObjectPtr child = NewObject();
-				childs_.Append(child);
-				if (false == child->Parser(pdata, len, offset))
-					return false;
+				++offset;
+				if (true == isArrays)
+					return true;
 			}
 			else
 			{
-				return false;
+				if (pdata[offset] == ',')
+				{
+					++offset;
+				}
+				JsonObjectPtr child = NewObject();
+				childs_.Append(child);
+				if (false == child->Parser(pdata, len, offset))
+					return false;
 			}
+			
 		}
 		return false;
 	}
