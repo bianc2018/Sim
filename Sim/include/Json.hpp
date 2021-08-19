@@ -11,73 +11,6 @@
 #include <sstream>
 #include <vector>
 
-//实用的JSON序列化定义宏
-#define SIM_DEF_JSON_SERIALIZE_TYPE(type) namespace sim{namespace serialize{\
-bool SerializeValueFormJson(sim::JsonObjectPtr pjson, type & t, bool isSerialize)\
-{
-
-#define SIM_DEF_JSON_SERIALIZE_TYPE_END(type) \
-}}}
-
-#define SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,jsontype)\
-   SIM_DEF_JSON_SERIALIZE_TYPE(type)\
-        return sim::serialize::SerializeValueFormJson(pjson, t,jsontype, isSerialize);\
-   SIM_DEF_JSON_SERIALIZE_TYPE_END(type)
-
-#define SIM_DEF_JSON_SERIALIZE_TYPE_AS_ENUM(type)\
-   SIM_DEF_JSON_SERIALIZE_TYPE(type)\
-        int temp=0;\
-        if(isSerialize) temp=(int)(t);\
-        bool ret=sim::serialize::SerializeValueFormJson(pjson, temp,sim::JSON_NUMBER, isSerialize);\
-        if(!isSerialize) t=(type)(temp);\
-        return ret;\
-   SIM_DEF_JSON_SERIALIZE_TYPE_END(type)
-
-#define SIM_DEF_JSON_SERIALIZE_TYPE_AS_NUM(type)\
-   SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JSON_NUMBER)
-
-#define SIM_DEF_JSON_SERIALIZE_TYPE_AS_BOOL(type)\
-   SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JSON_BOOL)
-
-#define SIM_DEF_JSON_SERIALIZE_TYPE_AS_STR(type)\
-   SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JSON_STRING)
-
-//定义序列化函数 在结构体外部
-#define SIM_DEF_JSON_SERIALIZE_STRUCT(type) \
-template<typename archive>\
-bool JsonSerializeFunc(archive& ar, type& t, bool isSerialize)\
-{
-
-#define SIM_JSON_SERIALIZE_VALUE(name,value,ismust)\
-	if (false == ar.Serialize(name, t.value, isSerialize, ismust))\
-	    return false;
-
-#define SIM_JSON_SERIALIZE_VALUE_1(name,ismust) SIM_JSON_SERIALIZE_VALUE(#name,name,ismust)
-
-#define SIM_JSON_SERIALIZE_VALUE_2(name) SIM_JSON_SERIALIZE_VALUE_1(name,true)
-
-#define SIM_DEF_JSON_SERIALIZE_STRUCT_END(type) \
-       return true;\
-}
-
-//定义序列化函数 在结构体内部
-#define SIM_DEF_JSON_SERIALIZE_IN_STRUCT() \
-template<typename archive>\
-bool JsonSerializeFunc(archive& ar, bool isSerialize)\
-{
-
-#define SIM_JSON_SERIALIZE_VALUE_IN_STRUCT(name,value,ismust)\
-	if (false == ar.Serialize(name, value, isSerialize, ismust))\
-	    return false;
-
-#define SIM_JSON_SERIALIZE_VALUE_IN_STRUCT_1(name,ismust) SIM_JSON_SERIALIZE_VALUE_IN_STRUCT(#name,name,ismust)
-
-#define SIM_JSON_SERIALIZE_VALUE_IN_STRUCT_2(name) SIM_JSON_SERIALIZE_VALUE_IN_STRUCT_1(name,true)
-
-#define SIM_DEF_JSON_SERIALIZE_IN_STRUCT_END() \
-       return true;\
-}
-
 namespace sim
 {
 	//声明前置
@@ -1626,4 +1559,71 @@ bool JsonSerializeFunc(archive & ar, T & t, bool isSerialize)
 	return t.JsonSerializeFunc(ar, isSerialize);
 }
 
+//实用的JSON序列化定义宏
+#define SIM_DEF_JSON_SERIALIZE_TYPE(type) \
+bool SerializeValueFormJson(sim::JsonObjectPtr pjson, type & t, bool isSerialize)\
+{
+
+#define SIM_DEF_JSON_SERIALIZE_TYPE_END(type) \
+}
+
+
+#define SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,jsontype)\
+   SIM_DEF_JSON_SERIALIZE_TYPE(type)\
+        return sim::serialize::SerializeValueFormJson(pjson, t,jsontype, isSerialize);\
+   SIM_DEF_JSON_SERIALIZE_TYPE_END(type)
+
+#define SIM_DEF_JSON_SERIALIZE_TYPE_AS_ENUM(type)\
+   SIM_DEF_JSON_SERIALIZE_TYPE(type)\
+        int temp=0;\
+        if(isSerialize) temp=(int)(t);\
+        bool ret=sim::serialize::SerializeValueFormJson(pjson, temp,sim::JSON_NUMBER, isSerialize);\
+        if(!isSerialize) t=(type)(temp);\
+        return ret;\
+   SIM_DEF_JSON_SERIALIZE_TYPE_END(type)
+
+#define SIM_DEF_JSON_SERIALIZE_TYPE_AS_NUM(type)\
+   SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JSON_NUMBER)
+
+#define SIM_DEF_JSON_SERIALIZE_TYPE_AS_BOOL(type)\
+   SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JSON_BOOL)
+
+#define SIM_DEF_JSON_SERIALIZE_TYPE_AS_STR(type)\
+   SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JSON_STRING)
+
+//定义序列化函数 在结构体外部
+#define SIM_DEF_JSON_SERIALIZE_STRUCT(type) \
+template<typename archive>\
+bool JsonSerializeFunc(archive& ar, type& t, bool isSerialize)\
+{
+
+#define SIM_JSON_SERIALIZE_VALUE(name,value,ismust)\
+	if (false == ar.Serialize(name, t.value, isSerialize, ismust))\
+	    return false;
+
+#define SIM_JSON_SERIALIZE_VALUE_1(name,ismust) SIM_JSON_SERIALIZE_VALUE(#name,name,ismust)
+
+#define SIM_JSON_SERIALIZE_VALUE_2(name) SIM_JSON_SERIALIZE_VALUE_1(name,true)
+
+#define SIM_DEF_JSON_SERIALIZE_STRUCT_END(type) \
+       return true;\
+}
+
+//定义序列化函数 在结构体内部
+#define SIM_DEF_JSON_SERIALIZE_IN_STRUCT() \
+template<typename archive>\
+bool JsonSerializeFunc(archive& ar, bool isSerialize)\
+{
+
+#define SIM_JSON_SERIALIZE_VALUE_IN_STRUCT(name,value,ismust)\
+	if (false == ar.Serialize(name, value, isSerialize, ismust))\
+	    return false;
+
+#define SIM_JSON_SERIALIZE_VALUE_IN_STRUCT_1(name,ismust) SIM_JSON_SERIALIZE_VALUE_IN_STRUCT(#name,name,ismust)
+
+#define SIM_JSON_SERIALIZE_VALUE_IN_STRUCT_2(name) SIM_JSON_SERIALIZE_VALUE_IN_STRUCT_1(name,true)
+
+#define SIM_DEF_JSON_SERIALIZE_IN_STRUCT_END() \
+       return true;\
+}
 #endif
