@@ -64,6 +64,12 @@
   + WebSocketParser.hpp
 
     websocket协议解析器。
+  + Json.hpp
+
+    Json解析器与序列化模块。
+  + AsyncSSH.hpp
+
+    异步的SSH协议模块，目前实现了基于SSHv2的协议握手。
  
    
 ## 安装配置
