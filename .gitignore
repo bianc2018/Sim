@@ -22,3 +22,5 @@ _deps
 /doc/win-sshd-master(1).zip
 /res/WWW
 /res/CMakeLists.txt
+/out
+/CMakePresets.json
