@@ -12,12 +12,12 @@
 #include <vector>
 
 //实用的JSON序列化定义宏
-#define SIM_DEF_JSON_SERIALIZE_TYPE(type) \
+#define SIM_DEF_JSON_SERIALIZE_TYPE(type) namespace sim{namespace serialize{\
 bool SerializeValueFormJson(sim::JsonObjectPtr pjson, type & t, bool isSerialize)\
 {
 
 #define SIM_DEF_JSON_SERIALIZE_TYPE_END(type) \
-}
+}}}
 
 #define SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,jsontype)\
    SIM_DEF_JSON_SERIALIZE_TYPE(type)\
@@ -35,8 +35,10 @@ bool SerializeValueFormJson(sim::JsonObjectPtr pjson, type & t, bool isSerialize
 
 #define SIM_DEF_JSON_SERIALIZE_TYPE_AS_NUM(type)\
    SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JSON_NUMBER)
+
 #define SIM_DEF_JSON_SERIALIZE_TYPE_AS_BOOL(type)\
    SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JSON_BOOL)
+
 #define SIM_DEF_JSON_SERIALIZE_TYPE_AS_STR(type)\
    SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,sim::JSON_STRING)
 
@@ -45,11 +47,15 @@ bool SerializeValueFormJson(sim::JsonObjectPtr pjson, type & t, bool isSerialize
 template<typename archive>\
 bool JsonSerializeFunc(archive& ar, type& t, bool isSerialize)\
 {
+
 #define SIM_JSON_SERIALIZE_VALUE(name,value,ismust)\
 	if (false == ar.Serialize(name, t.value, isSerialize, ismust))\
 	    return false;
+
 #define SIM_JSON_SERIALIZE_VALUE_1(name,ismust) SIM_JSON_SERIALIZE_VALUE(#name,name,ismust)
+
 #define SIM_JSON_SERIALIZE_VALUE_2(name) SIM_JSON_SERIALIZE_VALUE_1(name,true)
+
 #define SIM_DEF_JSON_SERIALIZE_STRUCT_END(type) \
        return true;\
 }
@@ -59,14 +65,19 @@ bool JsonSerializeFunc(archive& ar, type& t, bool isSerialize)\
 template<typename archive>\
 bool JsonSerializeFunc(archive& ar, bool isSerialize)\
 {
+
 #define SIM_JSON_SERIALIZE_VALUE_IN_STRUCT(name,value,ismust)\
 	if (false == ar.Serialize(name, value, isSerialize, ismust))\
 	    return false;
+
 #define SIM_JSON_SERIALIZE_VALUE_IN_STRUCT_1(name,ismust) SIM_JSON_SERIALIZE_VALUE_IN_STRUCT(#name,name,ismust)
+
 #define SIM_JSON_SERIALIZE_VALUE_IN_STRUCT_2(name) SIM_JSON_SERIALIZE_VALUE_IN_STRUCT_1(name,true)
+
 #define SIM_DEF_JSON_SERIALIZE_IN_STRUCT_END() \
        return true;\
 }
+
 namespace sim
 {
 	//声明前置
@@ -89,7 +100,18 @@ namespace sim
 	typedef std::string JsonString;
 	typedef JsonArrayNode* JsonArrayNodePtr;
 	typedef JsonObject* JsonObjectPtr;
+}
 
+//序列化数值函数 外放
+template<typename T>
+bool SerializeValueFormJson(sim::JsonObjectPtr pjson, T& t, bool isSerialize);
+
+//序列化函数
+template<typename archive, typename T>
+bool JsonSerializeFunc(archive& ar, T& t, bool isSerialize);
+
+namespace sim
+{
 	struct JsonArrayNode
 	{
 		JsonObjectPtr ptr;
@@ -293,9 +315,6 @@ namespace sim
 		template<typename SrcType, typename DstType>
 		bool TypeCast(const SrcType &t1, DstType &t2);
 
-		template<typename T>
-		bool SerializeValueFormJson(JsonObjectPtr pjson, T& t, bool isSerialize);
-
 		//自动转换
 		template<typename T>
 		bool SerializeValueFormJson(JsonObjectPtr pjson, T& t, JsonObjectType jsontype, bool isSerialize);
@@ -304,18 +323,20 @@ namespace sim
 		bool SerializeValueFormJsonNum(JsonObjectPtr pjson, T& t, bool isSerialize);
 
 		bool SerializeValueFormJson(JsonObjectPtr pjson, bool& t, bool isSerialize);
+		bool SerializeValueFormJson(JsonObjectPtr pjson, char& t, bool isSerialize);
+		bool SerializeValueFormJson(JsonObjectPtr pjson, unsigned char& t, bool isSerialize);
 		bool SerializeValueFormJson(JsonObjectPtr pjson, int& t, bool isSerialize);
 		bool SerializeValueFormJson(JsonObjectPtr pjson, unsigned& t, bool isSerialize);
 		bool SerializeValueFormJson(JsonObjectPtr pjson, long& t, bool isSerialize);
 		bool SerializeValueFormJson(JsonObjectPtr pjson, unsigned long& t, bool isSerialize);
 		bool SerializeValueFormJson(JsonObjectPtr pjson, float& t, bool isSerialize);
 		bool SerializeValueFormJson(JsonObjectPtr pjson, double& t, bool isSerialize);
+		bool SerializeValueFormJson(JsonObjectPtr pjson, long long& t, bool isSerialize);
+		bool SerializeValueFormJson(JsonObjectPtr pjson, unsigned long long& t, bool isSerialize);
 		bool SerializeValueFormJson(JsonObjectPtr pjson, std::string& t, bool isSerialize);
 		template<typename T>
 		bool SerializeValueFormJson(JsonObjectPtr pjson, std::vector<T>& arrs, bool isSerialize);
-		//序列化函数
-		template<typename archive, typename T>
-		bool JsonSerializeFunc(archive& ar, T& t, bool isSerialize);
+		
 
 		//序列化
 		class JsonSerialize
@@ -459,15 +480,6 @@ namespace sim
 		}
 
 		template<typename T>
-		bool SerializeValueFormJson(JsonObjectPtr pjson, T & t, bool isSerialize)
-		{
-			if (isSerialize)
-				pjson->SetType(JSON_OBJECT, true);
-			JsonSerialize ar(pjson);
-			return ar.Serialize(t,isSerialize);
-		}
-
-		template<typename T>
 		bool SerializeValueFormJsonNum(JsonObjectPtr pjson, T & t, bool isSerialize)
 		{
 			if (isSerialize)
@@ -506,6 +518,16 @@ namespace sim
 			return false;
 		}
 
+		bool SerializeValueFormJson(JsonObjectPtr pjson, char & t, bool isSerialize)
+		{
+			return SerializeValueFormJsonNum(pjson, t, isSerialize);
+		}
+
+		bool SerializeValueFormJson(JsonObjectPtr pjson, unsigned char & t, bool isSerialize)
+		{
+			return SerializeValueFormJsonNum(pjson, t, isSerialize);
+		}
+
 		bool SerializeValueFormJson(JsonObjectPtr pjson, int & t, bool isSerialize)
 		{
 			return SerializeValueFormJsonNum(pjson, t, isSerialize);
@@ -536,6 +558,16 @@ namespace sim
 			return SerializeValueFormJsonNum(pjson, t, isSerialize);
 		}
 
+		bool SerializeValueFormJson(JsonObjectPtr pjson, long long & t, bool isSerialize)
+		{
+			return SerializeValueFormJsonNum(pjson, t, isSerialize);
+		}
+
+		bool SerializeValueFormJson(JsonObjectPtr pjson, unsigned long long & t, bool isSerialize)
+		{
+			return SerializeValueFormJsonNum(pjson, t, isSerialize);
+		}
+
 		bool SerializeValueFormJson(JsonObjectPtr pjson, std::string & t, bool isSerialize)
 		{
 			if (isSerialize)
@@ -546,7 +578,7 @@ namespace sim
 			}
 			else
 			{
-				if (pjson->GetType() == JSON_NUMBER)
+				if (pjson->GetType() == JSON_STRING)
 				{
 					t = pjson->GetString();
 					return true;
@@ -594,13 +626,7 @@ namespace sim
 			return false;
 		}
 
-		template<typename archive, typename T>
-		bool JsonSerializeFunc(archive & ar, T & t, bool isSerialize)
-		{
-			return t.JsonSerializeFunc(ar, isSerialize);
-		}
-
-
+		
 		//定义通用接口
 	}
 
@@ -1578,5 +1604,18 @@ namespace sim
 	}
 }
 
+template<typename T>
+bool SerializeValueFormJson(sim::JsonObjectPtr pjson, T & t, bool isSerialize)
+{
+	if (isSerialize)
+		pjson->SetType(sim::JSON_OBJECT, true);
+	sim::serialize::JsonSerialize ar(pjson);
+	return ar.Serialize(t, isSerialize);
+}
+template<typename archive, typename T>
+bool JsonSerializeFunc(archive & ar, T & t, bool isSerialize)
+{
+	return t.JsonSerializeFunc(ar, isSerialize);
+}
 
 #endif
