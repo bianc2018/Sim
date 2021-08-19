@@ -188,7 +188,8 @@ namespace sim
 
 		//解析json数据字符串，失败返回空
 		static JsonObjectPtr Parser(const JsonString&json);
-		JsonString Print(bool f=true,unsigned w=0);
+
+		JsonString Print(bool f=true);
 
 		//从文件中加载
 		static JsonObjectPtr ReadFile(const JsonString&filename);
@@ -271,6 +272,8 @@ namespace sim
 		JsonObjectPtr FindByIndex(int index);
 		JsonObjectPtr FindByName(const JsonString& name);
 	private:
+		JsonString PrintJson(bool f,unsigned w);
+
 		bool Parser(const char*pdata, unsigned int len, unsigned int &offset);
 		bool ParserName(const char*pdata, unsigned int len, unsigned int &offset);
 		//解析值
@@ -946,7 +949,12 @@ namespace sim
 		return NULL;
 	}
 
-	inline JsonString JsonObject::Print(bool f, unsigned w)
+	inline JsonString JsonObject::Print(bool f)
+	{
+		return PrintJson(f, 0);
+	}
+
+	inline JsonString JsonObject::PrintJson(bool f, unsigned w)
 	{
 		JsonString space,crlf,tab,start;
 		
@@ -1015,11 +1023,11 @@ namespace sim
 				if (isFirst)
 				{
 					isFirst = false;
-					json += iter->ptr->Print(f, w+1);
+					json += iter->ptr->PrintJson(f, w+1);
 				}
 				else
 				{
-					json +=","+ crlf +iter->ptr->Print(f, w+1);
+					json +=","+ crlf +iter->ptr->PrintJson(f, w+1);
 				}
 				iter = childs_.Next(iter);
 			}
