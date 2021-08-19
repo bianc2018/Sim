@@ -5,30 +5,37 @@ using namespace sim;
 //json 库测试
 SIM_TEST(JsonNew)
 {
+	
 	JsonObjectPtr ptr = JsonObject::NewNull();
+	SIM_ASSERT_IS_NOT_NULL(ptr);
 	SIM_TEST_IS_EQUAL(JSON_NULL, ptr->GetType());
 	JsonObject::Free(ptr);
 
 	ptr = JsonObject::NewBoolen(false);
+	SIM_ASSERT_IS_NOT_NULL(ptr);
 	SIM_TEST_IS_EQUAL(JSON_BOOL, ptr->GetType());
 	SIM_TEST_IS_EQUAL(false, ptr->GetBoolen());
 	JsonObject::Free(ptr);
 
 	ptr = JsonObject::NewNumber(0.1234567);
+	SIM_ASSERT_IS_NOT_NULL(ptr);
 	SIM_TEST_IS_EQUAL(JSON_NUMBER, ptr->GetType());
 	SIM_TEST_IS_EQUAL(0.1234567, ptr->GetNumber());
 	JsonObject::Free(ptr);
 
 	ptr = JsonObject::NewString("String");
+	SIM_ASSERT_IS_NOT_NULL(ptr);
 	SIM_TEST_IS_EQUAL(JSON_STRING, ptr->GetType());
 	SIM_TEST_IS_EQUAL("String", ptr->GetString());
 	JsonObject::Free(ptr);
 
 	ptr = JsonObject::NewObject();
+	SIM_ASSERT_IS_NOT_NULL(ptr);
 	SIM_TEST_IS_EQUAL(JSON_OBJECT, ptr->GetType());
 	JsonObject::Free(ptr);
 
 	ptr = JsonObject::NewArray();
+	SIM_ASSERT_IS_NOT_NULL(ptr);
 	SIM_TEST_IS_EQUAL(JSON_ARRAY, ptr->GetType());
 	JsonObject::Free(ptr);
 }
@@ -36,6 +43,7 @@ SIM_TEST(JsonNew)
 //解析
 SIM_TEST(JsonParser)
 {
+	using namespace sim;
 	JsonString json = "";
 	JsonObjectPtr ptr = JsonObject::Parser(json);
 	SIM_ASSERT_IS_NULL(ptr);
@@ -163,6 +171,251 @@ SIM_TEST(JsonParser)
 
 	SIM_TEST_IS_EQUAL(JSON_STRING, object6->GetType());
 	SIM_TEST_IS_EQUAL("object6", object6->GetString());
+
+	JsonObject::Free(ptr);
+}
+
+enum MyEnumTest1
+{
+	MyEnumTest1_999=999,
+	MyEnumTest1_444 = 444,
+	MyEnumTest1_0 = 0,
+};
+SIM_DEF_JSON_SERIALIZE_TYPE_AS_ENUM(MyEnumTest1);
+struct Test1chlids
+{
+	int val;
+public:
+	SIM_DEF_JSON_SERIALIZE_IN_STRUCT()
+		SIM_JSON_SERIALIZE_VALUE_IN_STRUCT_2(val)
+	SIM_DEF_JSON_SERIALIZE_IN_STRUCT_END()
+public:
+	//比较
+	bool operator != (const Test1chlids&t)
+	{
+		return val != t.val;
+	}
+};
+struct Test1
+{
+	bool bool_val;
+	char char_val;
+	unsigned char uchar_val;
+	int int_val;
+	unsigned int uint_val;
+	double double_val;
+	float float_val ;
+	size_t size_t_val;
+	long long_val;
+	long long llong_val;
+	unsigned long long ullong_val ;
+	std::string string_val;
+
+	MyEnumTest1 enum_val;
+	Test1chlids struct_val;
+	std::vector<Test1chlids> vec_val;
+	
+	Test1():bool_val(false)
+		, char_val(0)
+		, uchar_val(0)
+		, int_val(0)
+		, uint_val(0)
+		, double_val(0)
+		, float_val(0)
+		, size_t_val(0)
+		, long_val(0)
+		, llong_val(0)
+		, ullong_val(0)
+		, enum_val(MyEnumTest1_0)
+	{
+
+	}
+
+public:
+	//比较
+	bool operator == (const Test1&t)
+	{
+		if (bool_val != t.bool_val)
+			return false;
+		if (char_val != t.char_val)
+			return false;
+		if (uchar_val != t.uchar_val)
+			return false;
+		if (int_val != t.int_val)
+			return false;
+		if (uint_val != t.uint_val)
+			return false;
+		if (double_val != t.double_val)
+			return false;
+		if (float_val != t.float_val)
+			return false;
+		if (size_t_val != t.size_t_val)
+			return false;
+		if (long_val != t.long_val)
+			return false;
+		if (llong_val != t.llong_val)
+			return false;
+		if (ullong_val != t.ullong_val)
+			return false;
+		if (string_val != t.string_val)
+			return false;
+		if (enum_val != t.enum_val)
+			return false;
+		if (struct_val != t.struct_val)
+			return false;
+		if (vec_val.size() != t.vec_val.size())
+			return false;
+		for (int i = 0; i < vec_val.size(); ++i)
+			if (vec_val[i] != t.vec_val[i])
+				return false;
+		return true;
+	}
+};
+
+//SIM_DEF_JSON_SERIALIZE_TYPE_AS_NUM(char);
+//SIM_DEF_JSON_SERIALIZE_TYPE_AS_NUM(unsigned char);
+
+SIM_DEF_JSON_SERIALIZE_STRUCT(Test1)
+	SIM_JSON_SERIALIZE_VALUE_2(bool_val)
+	SIM_JSON_SERIALIZE_VALUE_2(char_val)
+	SIM_JSON_SERIALIZE_VALUE_2(uchar_val)
+	SIM_JSON_SERIALIZE_VALUE_2(int_val)
+	SIM_JSON_SERIALIZE_VALUE_2(uint_val)
+	SIM_JSON_SERIALIZE_VALUE_2(double_val)
+	SIM_JSON_SERIALIZE_VALUE_2(float_val)
+	SIM_JSON_SERIALIZE_VALUE_2(size_t_val)
+	SIM_JSON_SERIALIZE_VALUE_2(long_val)
+	SIM_JSON_SERIALIZE_VALUE_2(llong_val)
+	SIM_JSON_SERIALIZE_VALUE_2(ullong_val)
+	SIM_JSON_SERIALIZE_VALUE_2(string_val)
+	SIM_JSON_SERIALIZE_VALUE_2(enum_val)
+	SIM_JSON_SERIALIZE_VALUE_2(struct_val)
+	SIM_JSON_SERIALIZE_VALUE_2(vec_val)
+SIM_DEF_JSON_SERIALIZE_STRUCT_END(Test1)
+
+//序列化
+SIM_TEST(JsonSerialize)
+{
+	Test1 t2,t1;
+
+	//创建一个空的
+	JsonObjectPtr ptr = JsonObject::NewNull();
+	SIM_ASSERT_IS_NOT_NULL(ptr);
+	SIM_TEST_IS_EQUAL(JSON_NULL, ptr->GetType());
+
+	//初始化
+	t1.bool_val = true;
+	t1.char_val = 'A';
+	t1.double_val = -0.123456;
+	t1.enum_val = MyEnumTest1_444;
+	t1.float_val = 0.123;
+	t1.int_val = -1;
+	t1.llong_val = -123456;
+	t1.long_val = -11;
+	t1.size_t_val = 99999;
+	t1.string_val = "ni hao shijie";
+	t1.struct_val.val = 22;
+	t1.uchar_val = 32;
+	t1.uint_val = 10;
+	t1.ullong_val = 9999999;
+	Test1chlids temp;
+	temp.val = 10;
+	t1.vec_val.push_back(temp);
+	//序列化
+	SIM_TEST_IS_TRUE(ptr->Serialize(t1));
+
+	//对比值
+	JsonObjectPtr pobj = ptr->FindByName("bool_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_BOOL, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.bool_val, pobj->GetBoolen());
+
+	pobj = ptr->FindByName("char_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.char_val, (char)pobj->GetNumber());
+
+	pobj = ptr->FindByName("double_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.double_val, pobj->GetNumber());
+
+	pobj = ptr->FindByName("enum_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.enum_val, pobj->GetNumber());
+
+	pobj = ptr->FindByName("float_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.float_val, pobj->GetNumber());
+
+	pobj = ptr->FindByName("int_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.int_val, pobj->GetNumber());
+
+
+	pobj = ptr->FindByName("llong_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.llong_val, pobj->GetNumber());
+
+	pobj = ptr->FindByName("long_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.long_val, pobj->GetNumber());
+
+	pobj = ptr->FindByName("size_t_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.size_t_val, pobj->GetNumber());
+
+	pobj = ptr->FindByName("string_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_STRING, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.string_val, pobj->GetString());
+
+	pobj = ptr->FindByName("struct_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	JsonObjectPtr pobj1 = pobj->FindByName("val");
+	SIM_ASSERT_IS_NOT_NULL(pobj1);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj1->GetType());
+	SIM_TEST_IS_EQUAL(t1.struct_val.val, pobj1->GetNumber());
+
+	pobj = ptr->FindByName("uchar_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.uchar_val, (unsigned char)pobj->GetNumber());
+
+	pobj = ptr->FindByName("uint_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.uint_val, pobj->GetNumber());
+
+	pobj = ptr->FindByName("ullong_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.ullong_val, (unsigned long long)pobj->GetNumber());
+
+	pobj = ptr->FindByName("vec_val");
+	SIM_ASSERT_IS_NOT_NULL(pobj);
+	SIM_TEST_IS_EQUAL(JSON_ARRAY, pobj->GetType());
+	SIM_TEST_IS_EQUAL(t1.vec_val.size(), pobj->Size());
+	for (int i = 0; i < t1.vec_val.size(); ++i)
+	{
+		SIM_ASSERT_IS_NOT_NULL((*pobj)[i]);
+		JsonObjectPtr pobj2 = (*pobj)[i]->FindByName("val");
+		SIM_ASSERT_IS_NOT_NULL(pobj2);
+		SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj2->GetType());
+		SIM_TEST_IS_EQUAL(t1.vec_val[i].val, pobj2->GetNumber());
+	}
+
+	//反序列化
+	SIM_TEST_IS_TRUE(ptr->DeSerialize(t2));
+
+	//对比值
+	SIM_TEST_IS_TRUE(t1 == t2);
 
 	JsonObject::Free(ptr);
 }
