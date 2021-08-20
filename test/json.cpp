@@ -419,4 +419,27 @@ SIM_TEST(JsonSerialize)
 
 	JsonObject::Free(ptr);
 }
+
+//JSON´òÓ¡
+SIM_TEST(JsonPrint)
+{
+	JsonObjectPtr ptr = JsonObject::NewObject();
+	SIM_ASSERT_IS_NOT_NULL(ptr);
+	SIM_TEST_IS_EQUAL("{}", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("{\n\n}", ptr->Print(true));
+	ptr->SetName("name");
+	SIM_TEST_IS_EQUAL("\"name\":{}", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("\"name\" : \n{\n\n}", ptr->Print(true));
+	JsonObject::Free(ptr);
+
+	ptr = JsonObject::NewArray();
+	SIM_ASSERT_IS_NOT_NULL(ptr);
+	SIM_TEST_IS_EQUAL("[]", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("[\n\n]", ptr->Print(true));
+	ptr->SetName("name");
+	SIM_TEST_IS_EQUAL("\"name\":[]", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("\"name\" : \n[\n\n]", ptr->Print(true));
+	JsonObject::Free(ptr);
+
+}
 SIM_TEST_MAIN(sim::noisy)
