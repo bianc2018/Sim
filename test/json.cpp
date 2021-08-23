@@ -441,5 +441,51 @@ SIM_TEST(JsonPrint)
 	SIM_TEST_IS_EQUAL("\"name\" : \n[\n\n]", ptr->Print(true));
 	JsonObject::Free(ptr);
 
+	ptr = JsonObject::NewNull();
+	SIM_ASSERT_IS_NOT_NULL(ptr);
+	SIM_TEST_IS_EQUAL("", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("", ptr->Print(true));
+	ptr->SetName("name");
+	SIM_TEST_IS_EQUAL("\"name\":", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("\"name\" : ", ptr->Print(true));
+	JsonObject::Free(ptr);
+
+	ptr = JsonObject::NewBoolen(true);
+	SIM_ASSERT_IS_NOT_NULL(ptr);
+	SIM_TEST_IS_EQUAL("true", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("true", ptr->Print(true));
+	ptr->SetName("name");
+	SIM_TEST_IS_EQUAL("\"name\":true", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("\"name\" : true", ptr->Print(true));
+	JsonObject::Free(ptr);
+
+	ptr = JsonObject::NewNumber(123456);
+	SIM_ASSERT_IS_NOT_NULL(ptr);
+	SIM_TEST_IS_EQUAL("123456", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("123456", ptr->Print(true));
+	ptr->SetName("name");
+	SIM_TEST_IS_EQUAL("\"name\":123456", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("\"name\" : 123456", ptr->Print(true));
+	JsonObject::Free(ptr);
+
+	ptr = JsonObject::NewNumber(0.123456);
+	SIM_ASSERT_IS_NOT_NULL(ptr);
+	SIM_TEST_IS_EQUAL("0.123456", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("0.123456", ptr->Print(true));
+	ptr->SetName("name");
+	SIM_TEST_IS_EQUAL("\"name\":0.123456", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("\"name\" : 0.123456", ptr->Print(true));
+	JsonObject::Free(ptr);
+
+	ptr = JsonObject::NewString("string");
+	SIM_ASSERT_IS_NOT_NULL(ptr);
+	SIM_TEST_IS_EQUAL("\"string\"", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("\"string\"", ptr->Print(true));
+	ptr->SetName("name");
+	SIM_TEST_IS_EQUAL("\"name\":\"string\"", ptr->Print(false));
+	SIM_TEST_IS_EQUAL("\"name\" : \"string\"", ptr->Print(true));
+	JsonObject::Free(ptr);
+
+	getchar();
 }
 SIM_TEST_MAIN(sim::noisy)
