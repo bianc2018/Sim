@@ -102,18 +102,18 @@ namespace sim
 	{
 		friend class JsonArray;
 		//
-		JsonObject(JsonObjectType t= JSON_NULL) :type_(t), number_(0.0) {}
+		JsonObject(const JsonString& name="",JsonObjectType t= JSON_NULL) :name_(name),type_(t), number_(0.0) {}
 	public:
 		~JsonObject();
 	public:
 		//API
 		//新建一个空的对象
-		static JsonObjectPtr NewNull();
-		static JsonObjectPtr NewObject();
-		static JsonObjectPtr NewArray();
-		static JsonObjectPtr NewString(const JsonString&json);
-		static JsonObjectPtr NewNumber(const JsonNumber&str);
-		static JsonObjectPtr NewBoolen(bool b);
+		static JsonObjectPtr NewNull(const JsonString& name = "");
+		static JsonObjectPtr NewObject(const JsonString& name = "");
+		static JsonObjectPtr NewArray(const JsonString& name = "");
+		static JsonObjectPtr NewString(const JsonString&json, const JsonString& name = "");
+		static JsonObjectPtr NewNumber(const JsonNumber&str, const JsonString& name = "");
+		static JsonObjectPtr NewBoolen(bool b, const JsonString& name = "");
 		static void Free(JsonObjectPtr ptr);
 		
 		//拷贝；
@@ -632,7 +632,12 @@ namespace sim
 		JsonArrayNodePtr dst = FindByIndex(index);
 		if (dst)
 		{
-			JsonObject::Free(dst->ptr);
+			if (dst->ptr)
+			{
+				if (ptr->name_.empty())
+					ptr->name_ = dst->ptr->name_;
+				JsonObject::Free(dst->ptr);
+			}
 			dst->ptr = ptr;
 			return true;
 		}
@@ -646,7 +651,12 @@ namespace sim
 		JsonArrayNodePtr dst = FindByName(name);
 		if (dst)
 		{
-			JsonObject::Free(dst->ptr);
+			if (dst->ptr)
+			{
+				if (ptr->name_.empty())
+					ptr->name_ = dst->ptr->name_;
+				JsonObject::Free(dst->ptr);
+			}
 			dst->ptr = ptr;
 			return true;
 		}
@@ -808,9 +818,9 @@ namespace sim
 		Reset();
 	}
 
-	inline JsonObjectPtr JsonObject::NewNull()
+	inline JsonObjectPtr JsonObject::NewNull(const JsonString& name)
 	{
-		return new JsonObject(JSON_NULL);
+		return new JsonObject(name,JSON_NULL);
 	}
 
 	inline bool JsonArray::CopyTo(JsonArray& arr)
@@ -830,29 +840,29 @@ namespace sim
 	}
 
 	//JsonObject
-	inline JsonObjectPtr JsonObject::NewObject()
+	inline JsonObjectPtr JsonObject::NewObject(const JsonString& name)
 	{
-		return new JsonObject(JSON_OBJECT);
+		return new JsonObject(name,JSON_OBJECT);
 	}
-	inline JsonObjectPtr JsonObject::NewArray()
+	inline JsonObjectPtr JsonObject::NewArray(const JsonString& name)
 	{
-		return new JsonObject(JSON_ARRAY);
+		return new JsonObject(name,JSON_ARRAY);
 	}
-	inline JsonObjectPtr JsonObject::NewString(const JsonString & str)
+	inline JsonObjectPtr JsonObject::NewString(const JsonString & str, const JsonString& name)
 	{
-		JsonObjectPtr p= new JsonObject(JSON_STRING);
+		JsonObjectPtr p= new JsonObject(name,JSON_STRING);
 		p->string_ = str;
 		return p;
 	}
-	inline JsonObjectPtr JsonObject::NewNumber(const JsonNumber & number)
+	inline JsonObjectPtr JsonObject::NewNumber(const JsonNumber & number, const JsonString& name)
 	{
-		JsonObjectPtr p = new JsonObject(JSON_NUMBER);
+		JsonObjectPtr p = new JsonObject(name,JSON_NUMBER);
 		p->number_ = number;
 		return p;
 	}
-	inline JsonObjectPtr JsonObject::NewBoolen(bool b)
+	inline JsonObjectPtr JsonObject::NewBoolen(bool b, const JsonString& name)
 	{
-		JsonObjectPtr p = new JsonObject(JSON_BOOL);
+		JsonObjectPtr p = new JsonObject(name,JSON_BOOL);
 		if(b)
 			p->number_ = 1;
 		else
