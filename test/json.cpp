@@ -172,7 +172,29 @@ SIM_TEST(JsonParser)
 	SIM_TEST_IS_EQUAL(JSON_STRING, object6->GetType());
 	SIM_TEST_IS_EQUAL("object6", object6->GetString());
 
+	//FindByPath ½Ó¿Ú
+	JsonObjectPtr find_object=ptr->FindByPath("");
+	SIM_TEST_IS_NULL(find_object);
+	find_object = ptr->FindByPath("adad");
+	SIM_TEST_IS_NULL(find_object);
+	find_object = ptr->FindByPath("object1");
+	SIM_ASSERT_IS_NOT_NULL(find_object);
+	find_object = ptr->FindByPath("object1.4444");
+	SIM_TEST_IS_NULL(find_object);
+
+	find_object = ptr->FindByPath("object1.object2.object3.object4.object5");
+	SIM_ASSERT_IS_NOT_NULL(find_object);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, find_object->GetType());
+	SIM_TEST_IS_EQUAL(666, find_object->GetNumber());
+
+	find_object = ptr->FindByPath("object1/object2/object3/object4/object5",'/');
+	SIM_ASSERT_IS_NOT_NULL(find_object);
+	SIM_TEST_IS_EQUAL(JSON_NUMBER, find_object->GetType());
+	SIM_TEST_IS_EQUAL(666, find_object->GetNumber());
+
 	JsonObject::Free(ptr);
+
+	getchar();
 }
 
 enum MyEnumTest1
@@ -485,7 +507,5 @@ SIM_TEST(JsonPrint)
 	SIM_TEST_IS_EQUAL("\"name\":\"string\"", ptr->Print(false));
 	SIM_TEST_IS_EQUAL("\"name\" : \"string\"", ptr->Print(true));
 	JsonObject::Free(ptr);
-
-	getchar();
 }
 SIM_TEST_MAIN(sim::noisy)

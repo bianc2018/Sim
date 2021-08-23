@@ -204,6 +204,8 @@ namespace sim
 
 		JsonObjectPtr FindByIndex(int index);
 		JsonObjectPtr FindByName(const JsonString& name);
+		//根据路径查找子节点 以.为分节点 如 child.child1.child2
+		JsonObjectPtr FindByPath(const JsonString& path,char spliter='.');
 	private:
 		JsonString PrintJson(bool f,unsigned w);
 
@@ -1263,6 +1265,37 @@ namespace sim
 	inline JsonObjectPtr JsonObject::FindByName(const JsonString & name)
 	{
 		return childs_[name];
+	}
+
+	inline JsonObjectPtr JsonObject::FindByPath(const JsonString & path, char spliter)
+	{
+		JsonString child_name = "";
+		JsonObjectPtr now = this;
+		size_t size = path.size();
+		for (size_t i = 0; i < size; ++i)
+		{
+			if (path[i] == spliter)
+			{
+				if (child_name.empty())
+					return NULL;
+
+				now = now->FindByName(child_name);
+				if (NULL == now)
+					return NULL;
+				child_name = "";
+			}
+			else
+			{
+				child_name += path[i];
+			}
+		}
+		if (!child_name.empty())
+		{
+			now = now->FindByName(child_name);
+			if (NULL == now)
+				return NULL;
+		}
+		return now == this?NULL:now;
 	}
 
 	inline bool JsonObject::Parser(const char * pdata, unsigned int len, unsigned int & offset)
