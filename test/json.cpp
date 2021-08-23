@@ -194,7 +194,7 @@ SIM_TEST(JsonParser)
 
 	JsonObject::Free(ptr);
 
-	getchar();
+//	getchar();
 }
 
 enum MyEnumTest1
