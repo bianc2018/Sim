@@ -508,4 +508,101 @@ SIM_TEST(JsonPrint)
 	SIM_TEST_IS_EQUAL("\"name\" : \"string\"", ptr->Print(true));
 	JsonObject::Free(ptr);
 }
+
+//文件读写
+SIM_TEST(JsonFile)
+{
+	Test1 t2, t1;
+
+	//创建一个空的
+	JsonObjectPtr ptr = JsonObject::NewNull();
+	SIM_ASSERT_IS_NOT_NULL(ptr);
+
+	//初始化
+	t1.bool_val = true;
+	t1.char_val = 'A';
+	t1.double_val = -0.123456;
+	t1.enum_val = MyEnumTest1_444;
+	t1.float_val = 0.123;
+	t1.int_val = -1;
+	t1.llong_val = -123456;
+	t1.long_val = -11;
+	t1.size_t_val = 99999;
+	t1.string_val = "ni hao shijie";
+	t1.struct_val.val = 22;
+	t1.uchar_val = 32;
+	t1.uint_val = 10;
+	t1.ullong_val = 9999999;
+	Test1chlids temp;
+	temp.val = 10;
+	t1.vec_val.push_back(temp);
+
+	//序列化
+	SIM_TEST_IS_TRUE(ptr->Serialize(t1));
+	//写文件
+	SIM_TEST_IS_TRUE(ptr->SaveFile("JsonFile.json"));
+
+	JsonObject::Free(ptr);
+
+	//读文件
+	JsonObjectPtr ptr1 = JsonObject::ReadFile("JsonFile.json");
+	SIM_ASSERT_IS_NOT_NULL(ptr1);
+
+	//反序列化
+	SIM_TEST_IS_TRUE(ptr1->DeSerialize(t2));
+
+	JsonObject::Free(ptr1);
+
+	//对比值
+	SIM_TEST_IS_TRUE(t1 == t2);
+	
+}
+
+//元素操作
+SIM_TEST(JsonItemOperator)
+{
+	//创建一个空的
+	JsonObjectPtr ptr = JsonObject::NewObject();
+	SIM_ASSERT_IS_NOT_NULL(ptr);
+
+	SIM_TEST_IS_TRUE(ptr->ObjectAddBoolen("bool", true));
+	SIM_TEST_IS_TRUE(ptr->ObjectAddNumber("number", 123456789));
+	SIM_TEST_IS_TRUE(ptr->ObjectAddString("string", "str"));
+	
+	SIM_TEST_IS_EQUAL(3, ptr->Size());
+
+	JsonObjectPtr temp = ptr->FindByName("bool");
+	SIM_ASSERT_IS_NOT_NULL(temp);
+	SIM_TEST_IS_EQUAL(true, temp->GetBoolen());
+
+	temp = ptr->FindByName("number");
+	SIM_ASSERT_IS_NOT_NULL(temp);
+	SIM_TEST_IS_EQUAL(123456789, (long long)temp->GetNumber());
+
+	temp = ptr->FindByName("string");
+	SIM_ASSERT_IS_NOT_NULL(temp);
+	SIM_TEST_IS_EQUAL("str", temp->GetString());
+
+	SIM_TEST_IS_TRUE(ptr->Replace(JsonObject::NewString("ddd"), "string"));
+
+	temp = ptr->FindByName("string");
+	SIM_ASSERT_IS_NOT_NULL(temp);
+	SIM_TEST_IS_EQUAL("ddd", temp->GetString());
+
+	SIM_TEST_IS_TRUE(ptr->Replace(JsonObject::NewString("ddd1","d"), "string"));
+	temp = ptr->FindByName("string");
+	SIM_ASSERT_IS_NULL(temp);
+	temp = ptr->FindByName("d");
+	SIM_ASSERT_IS_NOT_NULL(temp);
+	SIM_TEST_IS_EQUAL("ddd1", temp->GetString());
+
+	SIM_TEST_IS_TRUE(ptr->Del("d"));
+	SIM_TEST_IS_EQUAL(2, ptr->Size());
+	temp = ptr->FindByName("d");
+	SIM_ASSERT_IS_NULL(temp);
+
+
+	JsonObject::Free(ptr);
+}
+
 SIM_TEST_MAIN(sim::noisy)
