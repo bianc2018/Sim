@@ -21,56 +21,51 @@ namespace sim
 	//重命名
 	typedef double IniNumber;
 	typedef std::string IniString;
-	typedef IniSectionNode* IniSectionNodePtr;
-	typedef IniObject* IniObjectPtr;
+	typedef std::vector<IniString> IniStringVec;
+	typedef std::vector<IniSectionNode> IniSectionNodeVec;
+	typedef std::vector<IniSection> IniSectionVec;
 
 	struct IniSectionNode
 	{
 		//头顶的注释
-		IniString comment;
+		IniStringVec comments;
 		//右侧的注释
 		IniString rcomment;
 
 		IniString name;
 		IniString value;
-		IniSectionNodePtr next;
-
-		IniSectionNode():next(NULL)
-		{
-
-		}
 	};
-
-
+	
 	struct IniSection
 	{
 		//头顶的注释
-		IniString comment;
+		IniStringVec comments;
 		//右侧的注释
 		IniString rcomment;
 
 		//comment
 		IniString name;
 		//节点起头
-		IniSectionNodePtr node_head;
+		IniSectionNodeVec nodes;
 
-		IniSection() :node_head(NULL)
+		void Clear()
 		{
-
+			comment.clear();
+			rcomment = "";
+			name = "";
+			nodes.clear();
 		}
 	};
 
 	class IniObject
 	{
-		IniObject();
 	public:
+		IniObject();
 		~IniObject();
 	public:
-		//API
-		static void Free(IniObject ptr);
 		
-		//解析Ini数据字符串，失败返回空
-		static IniObject Parser(const IniString&json);
+		//解析Ini数据字符串，失败返回false,poffset返回解析失败的地方
+		bool Parser(const IniString&json,unsigned int *poffset=NULL);
 
 		IniString Print();
 
@@ -81,8 +76,60 @@ namespace sim
 	public:
 		IniString GetValue(const IniString&section, const IniString&name, const IniString&notfound="");
 		bool SetValue(const IniString&section, const IniString&name, bool overwrite=true);
+		
+	private:
+		//解析接口
+		bool Parser(const char* pdata, unsigned int len, unsigned int& offset);
+
+		//找到结尾
+		bool SkipStringEnd(const char* pdata, unsigned int len,
+			unsigned int& offset, const IniString& ends);
+		bool FindStringEnd(const char* pdata, unsigned int len, 
+			unsigned int& offset, const IniString &ends, IniString& str);
+	private:
+		IniSectionVec sections_;
 	};
 
+	bool Parser(const char* pdata, unsigned int len, unsigned int& offset)
+	{
+		IniSection temp;
+		IniString t_str;
+		while(offset<len)
+		{
+			//# ; 注释
+			//[Section Name]
+			//Name=Value
+			
+			if (!SkipStringEnd(pdata, len, offset, "\t\r\n "))//跳过空格
+				return false;
+			if (offset >= len)
+				return true;
+
+			//这个是注释
+			if ('#' == pdata[offset] || ';' == pdata[offset])
+			{
+				++offset;
+				IniString t_str;
+				if (false == FindStringEnd(pdata, len, offset, "\n", t_str))//直到行结束
+					return false;
+				temp.comments.push_back(t_str);
+				++offset;
+			}
+			else if ('[' == pdata[offset])
+			{
+				++offset;
+				if (!temp.name.empty())
+					sections_.push_back(temp);
+				temp.Clear();
+				if (false == FindStringEnd(pdata, len, offset, "]", temp.name))//直到行结束
+					return false;
+				
+			}
+
+		}
+
+		return false;
+	}
 	
 }
 
