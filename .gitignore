@@ -24,3 +24,4 @@ _deps
 /res/CMakeLists.txt
 /out
 /CMakePresets.json
+/doc/ssh-rfc
