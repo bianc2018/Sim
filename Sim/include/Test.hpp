@@ -217,11 +217,11 @@ namespace sim
 		}
 		if (verboseLevel_ >= quiet)
 			printStatus();
-#if _DEBUG
-#if _WIN32
-		getchar();
-#endif
-#endif
+//#if _DEBUG
+//#if _WIN32
+//		getchar();
+//#endif
+//#endif
 		return errors();
 	}
 
