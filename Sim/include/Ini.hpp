@@ -85,6 +85,7 @@ namespace sim
 		bool ReadFile(const IniString&filename);
 		bool SaveFile(const IniString & filename,bool f = true);
 
+		void Clear();
 	public:
 		IniString GetValue(const IniString&section, const IniString&name, const IniString&notfound="");
 		bool SetValue(const IniString&section, const IniString&name, const IniString&value, bool overwrite=true);
@@ -219,6 +220,11 @@ namespace sim
 		fwrite(ini.c_str(), sizeof(char), ini.size(), file);
 		fclose(file);
 		return true;
+	}
+
+	inline void IniObject::Clear()
+	{
+		sections_.clear();
 	}
 
 	inline IniString IniObject::GetValue(const IniString & section, const IniString & name, const IniString & notfound)

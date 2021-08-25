@@ -219,7 +219,7 @@ namespace sim
 			printStatus();
 #if _DEBUG
 #if _WIN32
-		//getchar();
+		getchar();
 #endif
 #endif
 		return errors();
