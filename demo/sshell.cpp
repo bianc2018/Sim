@@ -1,3 +1,5 @@
+#include <cstdio>
+#ifdef SIM_USE_OPENSSL
 #include "AsyncSSH.hpp"
 #include "GlobalPoll.hpp"
 #include "CmdLineParser.hpp"
@@ -308,3 +310,10 @@ int main(int argc, char*argv[])
 	getchar();
 	return 0;
 }
+
+#else
+int main(int argc, char *argv[])
+{
+	printf("no do somethong,please define SIM_USE_OPENSSL");
+}
+#endif

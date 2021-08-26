@@ -3,7 +3,7 @@
 */
 
 #ifndef SIM_USE_OPENSSL
-#define SIM_SSH_CTX_HPP_
+#define SIM_SSHV2_HPP_
 #endif //! SIM_USE_OPENSSL
 
 #ifndef SIM_SSHV2_HPP_
