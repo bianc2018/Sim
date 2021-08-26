@@ -1,3 +1,5 @@
+#include <cstdio>
+#ifdef SIM_USE_OPENSSL
 #define SIM_PARSER_MULTI_THREAD 1
 #include "SSHv2.hpp"
 #include "Async.hpp"
@@ -258,3 +260,10 @@ int main(int argc, char*argv[])
 	return 0;
 
 }
+
+#else
+int main(int argc, char *argv[])
+{
+	printf("no do somethong,please define SIM_USE_OPENSSL");
+}
+#endif
