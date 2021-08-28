@@ -260,6 +260,7 @@ namespace sim
 			if (overwrite)
 			{
 				node->value = value;
+				return true;
 			}
 			else
 			{
