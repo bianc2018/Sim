@@ -36,10 +36,15 @@ SIM_TEST(RefObjectBuildIn)
 	SIM_TEST_IS_EQUAL(1, int_ptr.getcount());
 	SIM_TEST_IS_EQUAL(0, *int_ptr);
 
+	sim::RefObject<int> int_ptr_0(new int(0));
+	SIM_TEST_IS_FALSE(int_ptr_0 == int_ptr);
+
 	sim::RefObject<int> int_ptr2(int_ptr);
 	SIM_TEST_IS_EQUAL(int_ptr.getcount(), int_ptr2.getcount());
 	SIM_TEST_IS_EQUAL(2, int_ptr2.getcount());
 	SIM_TEST_IS_EQUAL(0, *int_ptr2);
+
+	SIM_TEST_IS_TRUE(int_ptr2 == int_ptr);
 
 	sim::RefObject<int> int_ptr3(new int(3));
 	int_ptr3 = int_ptr;//这里会释放一个
@@ -80,6 +85,7 @@ SIM_TEST(RefBuff)
 	SIM_TEST_IS_NULL(buff.get());
 	SIM_TEST_IS_EQUAL(0, buff.size());
 	SIM_TEST_IS_EQUAL(2, buff.getcount());
+	SIM_TEST_IS_TRUE(buff == buff1);
 
 	const char* test1 = "hello world";
 	sim::RefBuff buff2(test1);
@@ -87,6 +93,8 @@ SIM_TEST(RefBuff)
 	SIM_TEST_IS_EQUAL(strlen(test1), buff2.size());
 	for(int i=0;i< buff2.size();++i)
 		SIM_TEST_IS_EQUAL(test1[i], buff2[i]);
+
+	SIM_TEST_IS_FALSE(buff == buff2);
 
 	sim::RefBuff buff3(buff2);
 	buff1 = buff3;

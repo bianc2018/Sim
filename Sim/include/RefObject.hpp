@@ -137,6 +137,7 @@ namespace sim
 		{
 			ref_count_ptr_->add_ref();
 		}
+		
 		//// 浅拷贝
 		virtual RefObject<T>& operator=(const RefObject<T>& rhs)
 		{
@@ -157,6 +158,12 @@ namespace sim
 			return *this;
 		}
 		
+		//比较
+		virtual bool operator==(const RefObject<T>& rhs)
+		{
+			return ptr_ == rhs.ptr_;
+		}
+
 		virtual RefCountType getcount()
 		{
 			return ref_count_ptr_->get_ref_count();
@@ -279,7 +286,11 @@ namespace sim
 			}
 			return *this;
 		}
-		
+		//比较
+		virtual bool operator==(const RefBuff& rhs)
+		{
+			return (buff_size_ == rhs.buff_size_)&&(ptr_ == rhs.ptr_);
+		}
 		virtual RefBuff operator+(const RefBuff& rhs)
 		{
 			if (this->buff_size_ + rhs.buff_size_ <= 0)
