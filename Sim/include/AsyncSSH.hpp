@@ -1,6 +1,10 @@
 /*
 	“Ï≤Ωssh  µœ÷
 */
+#ifndef SIM_USE_OPENSSL
+#define SIM_ASYNC_SSH_HPP_
+#endif //! SIM_USE_OPENSSL
+
 #ifndef SIM_ASYNC_SSH_HPP_
 #define SIM_ASYNC_SSH_HPP_
 
