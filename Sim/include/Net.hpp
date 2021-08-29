@@ -3,6 +3,7 @@
 #define SIM_NET_HPP_
 
 #include <stdio.h>
+#include "RefObject.hpp"
 
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__)
 #ifndef OS_WINDOWS
@@ -80,16 +81,14 @@ typedef int NetSock;
 
 namespace sim
 {
+	//缓存数据
+	typedef sim::RefBuff NetBuffer;
+
 	//网络地址
 	class NetAddress
 	{
-
-	};
-
-	//缓存数据
-	class NetBuffer
-	{
-
+		NetBuffer ip;
+		unsigned port;
 	};
 
 	//会话基类
