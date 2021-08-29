@@ -54,6 +54,9 @@
 
 namespace sim
 {
+	template <typename T>
+	class WeakObject;
+
 	//引用计数对象
 	class RefCountable 
 	{
@@ -61,10 +64,12 @@ namespace sim
 		RefCountType add_ref(void)
 		{
 #ifdef OS_WINDOWS
+			::InterlockedIncrement(&weak_count_);
 			return ::InterlockedIncrement(&ref_count_);
 #else
 			//linux上面用锁实现
 			pthread_mutex_lock(&lock_);
+			++weak_count_;
 			RefCountType t = ++ref_count_;
 			pthread_mutex_unlock(&lock_);
 			return t;
@@ -75,11 +80,41 @@ namespace sim
 		RefCountType dec_ref(void) 
 		{
 #ifdef OS_WINDOWS
+			::InterlockedDecrement(&weak_count_);
 			return ::InterlockedDecrement(&ref_count_);
 #else
 			//linux上面用锁实现
 			pthread_mutex_lock(&lock_);
+			--weak_count_;
 			RefCountType t = --ref_count_;
+			pthread_mutex_unlock(&lock_);
+			return t;
+
+#endif
+		}
+
+		RefCountType add_weak_ref(void)
+		{
+#ifdef OS_WINDOWS
+			return ::InterlockedIncrement(&weak_count_);
+#else
+			//linux上面用锁实现
+			pthread_mutex_lock(&lock_);
+			RefCountType t = ++weak_count_;
+			pthread_mutex_unlock(&lock_);
+			return t;
+#endif
+
+		}
+
+		RefCountType dec_weak_ref(void)
+		{
+#ifdef OS_WINDOWS
+			return ::InterlockedDecrement(&weak_count_);
+#else
+			//linux上面用锁实现
+			pthread_mutex_lock(&lock_);
+			RefCountType t = --weak_count_;
 			pthread_mutex_unlock(&lock_);
 			return t;
 
@@ -90,8 +125,12 @@ namespace sim
 		{ 
 			return ref_count_;
 		}
+		RefCountType get_weak_count(void) const
+		{
+			return weak_count_;
+	}
 
-		RefCountable(RefCountType count=1) : ref_count_(count) 
+		RefCountable(RefCountType count=1) : ref_count_(count) , weak_count_(count)
 		{
 #ifdef OS_LINUX
 			pthread_mutex_init(&lock_, NULL);
@@ -103,7 +142,10 @@ namespace sim
 		RefCountable& operator = (const RefCountable&) { return *this; };
 
 	private:
+		//强引用
 		RefCountType volatile ref_count_;
+		//弱引用
+		RefCountType volatile weak_count_;
 #ifdef OS_LINUX
 		//linux上面用锁实现
 		pthread_mutex_t lock_;
@@ -116,6 +158,7 @@ namespace sim
 	template <typename T>
 	class RefObject
 	{
+		friend class WeakObject<T>;
 	public:
 		RefObject(T* p=NULL, RefObjectDelete deleter=NULL, void*pdata=NULL)
 			:ptr_(p), deleter_(deleter), ref_count_ptr_(new RefCountable(1)), pdata_(pdata)
@@ -213,9 +256,17 @@ namespace sim
 				ptr_ = NULL;
 
 				//回收计数指针
-				delete ref_count_ptr_;
+				if (ref_count_ptr_->get_weak_count() <= 0)
+				{
+					delete ref_count_ptr_;
+				}
 				ref_count_ptr_ = NULL;
 			}
+		}
+		//weak 使用
+		RefObject(T* p, RefObjectDelete deleter, void* pdata,RefCountable* ref_count_ptr)
+			:ptr_(p), deleter_(deleter), ref_count_ptr_(ref_count_ptr), pdata_(pdata)
+		{
 		}
 	protected:
 		//指针
@@ -224,6 +275,100 @@ namespace sim
 		void*pdata_;
 		//引用计数指针
 		RefCountable*ref_count_ptr_;
+	};
+
+	//弱引用对象
+	template <typename T>
+	class WeakObject
+	{
+		friend class RefObject<T>;
+	public:
+		WeakObject(const RefObject<T>& orig) :ptr_(orig.ptr_),
+			deleter_(orig.deleter_),
+			ref_count_ptr_(orig.ref_count_ptr_),
+			pdata_(orig.pdata_)
+		{
+			if (ref_count_ptr_)
+				ref_count_ptr_->add_weak_ref();
+		}
+		WeakObject(const WeakObject<T>& orig) :ptr_(orig.ptr_),
+			deleter_(orig.deleter_),
+			ref_count_ptr_(orig.ref_count_ptr_),
+			pdata_(orig.pdata_)
+		{
+			if (ref_count_ptr_)
+				ref_count_ptr_->add_weak_ref();
+		}
+		virtual WeakObject<T>& operator=(const RefObject<T>& rhs)
+		{
+			rhs.ref_count_ptr_->add_weak_ref();
+
+			//释放
+			release();
+
+			//赋值
+			ptr_ = rhs.ptr_;
+			ref_count_ptr_ = rhs.ref_count_ptr_;
+			deleter_ = rhs.deleter_;
+			pdata_ = rhs.pdata_;
+
+			return *this;
+		}
+		virtual WeakObject<T>& operator=(const WeakObject<T>& rhs)
+		{
+			if (this != &rhs)
+			{
+				rhs.ref_count_ptr_->add_weak_ref();
+
+				//释放
+				release();
+
+				//赋值
+				ptr_ = rhs.ptr_;
+				ref_count_ptr_ = rhs.ref_count_ptr_;
+				deleter_ = rhs.deleter_;
+				pdata_ = rhs.pdata_;
+			}
+			return *this;
+		}
+		virtual RefObject<T> lock()
+		{
+			if (ref_count_ptr_&& ref_count_ptr_->get_ref_count()>0)
+			{
+				ref_count_ptr_->add_ref();
+				return RefObject<T>(ptr_, deleter_, pdata_, ref_count_ptr_);
+			}
+			else
+			{
+				return NULL;
+			}
+		}
+		virtual RefCountType getcount()
+		{
+			if (ref_count_ptr_)
+				return ref_count_ptr_->get_ref_count();
+			return 0;
+		}
+	protected:
+		void release()
+		{
+			//释放
+			if (ref_count_ptr_&&ref_count_ptr_->dec_weak_ref()<=0)
+			{
+				delete ref_count_ptr_;
+			}
+			ref_count_ptr_ = NULL;
+			ptr_ = NULL;
+			deleter_ = NULL;
+			pdata_ = NULL;
+		}
+	protected:
+		//指针
+		T* ptr_;
+		RefObjectDelete deleter_;
+		void* pdata_;
+		//引用计数指针
+		RefCountable* ref_count_ptr_;
 	};
 
 	//引用缓存

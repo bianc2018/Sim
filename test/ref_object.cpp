@@ -104,4 +104,25 @@ SIM_TEST(RefBuff)
 	SIM_TEST_IS_EQUAL(3, buff1.getcount());
 }
 
+SIM_TEST(WeakObject)
+{
+	sim::RefObject<int> int_ptr(new int(0));
+	SIM_TEST_IS_TRUE(int_ptr);
+
+	sim::WeakObject<int> weak_ptr(int_ptr);
+	SIM_TEST_IS_EQUAL(1, int_ptr.getcount());
+	SIM_TEST_IS_EQUAL(weak_ptr.getcount(), int_ptr.getcount());
+
+	sim::RefObject<int> int_ptr1 = weak_ptr.lock();
+	SIM_TEST_IS_EQUAL(2, int_ptr1.getcount());
+	SIM_TEST_IS_TRUE(int_ptr1==int_ptr);
+
+	int_ptr.reset();
+	int_ptr1.reset();
+	SIM_TEST_IS_EQUAL(0, weak_ptr.getcount());
+	SIM_TEST_IS_NULL(weak_ptr.lock());
+	sim::WeakObject<int> weak_ptr1 = weak_ptr;
+	SIM_TEST_IS_EQUAL(0, weak_ptr1.getcount());
+	SIM_TEST_IS_NULL(weak_ptr1.lock());
+}
 SIM_TEST_MAIN(sim::noisy)
