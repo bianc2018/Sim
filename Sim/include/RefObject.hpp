@@ -302,6 +302,14 @@ namespace sim
 	{
 		friend class RefObject<T>;
 	public:
+		WeakObject()
+			:ptr_(NULL),
+			deleter_(NULL),
+			ref_count_ptr_(NULL),
+			pdata_(NULL)
+		{
+
+		}
 		WeakObject(const RefObject<T>& orig) :ptr_(orig.ptr_),
 			deleter_(orig.deleter_),
 			ref_count_ptr_(orig.ref_count_ptr_),
@@ -388,6 +396,33 @@ namespace sim
 		void* pdata_;
 		//引用计数指针
 		RefCountable* ref_count_ptr_;
+	};
+
+	//自引用对象
+	template <typename T>
+	class EnableRefFormThis
+	{
+	public:
+		EnableRefFormThis() {};
+		~EnableRefFormThis() {};
+
+		RefObject<T> ref()
+		{
+			return weak_this_.lock();
+		}
+
+		//必须通过这个新建
+		static RefObject<T> make_ref(T*t, RefObjectDelete deleter = NULL, void*pdata = NULL)
+		{
+			RefObject<T> ptr(t, deleter, pdata);
+			if (NULL == ptr)
+				return NULL;
+
+			ptr->weak_this_ = ptr;
+			return ptr;
+		}
+	protected:
+		WeakObject<T> weak_this_;
 	};
 
 	//引用缓存
@@ -488,4 +523,10 @@ namespace sim
 		unsigned int buff_size_;
 	};
 }
+
+//定义简单的功能宏
+#define SIM_MAKE_REF(type,...)  sim::RefObject<type>(new type(__VA_ARGS__));
+//
+#define SIM_MAKE_REF_THIS(type,...)  sim::EnableRefFormThis<type>::make_ref(new type(__VA_ARGS__));
+
  #endif // ifndef _REFCOUNTED_INCLUDED

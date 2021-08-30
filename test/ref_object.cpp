@@ -38,7 +38,7 @@ SIM_TEST(RefObjectEmpty)
 }
 SIM_TEST(RefObjectBuildIn)
 {
-	sim::RefObject<int> int_ptr(new int(0));
+	sim::RefObject<int> int_ptr= SIM_MAKE_REF(int,(0));
 	SIM_TEST_IS_TRUE(int_ptr);
 	SIM_TEST_IS_FALSE(NULL == int_ptr);
 	SIM_TEST_IS_FALSE(NULL == int_ptr.get());
@@ -142,6 +142,30 @@ SIM_TEST(TypeConversion)
 		sim::RefObject<RefObjectTest1> object_ptr(new RefObjectTest1(i));
 		sim::RefObject<RefObjectTest> object_ptr1 = NULL;
 		object_ptr1 = object_ptr.cast<RefObjectTest>();;
+	}
+	SIM_TEST_IS_EQUAL(0, i);
+}
+
+//EnableRefFormThis
+class EnableRefFormThisTest:public sim::EnableRefFormThis<EnableRefFormThisTest>
+{
+public:
+	sim::RefObject<EnableRefFormThisTest> test()
+	{
+		return ref();
+	}
+	EnableRefFormThisTest() {};
+};
+SIM_TEST(EnableRefFormThis)
+{
+	int i = 0;
+	{
+		EnableRefFormThisTest test;
+		SIM_TEST_IS_NULL(test.test());
+		sim::RefObject<EnableRefFormThisTest> object_ptr(new EnableRefFormThisTest());
+		SIM_TEST_IS_NULL(object_ptr->test());
+		sim::RefObject<EnableRefFormThisTest> object_ptr1 = sim::EnableRefFormThis<EnableRefFormThisTest>::make_ref(new EnableRefFormThisTest());
+		SIM_TEST_IS_NOT_NULL(object_ptr1->test());
 	}
 	SIM_TEST_IS_EQUAL(0, i);
 }
