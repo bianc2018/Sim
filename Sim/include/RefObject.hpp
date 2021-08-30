@@ -160,6 +160,12 @@ namespace sim
 	{
 		friend class WeakObject<T>;
 	public:
+		//weak 使用
+		RefObject(T* p, RefObjectDelete deleter, void* pdata, RefCountable* ref_count_ptr)
+			:ptr_(p), deleter_(deleter), ref_count_ptr_(ref_count_ptr), pdata_(pdata)
+		{
+		}
+
 		RefObject(T* p=NULL, RefObjectDelete deleter=NULL, void*pdata=NULL)
 			:ptr_(p), deleter_(deleter), ref_count_ptr_(new RefCountable(1)), pdata_(pdata)
 		{
@@ -180,7 +186,7 @@ namespace sim
 		{
 			ref_count_ptr_->add_ref();
 		}
-		
+
 		//// 浅拷贝
 		virtual RefObject<T>& operator=(const RefObject<T>& rhs)
 		{
@@ -240,6 +246,23 @@ namespace sim
 		{
 			return ptr_;
 		}*/
+
+		//类型转换
+		template<typename OT>
+		RefObject<OT> cast()
+		{
+			if (ref_count_ptr_)
+			{
+				ref_count_ptr_->add_ref();
+
+				return RefObject<OT>((OT*)(ptr_), deleter_, pdata_, ref_count_ptr_);
+			}
+			else
+			{
+				return NULL;
+			}
+		}
+		
 	protected:
 		void release()
 		{
@@ -263,11 +286,7 @@ namespace sim
 				ref_count_ptr_ = NULL;
 			}
 		}
-		//weak 使用
-		RefObject(T* p, RefObjectDelete deleter, void* pdata,RefCountable* ref_count_ptr)
-			:ptr_(p), deleter_(deleter), ref_count_ptr_(ref_count_ptr), pdata_(pdata)
-		{
-		}
+		
 	protected:
 		//指针
 		T* ptr_;

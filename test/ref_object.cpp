@@ -15,6 +15,15 @@ struct RefObjectTest
 		--i_;
 	}
 };
+//≤‚ ‘ºÃ≥–
+struct RefObjectTest1 :public RefObjectTest
+{
+	RefObjectTest1(int &i) :RefObjectTest(i)
+	{
+
+	}
+	int p_;
+};
 
 SIM_TEST(RefObjectEmpty)
 {
@@ -124,5 +133,16 @@ SIM_TEST(WeakObject)
 	sim::WeakObject<int> weak_ptr1 = weak_ptr;
 	SIM_TEST_IS_EQUAL(0, weak_ptr1.getcount());
 	SIM_TEST_IS_NULL(weak_ptr1.lock());
+}
+//Type conversion
+SIM_TEST(TypeConversion)
+{
+	int i = 0;
+	{
+		sim::RefObject<RefObjectTest1> object_ptr(new RefObjectTest1(i));
+		sim::RefObject<RefObjectTest> object_ptr1 = NULL;
+		object_ptr1 = object_ptr.cast<RefObjectTest>();;
+	}
+	SIM_TEST_IS_EQUAL(0, i);
 }
 SIM_TEST_MAIN(sim::noisy)
