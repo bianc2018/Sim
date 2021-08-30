@@ -81,22 +81,31 @@ typedef int NetSock;
 
 namespace sim
 {
+	//前置声明
+	class NetSession;
+	class NetManager;
+
 	//缓存数据
 	typedef sim::RefBuff NetBuffer;
-
+	typedef sim::RefBuff NetString;
+	typedef RefObject<NetSession> NetSessionPtr;
+	typedef RefObject<NetManager> NetManagerPtr;
 	//网络地址
 	class NetAddress
 	{
-		NetBuffer ip;
+		NetString ip;
 		unsigned port;
 	};
 
 	//会话基类
-	class NetSession
+	class NetSession:public sim::EnableRefFormThis<NetSession>
 	{
+		friend class NetManager;
+
+		NetSession(WeakObject<NetManager> net_manager);
 	public:
-		NetSession();
-		~NetSession();
+		virtual NetSessionPtr NewSession(WeakObject<NetManager> net_manager)=0;
+		virtual ~NetSession();
     public:
         //回调
 		//接收连接回调
@@ -113,33 +122,67 @@ namespace sim
 			const NetAddress&address)=0;
 
 		//数据发送完成回调
-		virtual void OnSendComplete(const NetBuffer& buff);
+		virtual void OnSendComplete(const NetBuffer& buff) = 0;
+		
+		//连接关闭
+		virtual void OnClose()=0;
     public:
         //接口
-		virtual bool Connect(const NetAddress&address);
+		virtual bool StartConnect(const NetAddress&address) = 0;
 
-		virtual bool Bind(const NetAddress& address);
+		virtual bool StartAccept(const NetAddress& address, int backlog=1024) = 0;
 
-		virtual bool Listen(int backlog);
+		virtual bool StopAccept() = 0;
 
-		virtual bool StartAccept();
+		virtual bool StartRecv(NetBuffer buff=NULL) = 0;
 
-		virtual bool Send(const NetBuffer& buff);
+		virtual bool StartRecvForm(NetBuffer buff = NULL) = 0;
 
-		virtual bool SendTo(const NetBuffer& buff, const NetAddress& address);
+		virtual bool StopRecv() = 0;
+
+		virtual bool Send(const NetBuffer& buff) = 0;
+
+		virtual bool SendTo(const NetBuffer& buff, const NetAddress& address) = 0;
 
 		virtual bool Close()=0;
+
 	private:
 
+	private:
+		NetSock sock_;
+		bool connect_flag_, accept_flag_, recv_flag_;
+		WeakObject<NetManager> net_manager_;
 	};
 
 	//网络管理基类
-	class NetManager
+	class NetManager :public sim::EnableRefFormThis<NetManager>
 	{
-	public:
-		NetManager();
-		~NetManager();
+		friend class NetSession;
 
+		NetManager();
+	public:
+		virtual ~NetManager(){];
+
+		virtual NetManagerPtr NewManager()=0;
+
+		//事件循环 wait_ms最大等待时间
+		virtual int Poll(unsigned wait_ms)=0;
+
+	protected:
+		//具体功能实现
+		virtual bool StartConnect(NetSessionPtr ss,const NetAddress&address) = 0;
+
+		virtual bool Accept(NetSessionPtr ss, const NetAddress& address, int backlog = 1024) = 0;
+
+		virtual bool Recv(NetSessionPtr ss, NetBuffer buff = NULL) = 0;
+
+		virtual bool RecvForm(NetSessionPtr ss, NetBuffer buff = NULL) = 0;
+
+		virtual bool Send(NetSessionPtr ss, const NetBuffer& buff) = 0;
+
+		virtual bool SendTo(NetSessionPtr ss, const NetBuffer& buff, const NetAddress& address) = 0;
+
+		virtual bool Close(NetSessionPtr ss) = 0;
 	private:
 
 	};
