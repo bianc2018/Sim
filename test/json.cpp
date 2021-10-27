@@ -116,8 +116,8 @@ SIM_TEST(JsonParser)
 	SIM_TEST_IS_EQUAL(6, temp->Size());
 	for (int i = 0; i < temp->Size(); ++i)
 	{
-		SIM_ASSERT_IS_NOT_NULL((*temp)[i]);
-		SIM_TEST_IS_EQUAL(i+1, (*temp)[i]->GetNumber());
+		SIM_ASSERT_IS_NOT_NULL(temp->FindByIndex(i));
+		SIM_TEST_IS_EQUAL(i+1, temp->FindByIndex(i)->GetNumber());
 	}
 
 	temp = ptr->FindByName("object");
@@ -426,8 +426,8 @@ SIM_TEST(JsonSerialize)
 	SIM_TEST_IS_EQUAL(t1.vec_val.size(), pobj->Size());
 	for (int i = 0; i < t1.vec_val.size(); ++i)
 	{
-		SIM_ASSERT_IS_NOT_NULL((*pobj)[i]);
-		JsonObjectPtr pobj2 = (*pobj)[i]->FindByName("val");
+		SIM_ASSERT_IS_NOT_NULL(pobj->FindByIndex(i));
+		JsonObjectPtr pobj2 = pobj->FindByIndex(i)->FindByName("val");
 		SIM_ASSERT_IS_NOT_NULL(pobj2);
 		SIM_TEST_IS_EQUAL(JSON_NUMBER, pobj2->GetType());
 		SIM_TEST_IS_EQUAL(t1.vec_val[i].val, pobj2->GetNumber());

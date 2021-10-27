@@ -199,8 +199,8 @@ namespace sim
 		//·µ»Ø´óÐ¡
 		unsigned int Size();
 
-		JsonObjectPtr operator[](const int index);
-		JsonObjectPtr operator[](const JsonString& name);
+		/*JsonObjectPtr operator[](const int index);
+		JsonObjectPtr operator[](const JsonString& name);*/
 
 		JsonObjectPtr FindByIndex(int index);
 		JsonObjectPtr FindByName(const JsonString& name);
@@ -397,7 +397,7 @@ namespace sim
 			}
 			else
 			{
-				childs = (*ptr_)[key];
+				childs = ptr_->FindByName(key);
 				if (NULL == childs)
 				{
 					if (isMust)
@@ -552,7 +552,7 @@ namespace sim
 					for (int i = 0; i < size; ++i)
 					{
 						T temp;
-						if (false == SerializeValueFormJson(pjson->operator[](i), temp, isSerialize))
+						if (false == SerializeValueFormJson(pjson->FindByIndex(i), temp, isSerialize))
 						{
 							return false;
 						}
@@ -1257,15 +1257,15 @@ namespace sim
 		return childs_.Size();
 	}
 
-	inline JsonObjectPtr JsonObject::operator[](const int index)
+	/*inline JsonObjectPtr JsonObject::operator[](const int index)
 	{
 		return childs_[index];
-	}
+	}*/
 
-	inline JsonObjectPtr JsonObject::operator[](const JsonString & name)
+	/*inline JsonObjectPtr JsonObject::operator[](const JsonString & name)
 	{
 		return childs_[name];
-	}
+	}*/
 
 	inline JsonObjectPtr JsonObject::FindByIndex(int index)
 	{
