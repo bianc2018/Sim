@@ -19,34 +19,6 @@ namespace sim
 	class Thread;
 	typedef ThRet(*ThreadProc)(LPVOID lpParam);
 
-//#ifdef WIN32
-//	struct ThreadData
-//	{
-//		ThreadProc Proc;
-//		LPVOID lpParam;
-//	};
-//	//windows 版本的需要一个中间函数退出
-//	ThRet ThreadProcAndExit(LPVOID lpParam)
-//	{
-//		ThRet ret = 0;
-//		if (lpParam )
-//		{
-//			ThreadData*pData = (ThreadData*)lpParam;
-//			if (pData->Proc)
-//			{
-//				ret = pData->Proc(pData->lpParam);
-//				delete pData;
-//				_endthreadex(ret);
-//				return ret;
-//			}
-//			delete pData;
-//		}
-//		_endthread();
-//		return ret;
-//	}
-//#endif
-//	
-	
 	class Thread
 	{
 
