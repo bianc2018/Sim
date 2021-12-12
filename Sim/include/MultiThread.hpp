@@ -20,7 +20,7 @@
 //锁原始句柄
 typedef CRITICAL_SECTION MUTEX_HANDLE;
 //线程原始句柄
-typedef CRITICAL_SECTION THREAD_HANDLE;
+typedef HANDLE THREAD_HANDLE;
 #ifndef INVALID_HANDLE_VALUE
 #define INVALID_HANDLE_VALUE -1
 #endif
@@ -107,10 +107,140 @@ namespace sim
 		}
 	};
 
+	//gcc
+	//__sync_fetch_and_add
 
+	//原子操作
+	template<typename T>
+	class Atomic
+	{
+		T t_;
+		Mutex mtx_;
+	public:
+		Atomic(const T& t) :t_(t) {};
+		void Set(const T& t) {
+			AutoMutex(mtx_);
+			t_ = t;
+		}
+		T Get() {
+			AutoMutex(mtx_);
+			return t_;
+		}
+		Atomic& operator=(const T& t)
+		{
+			t_ = t;
+			return (*this);
+		}
+		operator T()
+		{
+			return t_;
+		}
+	};
+
+	/*
+	*	type __sync_fetch_and_add(type*ptr,type value,...);// m+n
+		type __sync_fetch_and_sub(type*ptr,type value,...);// m-n
+		type __sync_fetch_and_or(type*ptr,type value,...);  // m|n
+		type __sync_fetch_and_and(type*ptr,type value,...);// m&n
+		type __sync_fetch_and_xor(type*ptr,type value,...);// m^n
+		type __sync_fetch_and_nand(type*ptr,type value,...);// (~m)&n
+	*/
+
+	//原子数字
+	class AtomicNumber
+	{
+		typedef long long ato_number;
+		ato_number volatile num_;
+	public:
+		AtomicNumber(const ato_number& n=0) :num_(n) {};
+		virtual ~AtomicNumber() {};
+		ato_number Add(const ato_number& n)
+		{
+#ifdef OS_WINDOWS
+			return ::InterlockedExchangeAdd64(&num_,n);
+#else
+			__sync_fetch_and_add(&num_, n);
+			return num_;
+#endif
+		}
+		ato_number Sub(const ato_number& n)
+		{
+#ifdef OS_WINDOWS
+			return ::InterlockedExchangeAdd64(&num_, -n);
+#else
+			__sync_fetch_and_sub(&num_, n);
+			return num_;
+#endif
+		}
+		ato_number Or(const ato_number& n)
+		{
+#ifdef OS_WINDOWS
+			return ::InterlockedOr64(&num_, n);
+#else
+			__sync_fetch_and_or(&num_, n);
+			return num_;
+#endif
+		}
+		ato_number And (const ato_number & n)
+		{
+#ifdef OS_WINDOWS
+			return ::InterlockedAnd64(&num_, n);
+#else
+			__sync_fetch_and_and(&num_, n);
+			return num_;
+#endif
+		}
+		ato_number XOr(const ato_number& n)
+		{
+#ifdef OS_WINDOWS
+			return ::InterlockedXor64(&num_, n);
+#else
+			__sync_fetch_and_xor(&num_, n);
+			return num_;
+#endif
+		}
+
+		/*AtomicNumber& operator=(const ato_number& t)
+		{
+			num_ = t;
+			return (*this);
+		}
+		AtomicNumber& operator+(const ato_number& t)
+		{
+			Add(t);
+			return (*this);
+		}
+		AtomicNumber& operator-(const ato_number& t)
+		{
+			Sub(t);
+			return (*this);
+		}
+		AtomicNumber& operator|(const ato_number& t)
+		{
+			Or(t);
+			return (*this);
+		}
+		AtomicNumber& operator&(const ato_number& t)
+		{
+			And(t);
+			return (*this);
+		}
+		AtomicNumber& operator^(const ato_number& t)
+		{
+			XOr(t);
+			return (*this);
+		}*/
+
+		operator ato_number()
+		{
+			return num_;
+		}
+
+	};
+
+	//线程
 	class Thread;
 	typedef void(*ThreadProc)(Thread&self,void* lpParam);
-
 	class Thread
 	{
 		ThreadProc proc_;
@@ -269,7 +399,7 @@ namespace sim
 	}
 #ifdef OS_WINDOWS
 	//typedef unsigned(__stdcall* _beginthreadex_proc_type)(void*);
-	static unsigned __stdcall sim::Thread::MyThreadProc(void* arg)
+	unsigned __stdcall sim::Thread::MyThreadProc(void* arg)
 	{
 		sim::Thread* self = (sim::Thread*)arg;
 		if (self)
@@ -277,15 +407,15 @@ namespace sim
 		return 0;
 	}
 #else
-	static void* sim::Thread::MyThreadProc(void* arg)
+	void* sim::Thread::MyThreadProc(void* arg)
 	{
 		sim::Thread* self = (sim::Thread*)arg;
 		if (self)
 			self->OnThreadProc();
 		return NULL;
 	}
-#else
 #endif
+
 
 }
 #endif //!SIM_MULTI_THREAD_HPP_
