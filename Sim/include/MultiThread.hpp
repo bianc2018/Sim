@@ -21,6 +21,7 @@
 typedef CRITICAL_SECTION MUTEX_HANDLE;
 //线程原始句柄
 typedef HANDLE THREAD_HANDLE;
+typedef CONDITION_VARIABLE COND_HANDLE;
 #ifndef INVALID_HANDLE_VALUE
 #define INVALID_HANDLE_VALUE -1
 #endif
@@ -29,8 +30,10 @@ typedef HANDLE THREAD_HANDLE;
 #define OS_LINUX
 #endif  
 #include <pthread.h>
+#include <unistd.h>
 typedef pthread_mutex_t MUTEX_HANDLE;
 typedef pthread_t THREAD_HANDLE;
+typedef pthread_cond_t  COND_HANDLE;
 #ifndef INVALID_HANDLE_VALUE
 #define INVALID_HANDLE_VALUE -1
 #endif
@@ -107,8 +110,117 @@ namespace sim
 		}
 	};
 
-	//gcc
-	//__sync_fetch_and_add
+	//条件变量
+	class Cond
+	{
+		COND_HANDLE cv_;
+		MUTEX_HANDLE mtx_;
+#ifdef OS_LINUX
+		//属性设置
+		pthread_condattr_t cattr_;
+#endif // OS_LINUX
+
+		Cond(const Cond& other) {};
+		Cond& operator=(const Cond& other) {};
+	public:
+		Cond()
+		{
+#ifdef OS_WINDOWS
+			InitializeCriticalSection(&mtx_);
+			InitializeConditionVariable(&cv_);
+#else
+			pthread_mutex_init(&mtx_, NULL);
+
+		    //采用相对时间等待。可以避免：因系统调整时间，导致等待时间出现错误。
+			int ret = pthread_condattr_init(&cattr_);
+			ret = pthread_condattr_setclock(&cattr_, CLOCK_MONOTONIC);
+			pthread_cond_init(&cv_, &cattr_);
+#endif
+		}
+		virtual ~Cond()
+		{
+#ifdef OS_WINDOWS
+			//Broadcast();
+
+			DeleteCriticalSection(&mtx_);
+#else
+			pthread_mutex_destroy(&mtx_);
+			pthread_condattr_destroy(&(cattr_));
+			pthread_cond_destroy(&cv_);
+#endif
+		}
+
+		virtual void Signal()
+		{
+#ifdef OS_WINDOWS
+			LeaveCriticalSection(&mtx_);
+			WakeConditionVariable(&cv_);
+			LeaveCriticalSection(&mtx_);
+#else
+			pthread_mutex_lock(&mtx_);
+			pthread_cond_signal(&cv_);
+			pthread_mutex_unlock(&mtx_);
+#endif
+		}
+
+		virtual void Broadcast()
+		{
+#ifdef OS_WINDOWS
+			LeaveCriticalSection(&mtx_);
+			WakeAllConditionVariable(&cv_);
+			LeaveCriticalSection(&mtx_);
+#else
+			pthread_mutex_lock(&mtx_);
+			pthread_cond_broadcast(&cv_);
+			pthread_mutex_unlock(&mtx_);
+#endif
+		}
+		virtual bool Wait()
+		{
+#ifdef OS_WINDOWS
+			LeaveCriticalSection(&mtx_);
+			BOOL ret = SleepConditionVariableCS(&cv_, &mtx_, INFINITE);
+			LeaveCriticalSection(&mtx_);
+			return ret == TRUE;
+#else
+			pthread_mutex_lock(&mtx_);
+			int ret = pthread_cond_wait(&cv_, &mtx_);
+			pthread_mutex_unlock(&mtx_);
+			return true;
+#endif
+		}
+		virtual bool Wait(unsigned long dwMilliseconds)
+		{
+#ifdef OS_WINDOWS
+			LeaveCriticalSection(&mtx_);
+			BOOL ret = SleepConditionVariableCS(&cv_, &mtx_, dwMilliseconds);
+			LeaveCriticalSection(&mtx_);
+			return ret == TRUE;
+#else
+			//获取时间
+			struct timespec outtime;
+			clock_gettime(CLOCK_MONOTONIC, &outtime);
+			//ms为毫秒，换算成秒
+			outtime.tv_sec += dwMilliseconds / 1000;
+
+			//在outtime的基础上，增加ms毫秒
+			//outtime.tv_nsec为纳秒，1微秒=1000纳秒
+			//tv_nsec此值再加上剩余的毫秒数 ms%1000，有可能超过1秒。需要特殊处理
+			unsigned long long  us = outtime.tv_nsec / 1000 + 1000 * (dwMilliseconds % 1000); //微秒
+			//us的值有可能超过1秒，
+			outtime.tv_sec += us / 1000000;
+
+			us = us % 1000000;
+			outtime.tv_nsec = us * 1000;//换算成纳秒
+
+			pthread_mutex_lock(&mtx_);
+			int ret = pthread_cond_timedwait(&cv_, &mtx_, &outtime);
+			pthread_mutex_unlock(&mtx_);
+			return true;
+#endif
+		}
+		
+	};
 
 	//原子操作
 	template<typename T>
@@ -137,18 +249,17 @@ namespace sim
 		}
 	};
 
-	/*
-	*	type __sync_fetch_and_add(type*ptr,type value,...);// m+n
-		type __sync_fetch_and_sub(type*ptr,type value,...);// m-n
-		type __sync_fetch_and_or(type*ptr,type value,...);  // m|n
-		type __sync_fetch_and_and(type*ptr,type value,...);// m&n
-		type __sync_fetch_and_xor(type*ptr,type value,...);// m^n
-		type __sync_fetch_and_nand(type*ptr,type value,...);// (~m)&n
-	*/
-
 	//原子数字
 	class AtomicNumber
 	{
+		/*
+		*	type __sync_fetch_and_add(type*ptr,type value,...);// m+n
+			type __sync_fetch_and_sub(type*ptr,type value,...);// m-n
+			type __sync_fetch_and_or(type*ptr,type value,...);  // m|n
+			type __sync_fetch_and_and(type*ptr,type value,...);// m&n
+			type __sync_fetch_and_xor(type*ptr,type value,...);// m^n
+			type __sync_fetch_and_nand(type*ptr,type value,...);// (~m)&n
+		*/
 		typedef long long ato_number;
 		ato_number volatile num_;
 	public:
@@ -260,7 +371,7 @@ namespace sim
 			t1 = t2;
 			t2 = temp;
 		}
-	public:
+
 		Thread()
 			:pth_(INVALID_HANDLE_VALUE)
 			, th_id_(-1)
@@ -269,7 +380,12 @@ namespace sim
 		{
 
 		}
+	public:
 		Thread(ThreadProc Proc, void* lpParam,bool start=true)
+			:pth_(INVALID_HANDLE_VALUE)
+			, th_id_(-1)
+			, lpParam_(NULL)
+			, proc_(NULL)
 		{
 			SetProc(Proc, lpParam);
 			if (start)
@@ -335,13 +451,13 @@ namespace sim
 #endif
 		}
 
-		virtual void Swap(Thread& other)
+		/*virtual void Swap(Thread& other)
 		{
 			ThSwap(pth_, other.pth_);
 			ThSwap(th_id_, other.th_id_);
 			ThSwap(proc_, other.proc_);
 			ThSwap(lpParam_, other.lpParam_);
-		}
+		}*/
 
 		virtual unsigned int GetId()
 		{
@@ -375,6 +491,8 @@ namespace sim
 		}
 
 		static unsigned GetThisThreadId();
+
+		static void Sleep(unsigned int ms);
 	protected:
 		//回调
 #ifdef OS_WINDOWS
@@ -395,6 +513,16 @@ namespace sim
 		return::GetCurrentThreadId();
 #else
 		return pthread_self();
+#endif
+	}
+	inline void Thread::Sleep(unsigned int ms)
+	{
+#ifdef OS_WINDOWS
+		//timeBeginPeriod(1); //设置精度为1毫秒
+		::Sleep(ms);         //当前线程挂起ms毫秒
+		//timeEndPeriod(1);   //结束精度设置
+#else
+		usleep(ms * 1000);
 #endif
 	}
 #ifdef OS_WINDOWS
