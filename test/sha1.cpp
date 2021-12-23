@@ -1,5 +1,5 @@
 #include "Test.hpp"
-#include "Sha1.hpp"
+#include "Crypto/Sha1.hpp"
 SIM_TEST(Sha1)
 {
 	const int buff_size = 100;

@@ -1,5 +1,5 @@
 #include "Test.hpp"
-#include "Base64.hpp"
+#include "Crypto/Base64.hpp"
 SIM_TEST(Base64)
 {
 	const int buff_size = 100;

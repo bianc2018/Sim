@@ -1,5 +1,5 @@
 /*
-* 将原来的锁和线程模块合并
+* SysBase
 * 用于多线程编译
 */
 #ifndef SIM_MULTI_THREAD_HPP_

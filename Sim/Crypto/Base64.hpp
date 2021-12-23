@@ -3,6 +3,7 @@
 */
 #ifndef SIM_BASE64_HPP_
 #define SIM_BASE64_HPP_
+#include <ctype.h>
 namespace sim
 {
 	static const char base64_chars[65] =

@@ -34,7 +34,7 @@ ELSE ()
 ENDIF (CMAKE_SYSTEM_NAME MATCHES "Linux")  
   
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/Sim/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/Sim)
 
 MESSAGE(STATUS "DEP_LIBS: ${DEP_LIBS}") 
 
