@@ -85,6 +85,7 @@ SIM_TEST(IniFile)
 	SIM_TEST_IS_TRUE(ini_obj.SetValue("key", "name1", "100"));
 	SIM_TEST_IS_TRUE(ini_obj.SetValue("key", "name2", "101"));
 	SIM_TEST_IS_TRUE(ini_obj.SetValue("ke2", "name0", "102"));
+
 	IniStringVec key_comments;
 	key_comments.push_back("adsad");
 	key_comments.push_back("adasdas");
@@ -123,5 +124,33 @@ SIM_TEST(IniFile)
 	SIM_TEST_IS_EQUAL(name1_comments[1], result[1]);
 	SIM_TEST_IS_EQUAL("adasdd ", ini_obj2.GetRComment("key", "name1"));
 
+	//×·¼Ó×¢ÊÍ
+	ini_obj2.AppendComment("key", "name1", "append");
+	result = ini_obj2.GetComments("key", "name1");
+	SIM_ASSERT_IS_EQUAL(3, result.size());
+	SIM_TEST_IS_EQUAL(name1_comments[0], result[0]);
+	SIM_TEST_IS_EQUAL(name1_comments[1], result[1]);
+	SIM_TEST_IS_EQUAL("append", result[2]);
+
+
+	sim::IniObject ini_obj3;
+	ini_obj3.SetValue("key", "value","1");
+	ini_obj3.AppendSecComment("key", "comment");
+	result = ini_obj3.GetSecComments("key");
+	SIM_TEST_IS_EQUAL("comment", result[0]);
+
+}
+SIM_TEST(IniGSValueT)
+{
+	sim::IniObject ini_obj;
+	SIM_TEST_IS_TRUE(ini_obj.SetValueT("key", "bool", true));
+	SIM_TEST_IS_TRUE(ini_obj.SetValueT("key", "int", 100));
+	SIM_TEST_IS_TRUE(ini_obj.SetValueT("key", "double", 0.01));
+	SIM_TEST_IS_TRUE(ini_obj.SetValueT("key", "str", "102"));
+
+	SIM_TEST_IS_EQUAL(ini_obj.GetValueT("key", "bool", false),true);
+	SIM_TEST_IS_EQUAL(ini_obj.GetValueT("key", "int", 0), 100);
+	SIM_TEST_IS_EQUAL(ini_obj.GetValueT("key", "double", 0.0), 0.01);
+	SIM_TEST_IS_EQUAL(ini_obj.GetValueT<std::string>("key", "str", ""), "102");
 }
 SIM_TEST_MAIN(sim::noisy)

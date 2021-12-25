@@ -3,6 +3,10 @@
 */
 #ifndef SIM_INI_HPP_
 #define SIM_INI_HPP_
+//这里是为了减少vs编译告警,但是好像没有生效。。。
+#ifndef  _CRT_SECURE_NO_WARNINGS
+#define  _CRT_SECURE_NO_WARNINGS 1
+#endif
 #include <math.h>
 #include <stdio.h> 
 #include <stdlib.h>
@@ -15,7 +19,7 @@ namespace sim
 {
 	//声明前置
 	struct IniSectionNode;
-	class IniSection;
+	struct IniSection;
 	class IniObject;
 
 	//重命名
@@ -88,16 +92,36 @@ namespace sim
 		void Clear();
 	public:
 		IniString GetValue(const IniString&section, const IniString&name, const IniString&notfound="");
+		
+		template<typename T>
+		T GetValueT(const IniString& section, 
+			const IniString& name, const T& notfound);
+
 		bool SetValue(const IniString&section, const IniString&name, const IniString&value, bool overwrite=true);
 		
+		template<typename T>
+		bool SetValueT(const IniString& section, const IniString& name, 
+			const T& value, bool overwrite = true);
+
 		IniStringVec GetComments(const IniString&section, const IniString&name);
 		bool SetComments(const IniString&section, const IniString&name, const IniStringVec &comments, bool overwrite = true);
+
+		//清理注释
+		bool ClearComments(const IniString& section, const IniString& name);
+		//新增注释
+		bool AppendComment(const IniString& section, const IniString& name, const IniString& comment);
+
 
 		IniString GetRComment(const IniString&section, const IniString&name);
 		bool SetRComment(const IniString&section, const IniString&name, const IniString &rcomment, bool overwrite = true);
 
 		IniStringVec GetSecComments(const IniString&section);
 		bool SetSecComments(const IniString&section, const IniStringVec &comments, bool overwrite = true);
+
+		//清理注释
+		bool ClearSecComments(const IniString& section);
+		//新增注释
+		bool AppendSecComment(const IniString& section,const IniString& comment);
 
 		IniString GetSecRComment(const IniString&section);
 		bool SetSecRComment(const IniString&section, const IniString &rcomment, bool overwrite = true);
@@ -127,6 +151,10 @@ namespace sim
 
 		//vec有等于 c的字符返回 true 否则返回 false
 		bool CheckChar(const IniString &vec, char c);
+
+		//类型转换函数 T1->T2
+		template<typename T1,typename T2>
+		bool TypeCast(T1 &t1, T2 &t2);
 	private:
 		IniSectionVec sections_;
 
@@ -138,7 +166,7 @@ namespace sim
 	{
 		sections_.clear();
 		unsigned int offset = 0;
-		if (false == Parser(str.c_str(), str.size(), offset))
+		if (false == Parser(str.c_str(),(unsigned int) str.size(), offset))
 		{
 			if (poffset)
 				*poffset = offset;
@@ -150,8 +178,8 @@ namespace sim
 	inline IniString IniObject::Print()
 	{
 		IniString data;
-		unsigned int size = sections_.size();
-		for (int i = 0; i < size; ++i)
+		unsigned int size = (unsigned int)sections_.size();
+		for (unsigned int i = 0; i < size; ++i)
 		{
 			//打印注释
 			for (int j = 0; j < sections_[i].comments.size(); ++j)
@@ -235,6 +263,19 @@ namespace sim
 		return node->value;
 	}
 
+	template<typename T>
+	inline T IniObject::GetValueT(const IniString& section, const IniString& name,
+		const T& notfound)
+	{
+		IniSectionNode* node = GetNode1(section, name);
+		if (NULL == node)
+			return notfound;
+		T res;
+		if (false == TypeCast(node->value, res))
+			return notfound;
+		return res;
+	}
+
 	inline bool IniObject::SetValue(const IniString & section, const IniString & name, const IniString & value, bool overwrite)
 	{
 		IniSection*sec = GetSection(section);
@@ -260,6 +301,45 @@ namespace sim
 			if (overwrite)
 			{
 				node->value = value;
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}
+	}
+
+	template<typename T>
+	inline bool IniObject::SetValueT(const IniString& section, const IniString& name, 
+		const T& value, bool overwrite)
+	{
+		IniSection* sec = GetSection(section);
+		if (NULL == sec)
+		{
+			IniSection new_sec;
+			new_sec.name = section;
+			sections_.push_back(new_sec);
+			sec = GetSection(section);
+		}
+
+		IniSectionNode* node = GetNode(sec, name);
+		if (NULL == node)
+		{
+			IniSectionNode new_node;
+			new_node.name = name;
+			if (false == TypeCast(value, new_node.value))
+				return false;
+			sec->nodes.push_back(new_node);
+			return true;
+		}
+		else
+		{
+			if (overwrite)
+			{
+				if (false == TypeCast(value, node->value))
+					return false;
+				return true;
 			}
 			else
 			{
@@ -288,6 +368,26 @@ namespace sim
 		}
 		return false;
 
+	}
+
+	inline bool IniObject::ClearComments(const IniString& section,
+		const IniString& name)
+	{
+		IniSectionNode* node = GetNode1(section, name);
+		if (NULL == node)
+			return false;
+		node->comments.clear();
+		return true;
+	}
+
+	inline bool IniObject::AppendComment(const IniString& section, 
+		const IniString& name, const IniString& comment)
+	{
+		IniSectionNode* node = GetNode1(section, name);
+		if (NULL == node)
+			return false;
+		node->comments.push_back(comment);
+		return true;
 	}
 
 	inline IniString IniObject::GetRComment(const IniString & section, const IniString & name)
@@ -332,6 +432,23 @@ namespace sim
 		return false;
 	}
 
+	inline bool IniObject::ClearSecComments(const IniString& section)
+	{
+		IniSection* sec = GetSection(section);
+		if (NULL == sec)
+			return false;
+		sec->comments.clear();
+		return true;
+	}
+	inline bool IniObject::AppendSecComment(const IniString& section,
+		const IniString& comment)
+	{
+		IniSection* sec = GetSection(section);
+		if (NULL == sec)
+			return false;
+		sec->comments.push_back(comment);
+		return true;
+	}
 	inline IniString IniObject::GetSecRComment(const IniString & section)
 	{
 		IniSection * sec = GetSection(section);
@@ -572,6 +689,22 @@ namespace sim
 		return false;
 	}
 	
+	template<typename T1, typename T2>
+	inline bool sim::IniObject::TypeCast(T1& t1, T2& t2)
+	{
+		try
+		{
+			std::stringstream os;
+			os << t1;
+			os >> t2;
+			return true;
+		}
+		catch (const std::exception& e)
+		{
+			printf("TypeCast faild %s\n", e.what());
+			return false;
+		}
+	}
 }
 
 #endif
