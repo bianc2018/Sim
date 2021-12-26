@@ -11,6 +11,14 @@
 #include <sstream>
 #include <vector>
 
+//#define JSON_NEW(T) (T*)JsonMemoryHook::GetMemoryHook().fmalloc(sizeof(T))
+#ifndef JSON_NEW
+#define JSON_NEW(T) new T()
+#endif
+//#define JSON_FREE(T) {if(T)JsonMemoryHook::GetMemoryHook().ffree((void*)(T));}
+#ifndef JSON_FREE
+#define JSON_FREE(T) {if(T)delete T;}
+#endif
 //外部定义 _SIM_DISABLE_JSON_SERIALIZE 宏 使得序列化宏无效
 //_SIM_DISABLE_JSON_SERIALIZE
 
@@ -48,6 +56,28 @@ bool JsonSerializeFunc(archive& ar, T& t, bool isSerialize);
 #endif
 namespace sim
 {
+	//缓存生成
+	/*struct JsonMemoryHook
+	{
+		struct FuncHook
+		{
+			typedef void* (*FMalloc)(size_t size);
+			typedef void (*FFree)(void*p);
+			FMalloc fmalloc;
+			FFree ffree;
+			FuncHook(FMalloc _fmalloc, FFree _ffree)
+				:fmalloc(_fmalloc), ffree(_ffree) {}
+			FuncHook()
+				:fmalloc(::malloc), ffree(::free) {}
+		};
+
+		static FuncHook& GetMemoryHook()
+		{
+			static FuncHook func;
+			return func;
+		}
+	};*/
+
 	struct JsonArrayNode
 	{
 		JsonObjectPtr ptr;
@@ -571,6 +601,33 @@ namespace sim
 		//定义通用接口
 	}
 #endif
+
+	//自动释放的json对象 主要是辅助使用
+	class AutoJsonObject
+	{
+		//不允许拷贝
+		AutoJsonObject() {};
+		AutoJsonObject(const AutoJsonObject&other) {};
+	public:
+		//构造
+		AutoJsonObject(JsonObjectPtr ptr);
+		//析构
+		virtual ~AutoJsonObject();
+		//对象访问
+		virtual JsonObjectPtr operator->();
+		virtual JsonObject& operator*();
+		//释放
+		virtual void Reset(JsonObjectPtr ptr = NULL);
+		//解除引用，不会释放掉
+		virtual JsonObjectPtr Release();
+		//移动
+		virtual void Move(AutoJsonObject& other);
+		//判断是否为空
+		virtual bool IsNull();
+	private:
+		JsonObjectPtr ptr_;
+	};
+
 	//JsonArray
 	inline JsonArray::JsonArray() :pbeg_(NULL)
 	{
@@ -800,7 +857,8 @@ namespace sim
 
 	inline JsonArrayNodePtr JsonArray::NewEmptyNode()
 	{
-		JsonArrayNodePtr ptr = new JsonArrayNode;
+		//JsonArrayNodePtr ptr = new JsonArrayNode;
+		JsonArrayNodePtr ptr = JSON_NEW(JsonArrayNode);//(JsonArrayNodePtr)JsonMemoryHook::GetMemoryHook().fmalloc(sizeof(JsonArrayNode));
 		ptr->next = NULL;
 		ptr->ptr = NULL;
 		return ptr;
@@ -814,6 +872,7 @@ namespace sim
 			JsonObject::Free(ptr->ptr);
 			//delete ptr;
 		}
+		JSON_FREE(ptr);
 	}
 
 	inline JsonObject::~JsonObject()
@@ -823,7 +882,15 @@ namespace sim
 
 	inline JsonObjectPtr JsonObject::NewNull(const JsonString& name)
 	{
-		return new JsonObject(name,JSON_NULL);
+		JsonObjectPtr ptr = JSON_NEW(JsonObject);
+		if (ptr)
+		{
+			ptr->Reset();
+			ptr->SetName(name);
+			ptr->SetType(JSON_NULL, true);
+		}
+		//return new JsonObject(name,JSON_NULL);
+		return ptr;
 	}
 
 	inline bool JsonArray::CopyTo(JsonArray& arr)
@@ -845,37 +912,84 @@ namespace sim
 	//JsonObject
 	inline JsonObjectPtr JsonObject::NewObject(const JsonString& name)
 	{
-		return new JsonObject(name,JSON_OBJECT);
+		JsonObjectPtr ptr = JSON_NEW(JsonObject);
+		if (ptr)
+		{
+			ptr->Reset();
+			ptr->SetName(name);
+			ptr->SetType(JSON_OBJECT, true);
+		}
+		return ptr;
+		//return new JsonObject(name,JSON_OBJECT);
 	}
 	inline JsonObjectPtr JsonObject::NewArray(const JsonString& name)
 	{
-		return new JsonObject(name,JSON_ARRAY);
+		//return new JsonObject(name,JSON_ARRAY);
+		JsonObjectPtr ptr = JSON_NEW(JsonObject);
+		if (ptr)
+		{
+			ptr->Reset();
+			ptr->SetName(name);
+			ptr->SetType(JSON_ARRAY, true);
+		}
+		return ptr;
 	}
 	inline JsonObjectPtr JsonObject::NewString(const JsonString & str, const JsonString& name)
 	{
-		JsonObjectPtr p= new JsonObject(name,JSON_STRING);
+		/*JsonObjectPtr p= new JsonObject(name,JSON_STRING);
 		p->string_ = str;
-		return p;
+		return p;*/
+		JsonObjectPtr ptr = JSON_NEW(JsonObject);
+		if (ptr)
+		{
+			ptr->Reset();
+			ptr->SetName(name);
+			ptr->SetType(JSON_STRING, true);
+			ptr->string_ = str;
+		}
+		return ptr;
 	}
 	inline JsonObjectPtr JsonObject::NewNumber(const JsonNumber & number, const JsonString& name)
 	{
-		JsonObjectPtr p = new JsonObject(name,JSON_NUMBER);
+		/*JsonObjectPtr p = new JsonObject(name,JSON_NUMBER);
 		p->number_ = number;
-		return p;
+		return p;*/
+		JsonObjectPtr ptr = JSON_NEW(JsonObject);
+		if (ptr)
+		{
+			ptr->Reset();
+			ptr->SetName(name);
+			ptr->SetType(JSON_NUMBER, true);
+			ptr->number_ = number;
+		}
+		return ptr;
 	}
 	inline JsonObjectPtr JsonObject::NewBoolen(bool b, const JsonString& name)
 	{
-		JsonObjectPtr p = new JsonObject(name,JSON_BOOL);
+		/*JsonObjectPtr p = new JsonObject(name,JSON_BOOL);
 		if(b)
 			p->number_ = 1;
 		else
 			p->number_ = 0;
-		return p;
+		return p;*/
+		JsonObjectPtr ptr = JSON_NEW(JsonObject);
+		if (ptr)
+		{
+			ptr->Reset();
+			ptr->SetName(name);
+			ptr->SetType(JSON_NUMBER, true);
+			if (b)
+				ptr->number_ = 1;
+			else
+				ptr->number_ = 0;
+		}
+		return ptr;
 	}
 	inline void JsonObject::Free(JsonObjectPtr ptr)
 	{
-		if (ptr)
-			delete ptr;
+		/*if (ptr)
+			delete ptr;*/
+		JSON_FREE(ptr);
 	}
 
 	inline JsonObjectPtr JsonObject::Copy(JsonObjectPtr src)
@@ -1596,6 +1710,44 @@ namespace sim
 		}
 		}
 		return ptr;
+	}
+
+	inline sim::AutoJsonObject::AutoJsonObject(JsonObjectPtr ptr)
+		:ptr_(ptr)
+	{
+	}
+	inline AutoJsonObject::~AutoJsonObject()
+	{
+		Reset(NULL);
+	}
+	inline JsonObjectPtr AutoJsonObject::operator->()
+	{
+		return ptr_;
+	}
+	inline JsonObject& AutoJsonObject::operator*()
+	{
+		return *ptr_;
+	}
+	inline void AutoJsonObject::Reset(JsonObjectPtr ptr)
+	{
+		//释放原有的
+		if (ptr_)
+			sim::JsonObject::Free(ptr_);
+		ptr = ptr_;
+	}
+	inline JsonObjectPtr AutoJsonObject::Release()
+	{
+		JsonObjectPtr ptr = ptr_;
+		ptr_ = NULL;
+		return ptr;
+	}
+	inline void AutoJsonObject::Move(AutoJsonObject& other)
+	{
+		Reset(other.Release());
+	}
+	inline bool AutoJsonObject::IsNull()
+	{
+		return NULL == ptr_;
 	}
 }
 #ifndef _SIM_DISABLE_JSON_SERIALIZE
