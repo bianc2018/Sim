@@ -22,7 +22,13 @@
 #include <sstream>
 #include <string>
 #include <iostream>
-
+/*
+* compare 是否为比较
+* result  测试相等还是不等
+* expr1	  左侧比较数
+* expr2   右侧计较数
+* bassert 测试错误是否终止输出
+*/
 #define SIM_TEST_COMPARE(compare,result,expr1,expr2,bassert) {                 \
         std::stringstream s1, s2;                                   \
         s1 << std::boolalpha << (expr1);                            \
@@ -80,6 +86,23 @@ void SIM_TEST_CLASS(name)::TestBody()
 		SIM_TEST_LEVEL(lv);\
 		return SIM_TEST_RUN_ALL(argc,argv);\
     }
+
+#define SIM_TEST_TIME_START(name)\
+unsigned long long name =::sim::UnitTest::Instance().get_current_ms()
+
+//小于
+#define SIM_TEST_TIME_END_LT(name,test_ms)\
+{\
+  unsigned long long use_time_ms = ::sim::UnitTest::Instance().get_current_ms() - name;\
+  SIM_TEST_IS_TRUE(use_time_ms<test_ms);\
+}
+//大于
+#define SIM_TEST_TIME_END_GT(name,test_ms)\
+{\
+  unsigned long long use_time_ms = ::sim::UnitTest::Instance().get_current_ms() - name;\
+  SIM_TEST_IS_TRUE(use_time_ms>test_ms);\
+}
+
 
 namespace sim
 {
