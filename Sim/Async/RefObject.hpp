@@ -26,7 +26,7 @@
 namespace sim
 {
 	//引用计数对象
-	class RefCountable 
+	class RefCount 
 	{
 	public:
 		RefCountType add_ref(void)
@@ -34,11 +34,8 @@ namespace sim
 #ifdef OS_WINDOWS
 			return ::InterlockedIncrement(&ref_count_);
 #else
-			//linux上面用锁实现
-			pthread_mutex_lock(&lock_);
-			RefCountType t = ++ref_count_;
-			pthread_mutex_unlock(&lock_);
-			return t;
+			__sync_fetch_and_add(&ref_count_, 1);
+			return ref_count_;
 #endif
 
 		}
@@ -48,12 +45,8 @@ namespace sim
 #ifdef OS_WINDOWS
 			return ::InterlockedDecrement(&ref_count_);
 #else
-			//linux上面用锁实现
-			pthread_mutex_lock(&lock_);
-			RefCountType t = --ref_count_;
-			pthread_mutex_unlock(&lock_);
-			return t;
-
+			__sync_fetch_and_sub(&ref_count_, 1);
+			return ref_count_;
 #endif
 		}
 
@@ -62,23 +55,16 @@ namespace sim
 			return ref_count_;
 		}
 
-		RefCountable(RefCountType count=1) : ref_count_(count) 
+		RefCount(RefCountType count=1) : ref_count_(count) 
 		{
-#ifdef OS_LINUX
-			pthread_mutex_init(&lock_, NULL);
-#endif
 		}
-		virtual ~RefCountable(void) { /*assert(0 == refCount_);*/ }
+		virtual ~RefCount(void) { /*assert(0 == refCount_);*/ }
 	private:
-		RefCountable(const RefCountable&);
-		RefCountable& operator = (const RefCountable&) { return *this; };
+		RefCount(const RefCount&);
+		RefCount& operator = (const RefCount&) { return *this; };
 
 	private:
 		RefCountType volatile ref_count_;
-#ifdef OS_LINUX
-		//linux上面用锁实现
-		pthread_mutex_t lock_;
-#endif
 	};
 
 	//引用归零的时候使用的删除器
@@ -89,7 +75,7 @@ namespace sim
 	{
 	public:
 		RefObject(T* p=NULL, RefObjectDelete deleter=NULL, void*pdata=NULL)
-			:ptr_(p), deleter_(deleter), ref_count_ptr_(new RefCountable(1)), pdata_(pdata)
+			:ptr_(p), deleter_(deleter), ref_count_ptr_(new RefCount(1)), pdata_(pdata)
 		{
 			//新增引用
 			//add_ref();
@@ -137,7 +123,7 @@ namespace sim
 		{
 			release();
 			ptr_ = p;
-			ref_count_ptr_ = new RefCountable(1);
+			ref_count_ptr_ = new RefCount(1);
 		}
 
 		virtual T* operator->()
@@ -187,7 +173,7 @@ namespace sim
 		RefObjectDelete deleter_;
 		void*pdata_;
 		//引用计数指针
-		RefCountable*ref_count_ptr_;
+		RefCount*ref_count_ptr_;
 	};
 
 	//引用缓存
@@ -284,4 +270,9 @@ namespace sim
 		unsigned int buff_size_;
 	};
 }
+
+#ifndef SIM_MAKEREF
+#define SIM_MAKE_REF(T,...) sim::RefObject<T>(new T(__VA_ARGS__))
+#endif
+
  #endif // ifndef _REFCOUNTED_INCLUDED
