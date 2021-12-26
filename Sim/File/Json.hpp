@@ -11,6 +11,9 @@
 #include <sstream>
 #include <vector>
 
+//外部定义 _SIM_DISABLE_JSON_SERIALIZE 宏 使得序列化宏无效
+//_SIM_DISABLE_JSON_SERIALIZE
+
 namespace sim
 {
 	//声明前置
@@ -34,7 +37,7 @@ namespace sim
 	typedef JsonArrayNode* JsonArrayNodePtr;
 	typedef JsonObject* JsonObjectPtr;
 }
-
+#ifndef _SIM_DISABLE_JSON_SERIALIZE
 //序列化数值函数 外放
 template<typename T>
 bool SerializeValueFormJson(sim::JsonObjectPtr pjson, T& t, bool isSerialize);
@@ -42,7 +45,7 @@ bool SerializeValueFormJson(sim::JsonObjectPtr pjson, T& t, bool isSerialize);
 //序列化函数
 template<typename archive, typename T>
 bool JsonSerializeFunc(archive& ar, T& t, bool isSerialize);
-
+#endif
 namespace sim
 {
 	struct JsonArrayNode
@@ -245,7 +248,7 @@ namespace sim
 		//JSON_STRING
 		JsonString string_;
 	};
-
+#ifndef _SIM_DISABLE_JSON_SERIALIZE
 	//序列化
 	namespace serialize
 	{
@@ -567,7 +570,7 @@ namespace sim
 		
 		//定义通用接口
 	}
-
+#endif
 	//JsonArray
 	inline JsonArray::JsonArray() :pbeg_(NULL)
 	{
@@ -1523,22 +1526,30 @@ namespace sim
 	template<typename T>
 	inline bool JsonObject::Serialize(T & t)
 	{
+#ifndef _SIM_DISABLE_JSON_SERIALIZE
 		Reset();
 		SetType(JSON_OBJECT, true);
 		serialize::JsonSerialize ar(this);
 		return ar.Serialize(t, true);
+#else
+		return false;
+#endif
 	}
 
 	//反序列化，JSON到结构体
 	template<typename T>
 	inline bool JsonObject::DeSerialize(T & t)
 	{
+#ifndef _SIM_DISABLE_JSON_SERIALIZE
 		//OBJECT才可以反序列化其他不可以。
 		if (type_ != JSON_OBJECT)
 			return false;
 
 		serialize::JsonSerialize ar(this);
 		return ar.Serialize(t, false);
+#else
+		return false;
+#endif
 	}
 
 	inline JsonObjectPtr JsonObject::Copy()
@@ -1587,7 +1598,7 @@ namespace sim
 		return ptr;
 	}
 }
-
+#ifndef _SIM_DISABLE_JSON_SERIALIZE
 template<typename T>
 bool SerializeValueFormJson(sim::JsonObjectPtr pjson, T & t, bool isSerialize)
 {
@@ -1669,4 +1680,24 @@ bool JsonSerializeFunc(archive& ar, bool isSerialize)\
 #define SIM_DEF_JSON_SERIALIZE_IN_STRUCT_END() \
        return true;\
 }
+#else
+//空的宏防止 不启用序列化功能的时候出现异常
+#define SIM_DEF_JSON_SERIALIZE_TYPE(type) 
+#define SIM_DEF_JSON_SERIALIZE_TYPE_END(type) 
+#define SIM_DEF_JSON_SERIALIZE_TYPE_AS(type,jsontype)
+#define SIM_DEF_JSON_SERIALIZE_TYPE_AS_ENUM(type)
+#define SIM_DEF_JSON_SERIALIZE_TYPE_AS_NUM(type)
+#define SIM_DEF_JSON_SERIALIZE_TYPE_AS_BOOL(type)
+#define SIM_DEF_JSON_SERIALIZE_TYPE_AS_STR(type)
+#define SIM_DEF_JSON_SERIALIZE_STRUCT(type) 
+#define SIM_JSON_SERIALIZE_VALUE(name,value,ismust)
+#define SIM_JSON_SERIALIZE_VALUE_1(name,ismust)
+#define SIM_JSON_SERIALIZE_VALUE_2(name)
+#define SIM_DEF_JSON_SERIALIZE_STRUCT_END(type) 
+#define SIM_DEF_JSON_SERIALIZE_IN_STRUCT()
+#define SIM_JSON_SERIALIZE_VALUE_IN_STRUCT(name,value,ismust)
+#define SIM_JSON_SERIALIZE_VALUE_IN_STRUCT_1(name,ismust) 
+#define SIM_JSON_SERIALIZE_VALUE_IN_STRUCT_2(name) 
+#define SIM_DEF_JSON_SERIALIZE_IN_STRUCT_END() 
+#endif
 #endif
