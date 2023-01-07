@@ -6,7 +6,7 @@ cmake_minimum_required (VERSION 3.0)
 project (Sim)
 
 #导入openssl
-find_package(OpenSSL REQUIRED)
+find_package(OpenSSL)
 #OpenSSL_FOUND
 IF(OpenSSL_FOUND)
 	set(DEP_LIBS
