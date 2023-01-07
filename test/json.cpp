@@ -604,5 +604,44 @@ SIM_TEST(JsonItemOperator)
 
 	JsonObject::Free(ptr);
 }
+//内存测试
+SIM_TEST(JsonItemMemory)
+{
+	for (unsigned long long i = 0; i < 10000000; ++i)
+	{
+		//创建一个空的
+		//JsonObjectPtr ptr = JsonObject::NewNull();
+		////SIM_ASSERT_IS_NOT_NULL(ptr);
+
+		//Test1 t2, t1;
+		////初始化
+		//t1.bool_val = true;
+		//t1.char_val = 'A';
+		//t1.double_val = -0.123456;
+		//t1.enum_val = MyEnumTest1_444;
+		//t1.float_val = 0.123;
+		//t1.int_val = -1;
+		//t1.llong_val = -123456;
+		//t1.long_val = -11;
+		//t1.size_t_val = 99999;
+		//t1.string_val = "ni hao shijie";
+		//t1.struct_val.val = 22;
+		//t1.uchar_val = 32;
+		//t1.uint_val = 10;
+		//t1.ullong_val = 9999999;
+		//Test1chlids temp;
+		//temp.val = 10;
+		//t1.vec_val.push_back(temp);
+
+		////序列化
+		//ptr->Serialize(t1);
+		//写文件
+		//std::string msg = ptr->Print();
+
+		JsonObjectPtr ptr = JsonObject::NewObject();
+		ptr->ObjectAddObject("null", JsonObject::NewBoolen(false));
+		JsonObject::Free(ptr);
+	}
+}
 
 SIM_TEST_MAIN(sim::noisy)
