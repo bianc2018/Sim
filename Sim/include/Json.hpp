@@ -809,7 +809,7 @@ namespace sim
 		if (ptr && ptr->ptr)
 		{
 			JsonObject::Free(ptr->ptr);
-			//delete ptr;
+			delete ptr;
 		}
 	}
 
