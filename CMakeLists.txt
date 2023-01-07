@@ -32,7 +32,10 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
 ELSE ()  
     MESSAGE(STATUS "other platform: ${CMAKE_SYSTEM_NAME}")  
 ENDIF (CMAKE_SYSTEM_NAME MATCHES "Linux")  
-  
+ 
+#层级包含模式
+#Hierarchical inclusion pattern
+add_definitions(-DSIM_HIER_INCLUDE_PATTERN)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/Sim/include)
 

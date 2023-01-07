@@ -10,3 +10,5 @@ foreach(FILE_PATH ${CPP_SRC_LIST})
     add_executable(${DEMO_EXE} ${FILE_PATH})
     target_link_libraries(${DEMO_EXE}  ${DEP_LIBS})
 endforeach()
+
+add_subdirectory(IPT)
