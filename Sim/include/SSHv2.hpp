@@ -1971,7 +1971,12 @@ namespace sim
 			{
 				type = Rsa;
 #ifdef HAVE_OPAQUE_STRUCTS
+# if OPENSSL_API_LEVEL >= 30000
+				RSA* raw = EVP_PKEY_get1_RSA(pkey);
+#else
 				RSA* raw = EVP_PKEY_get0_RSA(pkey);
+#endif
+				
 #else
 				RSA* raw = pkey->pkey.rsa;
 #endif
@@ -1993,7 +1998,11 @@ namespace sim
 			{
 				type = Dsa;
 #ifdef HAVE_OPAQUE_STRUCTS
+# if OPENSSL_API_LEVEL >= 30000
+				DSA* raw = EVP_PKEY_get1_DSA(pkey);
+#else
 				DSA* raw = EVP_PKEY_get0_DSA(pkey);
+#endif
 #else
 				DSA* raw = pkey->pkey.dsa;
 #endif
@@ -2047,7 +2056,11 @@ namespace sim
 			{
 				type = Rsa;
 #ifdef HAVE_OPAQUE_STRUCTS
+# if OPENSSL_API_LEVEL >= 30000
+				RSA* raw = EVP_PKEY_get1_RSA(pkey);
+#else
 				RSA* raw = EVP_PKEY_get0_RSA(pkey);
+#endif
 #else
 				RSA* raw = pkey->pkey.rsa;
 #endif
@@ -2068,7 +2081,11 @@ namespace sim
 			{
 				type = Dsa;
 #ifdef HAVE_OPAQUE_STRUCTS
+# if OPENSSL_API_LEVEL >= 30000
+				DSA* raw = EVP_PKEY_get1_DSA(pkey);
+#else
 				DSA* raw = EVP_PKEY_get0_DSA(pkey);
+#endif
 #else
 				DSA* raw = pkey->pkey.dsa;
 #endif
